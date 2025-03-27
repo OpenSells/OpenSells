@@ -5,15 +5,22 @@ import requests
 from scraper.extractor import extraer_datos_desde_url
 from fastapi.responses import FileResponse
 import pandas as pd
+import uuid
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
+# 🌱 Carga variables del archivo .env
+load_dotenv()
+
+# ✅ Instancia de la app
 app = FastAPI()
 
-# ✅ Ahora usamos una variable de entorno segura
+# 🔐 Carga tu API key de OpenAI desde las variables de entorno
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-SCRAPERAPI_KEY = "1d904705b7ffbccf3ea2e1d5a484cb83"
+SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "1d904705b7ffbccf3ea2e1d5a484cb83")  # opcional: puedes moverla también a .env
 
+# 📦 Clases para validación de inputs
 class Busqueda(BaseModel):
     cliente_ideal: str
 
@@ -122,10 +129,15 @@ def exportar_csv(payload: UrlsMultiples):
             })
 
     df = pd.DataFrame(filas)
+
+    # 🧹 Limpieza: eliminar duplicados por URL y Email
     df["Emails"] = df["Emails"].fillna("")
     df = df.drop_duplicates(subset=["URL", "Emails"], keep="first")
+
+    # 🧹 Limpieza: eliminar filas completamente vacías
     df = df.dropna(how="all")
 
+    # Crear carpeta exports si no existe
     export_dir = os.path.join("exports")
     os.makedirs(export_dir, exist_ok=True)
 
