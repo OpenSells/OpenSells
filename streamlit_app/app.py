@@ -2,7 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 
-API_URL = "http://127.0.0.1:8000"  # Cambiar si despliegas en producción
+# URL pública de tu backend en Render
+API_URL = "https://wrapper-leads-saas.onrender.com"
 
 st.set_page_config(page_title="Lead Wrapper", layout="centered")
 
@@ -72,6 +73,6 @@ if "df_resultado" in st.session_state:
             "pais": "ES"
         })
         if r.status_code == 200:
-            st.success("Archivo CSV generado correctamente (descárgalo desde Swagger por ahora).")
+            st.success("Archivo CSV generado correctamente (descárgalo desde el backend o Swagger).")
         else:
             st.error("❌ Error al exportar CSV")
