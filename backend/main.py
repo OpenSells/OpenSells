@@ -812,6 +812,14 @@ def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar
 
     return {"mensaje": f"Se han importado {len(dominios)} leads correctamente."}
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+class MoverLeadRequest(BaseModel):
+    dominio: str
+    origen: str  # nombre original del nicho
+    destino: str  # nombre original del nuevo nicho
+
 @app.post("/mover_lead")
 def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import mover_lead_en_bd
@@ -913,8 +921,6 @@ def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user),
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al editar el nicho: {str(e)}")
-
-from sqlalchemy.orm import Session
 
 @app.delete("/eliminar_lead")
 def eliminar_lead(
