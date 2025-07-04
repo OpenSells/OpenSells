@@ -547,6 +547,18 @@ def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = De
     resultados = buscar_leads_global(usuario.email, query, db)
     return {"resultados": resultados}
 
+from pydantic import BaseModel
+from typing import Optional
+from sqlalchemy.orm import Session
+
+class TareaRequest(BaseModel):
+    texto: str
+    fecha: Optional[str] = None
+    dominio: Optional[str] = None
+    tipo: Optional[str] = "lead"
+    nicho: Optional[str] = None
+    prioridad: Optional[str] = "media"
+
 @app.post("/tarea_lead")
 def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     guardar_tarea_lead(
@@ -581,8 +593,6 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
         )
 
     return {"mensaje": "Tarea guardada correctamente"}
-
-from sqlalchemy.orm import Session
 
 @app.get("/tareas_lead")
 def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
