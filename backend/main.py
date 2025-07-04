@@ -1006,6 +1006,10 @@ def eliminar_lead(
             f.write(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error interno al eliminar lead: {str(e)}")
 
+from fastapi import Query, Request  # asegúrate de tener esto al principio
+from sqlalchemy.orm import Session
+from backend.database import SessionLocal
+
 @app.post("/crear_checkout")
 def crear_checkout(
     usuario=Depends(get_current_user),
@@ -1045,9 +1049,6 @@ def portal_cliente(usuario=Depends(get_current_user)):
 
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
-    from sqlalchemy.orm import Session
-    from backend.database import SessionLocal
-
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
@@ -1064,13 +1065,15 @@ async def stripe_webhook(request: Request):
 
         if customer_email:
             db: Session = SessionLocal()
-            from sqlalchemy import select
-            result = db.execute(select(Usuario).where(Usuario.email == customer_email))
-            user = result.scalar_one_or_none()
-            if user:
-                user.plan = nuevo_plan
-                db.add(user)
-                db.commit()
-            db.close()
+            try:
+                from sqlalchemy import select
+                result = db.execute(select(Usuario).where(Usuario.email == customer_email))
+                user = result.scalar_one_or_none()
+                if user:
+                    user.plan = nuevo_plan
+                    db.add(user)
+                    db.commit()
+            finally:
+                db.close()
 
     return {"status": "ok"}
