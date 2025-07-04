@@ -881,6 +881,14 @@ def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db:
 
     return {"mensaje": "Lead movido correctamente"}
 
+from pydantic import BaseModel
+from typing import Optional
+from sqlalchemy.orm import Session
+
+class EditarNichoRequest(BaseModel):
+    nicho_actual: str
+    nuevo_nombre: str
+
 @app.post("/editar_nicho")
 def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import editar_nombre_nicho, guardar_evento_historial
