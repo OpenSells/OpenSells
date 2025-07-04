@@ -131,8 +131,10 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
 
+from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
+
 @app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = obtener_usuario_por_email(form_data.username, db)
     if not user or not verificar_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
