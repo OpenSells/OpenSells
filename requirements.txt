@@ -17,6 +17,9 @@ scraperapi-sdk
 # IA
 openai
 
+# Stripe
+stripe
+
 # Frontend
 streamlit
 
