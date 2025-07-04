@@ -8,7 +8,7 @@ import pandas as pd
 import io
 
 load_dotenv()
-BACKEND_URL = "http://127.0.0.1:8000"
+BACKEND_URL = "https://opensells.onrender.com"
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 # -------------------- Autenticación --------------------

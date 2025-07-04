@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from openai import OpenAI
 
 load_dotenv()
-BACKEND_URL = "http://127.0.0.1:8000"
+BACKEND_URL = "https://opensells.onrender.com"
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 # -------------------- Helpers --------------------

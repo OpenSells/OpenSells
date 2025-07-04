@@ -6,7 +6,7 @@ from openai import OpenAI
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 

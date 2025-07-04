@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
