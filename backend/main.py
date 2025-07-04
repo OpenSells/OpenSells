@@ -119,8 +119,10 @@ class UsuarioRegistro(BaseModel):
     email: str
     password: str
 
+from sqlalchemy.orm import Session  # asegúrate de tener este import arriba
+
 @app.post("/register")
-def register(user: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
+def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db_user = obtener_usuario_por_email(user.email, db)
     if db_user:
         raise HTTPException(status_code=400, detail="El usuario ya existe")
