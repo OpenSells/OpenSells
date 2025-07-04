@@ -485,6 +485,13 @@ def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user), db: Sessi
     return {"nichos": nichos}
 
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class NotaDominioRequest(BaseModel):
+    dominio: str
+    nota: str
 
 @app.post("/nota_lead")
 def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
