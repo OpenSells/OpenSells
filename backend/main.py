@@ -73,10 +73,9 @@ load_dotenv()
 app = FastAPI()
 
 @app.on_event("startup")
-async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await crear_tablas_si_no_existen()
+def startup():
+    Base.metadata.create_all(bind=engine)
+    crear_tablas_si_no_existen()
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
@@ -127,7 +126,7 @@ def register(user: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="El usuario ya existe")
     nuevo_usuario = Usuario(email=user.email, hashed_password=hashear_password(user.password))
     db.add(nuevo_usuario)
-    await db.commit()
+    db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
 
 @app.post("/login")
