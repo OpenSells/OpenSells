@@ -30,7 +30,7 @@ import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 # BD & seguridad
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 from backend.database import engine, Base, get_db
 from backend.models import Usuario
@@ -65,7 +65,7 @@ from backend.db import (
 )
 
 from backend.db import guardar_estado_lead, obtener_estado_lead
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from backend.db import obtener_nichos_para_url
 
 load_dotenv()
@@ -121,8 +121,8 @@ class UsuarioRegistro(BaseModel):
     password: str
 
 @app.post("/register")
-async def register(user: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
-    db_user = await obtener_usuario_por_email(user.email, db)
+def register(user: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
+    db_user = obtener_usuario_por_email(user.email, db)
     if db_user:
         raise HTTPException(status_code=400, detail="El usuario ya existe")
     nuevo_usuario = Usuario(email=user.email, hashed_password=hashear_password(user.password))
@@ -131,8 +131,8 @@ async def register(user: UsuarioRegistro, db: AsyncSession = Depends(get_db)):
     return {"mensaje": "Usuario registrado correctamente"}
 
 @app.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    user = await obtener_usuario_por_email(form_data.username, db)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    user = obtener_usuario_por_email(form_data.username, db)
     if not user or not verificar_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = crear_token({"sub": user.email})
@@ -455,52 +455,50 @@ class EstadoDominioRequest(BaseModel):
     dominio: str
     estado: str
 
+from sqlalchemy.orm import Session  # asegúrate de tener este import
+
 @app.post("/estado_lead")
-async def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         url = normalizar_dominio(payload.dominio.strip())
         print(f"📩 Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email}'")
-        await guardar_estado_lead(usuario.email, url, payload.estado.strip())
-        await guardar_evento_historial(usuario.email, url, "estado", f"Estado cambiado a '{payload.estado}'")
+        guardar_estado_lead(usuario.email, url, payload.estado.strip(), db)
+        guardar_evento_historial(usuario.email, url, "estado", f"Estado cambiado a '{payload.estado}'", db)
         return {"mensaje": "Estado actualizado"}
     except Exception as e:
         print(f"❌ ERROR al guardar estado: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno al guardar estado")
 
 @app.get("/estado_lead")
-async def obtener_estado(dominio: str, usuario=Depends(get_current_user)):
+def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     url = normalizar_dominio(dominio)
-    estado = await obtener_estado_lead(usuario.email, url)
+    estado = obtener_estado_lead(usuario.email, url, db)
     return {"estado": estado or "nuevo"}
 
 @app.get("/nichos_de_dominio")
-async def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user)):
+def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     dominio_base = extraer_dominio_base(dominio)
-    nichos = await obtener_nichos_para_url(usuario.email, dominio_base)
+    nichos = obtener_nichos_para_url(usuario.email, dominio_base, db)
     return {"nichos": nichos}
 
-from pydantic import BaseModel
-
-class NotaDominioRequest(BaseModel):
-    dominio: str
-    nota: str
+from sqlalchemy.orm import Session
 
 @app.post("/nota_lead")
-async def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user)):
+def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import guardar_nota_lead
     try:
         dominio_base = normalizar_dominio(payload.dominio.strip())
-        await guardar_nota_lead(usuario.email, dominio_base, payload.nota.strip())
-        await guardar_evento_historial(usuario.email, dominio_base, "nota", "Nota actualizada")
+        guardar_nota_lead(usuario.email, dominio_base, payload.nota.strip(), db)
+        guardar_evento_historial(usuario.email, dominio_base, "nota", "Nota actualizada", db)
         return {"mensaje": "Nota guardada"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar nota: {str(e)}")
 
 @app.get("/nota_lead")
-async def obtener_nota(dominio: str, usuario=Depends(get_current_user)):
+def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import obtener_nota_lead
     dominio_base = normalizar_dominio(dominio)
-    nota = await obtener_nota_lead(usuario.email, dominio_base)
+    nota = obtener_nota_lead(usuario.email, dominio_base, db)
 
     # Guardar en log
     with open("log_nota_lead.txt", "a", encoding="utf-8") as f:
@@ -515,182 +513,176 @@ class InfoExtraRequest(BaseModel):
     info_adicional: Optional[str] = ""
 
 @app.post("/guardar_info_extra")
-async def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user)):
+def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     dominio = normalizar_dominio(data.dominio.strip())
-    await guardar_info_extra(
+    guardar_info_extra(
         email=usuario.email,
         dominio=dominio,
         email_contacto=data.email_contacto.strip(),
         telefono=data.telefono.strip(),
-        info_adicional=data.info_adicional.strip()
+        info_adicional=data.info_adicional.strip(),
+        db=db
     )
-    await guardar_evento_historial(usuario.email, dominio, "info", "Información extra guardada o actualizada")
+    guardar_evento_historial(usuario.email, dominio, "info", "Información extra guardada o actualizada", db)
     return {"mensaje": "Información guardada correctamente"}
 
 @app.get("/info_extra")
-async def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user)):
+def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     dominio = normalizar_dominio(dominio)
-    info = await obtener_info_extra(usuario.email, dominio)
+    info = obtener_info_extra(usuario.email, dominio, db)
     return info
 
-from backend.db import buscar_leads_global
-
 @app.get("/buscar_leads")
-async def buscar_leads(query: str, usuario=Depends(get_current_user)):
-    resultados = await buscar_leads_global(usuario.email, query)
+def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    resultados = buscar_leads_global(usuario.email, query, db)
     return {"resultados": resultados}
 
-class TareaRequest(BaseModel):
-    texto: str
-    fecha: Optional[str] = None
-    dominio: Optional[str] = None
-    tipo: Optional[str] = "lead"
-    nicho: Optional[str] = None
-    prioridad: Optional[str] = "media"
-
 @app.post("/tarea_lead")
-async def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user)):
-    await guardar_tarea_lead(
+def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    guardar_tarea_lead(
         email=usuario.email,
         texto=payload.texto.strip(),
         fecha=payload.fecha,
         dominio=payload.dominio.strip() if payload.dominio else None,
         tipo=payload.tipo,
         nicho=payload.nicho.strip() if payload.nicho else None,
-        prioridad=payload.prioridad
+        prioridad=payload.prioridad,
+        db=db
     )
 
     # 📌 GUARDAR HISTORIAL SI ES TAREA GENERAL O POR NICHO
     if not payload.dominio:
-        await guardar_evento_historial(
+        guardar_evento_historial(
             usuario.email,
             dominio="general" if payload.tipo == "general" else payload.nicho,
             tipo=payload.tipo,
-            descripcion=f"Tarea añadida: {payload.texto}"
+            descripcion=f"Tarea añadida: {payload.texto}",
+            db=db
         )
 
     # 🧠 GUARDAR HISTORIAL SI ES TAREA POR LEAD
     if payload.dominio:
-        await guardar_evento_historial(
+        guardar_evento_historial(
             usuario.email,
             payload.dominio,
             "tarea",
-            f"Tarea añadida: {payload.texto}"
+            f"Tarea añadida: {payload.texto}",
+            db=db
         )
 
     return {"mensaje": "Tarea guardada correctamente"}
 
+from sqlalchemy.orm import Session
+
 @app.get("/tareas_lead")
-async def ver_tareas(dominio: str, usuario=Depends(get_current_user)):
-    tareas = await obtener_tareas_lead(usuario.email, normalizar_dominio(dominio))
+def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    tareas = obtener_tareas_lead(usuario.email, normalizar_dominio(dominio), db)
     return {"tareas": tareas}
 
-from backend.db import obtener_tareas_lead, guardar_evento_historial
-
-from backend.db import obtener_tarea_por_id  # nuevo import
-from backend.db import obtener_tareas_pendientes
-
-
 @app.post("/tarea_completada")
-async def completar_tarea(tarea_id: int, usuario=Depends(get_current_user)):
-    await marcar_tarea_completada(usuario.email, tarea_id)
+def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    marcar_tarea_completada(usuario.email, tarea_id, db)
 
-    tarea = await obtener_tarea_por_id(usuario.email, tarea_id)
+    tarea = obtener_tarea_por_id(usuario.email, tarea_id, db)
 
     if tarea:
         tipo = tarea.get("tipo")
         texto = tarea.get("texto")
         if tipo == "lead":
-            await guardar_evento_historial(
+            guardar_evento_historial(
                 usuario.email,
                 tarea["dominio"],
                 tipo="tarea",
-                descripcion=f"Tarea completada: {texto}"
+                descripcion=f"Tarea completada: {texto}",
+                db=db
             )
         elif tipo == "nicho":
-            await guardar_evento_historial(
+            guardar_evento_historial(
                 usuario.email,
                 tarea["nicho"],
                 tipo="nicho",
-                descripcion=f"Tarea completada: {texto}"
+                descripcion=f"Tarea completada: {texto}",
+                db=db
             )
         elif tipo == "general":
-            await guardar_evento_historial(
+            guardar_evento_historial(
                 usuario.email,
                 "general",
                 tipo="general",
-                descripcion=f"Tarea completada: {texto}"
+                descripcion=f"Tarea completada: {texto}",
+                db=db
             )
 
     return {"mensaje": "Tarea marcada como completada"}
 
 @app.post("/editar_tarea")
-async def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user)):
+def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import editar_tarea_existente
-    await editar_tarea_existente(usuario.email, tarea_id, payload)
-    await guardar_evento_historial(
+    editar_tarea_existente(usuario.email, tarea_id, payload, db)
+    guardar_evento_historial(
         usuario.email,
         payload.dominio or payload.nicho or "general",
         "tarea",
-        f"Tarea editada: {payload.texto}"
+        f"Tarea editada: {payload.texto}",
+        db=db
     )
     return {"mensaje": "Tarea editada correctamente"}
 
 @app.get("/tareas_pendientes")
-async def tareas_pendientes(usuario=Depends(get_current_user)):
-    tareas = await obtener_todas_tareas_pendientes(usuario.email)
+def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    tareas = obtener_todas_tareas_pendientes(usuario.email, db)
     return {"tareas": tareas}
 
 @app.get("/historial_lead")
-async def historial_lead(dominio: str, usuario=Depends(get_current_user)):
-    eventos = await obtener_historial_por_dominio(usuario.email, normalizar_dominio(dominio))
+def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    eventos = obtener_historial_por_dominio(usuario.email, normalizar_dominio(dominio), db)
     return {"historial": eventos}
 
 @app.post("/mi_memoria")
-async def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
+def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        await guardar_memoria_usuario(usuario.email, request.descripcion.strip())
+        guardar_memoria_usuario(usuario.email, request.descripcion.strip(), db)
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar memoria: {str(e)}")
 
 @app.get("/mi_memoria")
-async def obtener_memoria(usuario=Depends(get_current_user)):
+def obtener_memoria(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        memoria = await obtener_memoria_usuario(usuario.email)
+        memoria = obtener_memoria_usuario(usuario.email, db)
         return {"memoria": memoria}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")
 
+from sqlalchemy.orm import Session
+
 @app.get("/historial_tareas")
-async def historial_tareas(tipo: str = "general", nicho: str = None, usuario = Depends(get_current_user)):
+def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import obtener_historial_por_tipo, obtener_historial_por_nicho
 
     if tipo == "nicho" and nicho:
-        historial = await obtener_historial_por_nicho(usuario.email, nicho)
+        historial = obtener_historial_por_nicho(usuario.email, nicho, db)
     else:
-        historial = await obtener_historial_por_tipo(usuario.email, tipo)
+        historial = obtener_historial_por_tipo(usuario.email, tipo, db)
 
     return {"historial": historial}
-
-from pydantic import BaseModel
 
 class CambiarPasswordRequest(BaseModel):
     actual: str
     nueva: str
 
 @app.post("/cambiar_password")
-async def cambiar_password(
+def cambiar_password(
     datos: CambiarPasswordRequest,
-    usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     if not verificar_password(datos.actual, usuario.hashed_password):
         raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
 
     usuario.hashed_password = hashear_password(datos.nueva)
     db.add(usuario)
-    await db.commit()
+    db.commit()
     return {"mensaje": "Contraseña actualizada correctamente"}
 
 class LeadManualRequest(BaseModel):
@@ -701,7 +693,7 @@ class LeadManualRequest(BaseModel):
     nicho: str
 
 @app.post("/añadir_lead_manual")
-async def añadir_lead_manual(request: LeadManualRequest, usuario = Depends(validar_suscripcion)):
+def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
@@ -709,7 +701,7 @@ async def añadir_lead_manual(request: LeadManualRequest, usuario = Depends(vali
         dominio_normalizado = normalizar_dominio(dominio)
 
         # Comprobar duplicados globales
-        existentes = await obtener_todos_los_dominios_usuario(usuario.email)
+        existentes = obtener_todos_los_dominios_usuario(usuario.email, db)
         existentes_normalizados = set([normalizar_dominio(d) for d in existentes])
 
         if dominio_normalizado in existentes_normalizados:
@@ -735,11 +727,12 @@ async def añadir_lead_manual(request: LeadManualRequest, usuario = Depends(vali
         df_combinado.to_csv(archivo_usuario_nicho, index=False, encoding="utf-8-sig")
 
         # Guardar en base de datos
-        await guardar_leads_extraidos(
+        guardar_leads_extraidos(
             usuario.email,
             [dominio],
             normalizar_nicho(request.nicho),
-            request.nicho
+            request.nicho,
+            db
         )
 
         return {"mensaje": "Lead añadido correctamente"}
@@ -751,9 +744,11 @@ async def añadir_lead_manual(request: LeadManualRequest, usuario = Depends(vali
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al guardar lead manual: {str(e)}")
 
+from sqlalchemy.orm import Session
+
 @app.post("/importar_csv_manual")
-async def importar_csv_manual(nicho: str, archivo: UploadFile, usuario = Depends(validar_suscripcion)):
-    contenido = await archivo.read()
+def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+    contenido = archivo.file.read()
     decoded = contenido.decode("utf-8").splitlines()
     reader = csv.DictReader(decoded)
 
@@ -792,19 +787,13 @@ async def importar_csv_manual(nicho: str, archivo: UploadFile, usuario = Depends
         df_combinado = df_nuevo
 
     df_combinado.to_csv(archivo_usuario_nicho, index=False, encoding="utf-8-sig")
-    await guardar_leads_extraidos(usuario.email, list(dominios), normalizar_nicho(nicho), nicho)
+
+    guardar_leads_extraidos(usuario.email, list(dominios), normalizar_nicho(nicho), nicho, db)
 
     return {"mensaje": f"Se han importado {len(dominios)} leads correctamente."}
 
-from fastapi import Query
-
-class MoverLeadRequest(BaseModel):
-    dominio: str
-    origen: str  # nombre original del nicho
-    destino: str  # nombre original del nuevo nicho
-
 @app.post("/mover_lead")
-async def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user)):
+def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import mover_lead_en_bd
 
     carpeta_usuario = os.path.join("exports", usuario.email)
@@ -834,7 +823,7 @@ async def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user
     if lead_fila.empty:
         raise HTTPException(status_code=404, detail=f"El lead '{dominio_buscado}' no se encuentra en el nicho de origen.")
 
-    # --- Actualización de CSV ---
+    # Actualizar CSV
     df_origen = df_origen[df_origen["Dominio_normalizado"] != dominio_buscado]
 
     if df_origen.empty:
@@ -852,30 +841,27 @@ async def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user
     df_destino = pd.concat([df_destino, lead_fila], ignore_index=True)
     df_destino.to_csv(archivo_destino, index=False, encoding="utf-8-sig")
 
-    # --- Actualización en SQLite ---
-    await mover_lead_en_bd(
+    # Actualizar en base de datos
+    mover_lead_en_bd(
         user_email=usuario.email,
         dominio_original=request.dominio.strip(),
         nicho_origen=normalizar_nicho(request.origen),
         nicho_destino=normalizar_nicho(request.destino),
-        nicho_original_destino=request.destino
+        nicho_original_destino=request.destino,
+        db=db
     )
 
     return {"mensaje": "Lead movido correctamente"}
 
-class EditarNichoRequest(BaseModel):
-    nicho_actual: str
-    nuevo_nombre: str
-
 @app.post("/editar_nicho")
-async def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user)):
+def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import editar_nombre_nicho, guardar_evento_historial
-    import os
     try:
-        await editar_nombre_nicho(
+        editar_nombre_nicho(
             email=usuario.email,
             nicho_actual=request.nicho_actual,
-            nuevo_nombre=request.nuevo_nombre
+            nuevo_nombre=request.nuevo_nombre,
+            db=db
         )
 
         # Renombrar archivo CSV si existe
@@ -895,24 +881,28 @@ async def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_
             with open("debug_renombrar_csv.log", "a", encoding="utf-8") as f:
                 f.write("❌ Archivo original no encontrado.\n")
 
-        # Registrar evento en historial
-        await guardar_evento_historial(
+        guardar_evento_historial(
             email=usuario.email,
             dominio="nicho",
             tipo="nicho",
-            descripcion=f"Nicho renombrado de '{request.nicho_actual}' a '{request.nuevo_nombre}'"
+            descripcion=f"Nicho renombrado de '{request.nicho_actual}' a '{request.nuevo_nombre}'",
+            db=db
         )
 
         return {"mensaje": "Nombre del nicho actualizado correctamente"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al editar el nicho: {str(e)}")
 
+from sqlalchemy.orm import Session
+
 @app.delete("/eliminar_lead")
-async def eliminar_lead(
+def eliminar_lead(
     dominio: str,
     solo_de_este_nicho: bool = True,
     nicho: Optional[str] = None,
-    usuario = Depends(get_current_user)
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     import traceback
     from datetime import datetime
@@ -927,14 +917,13 @@ async def eliminar_lead(
         if solo_de_este_nicho:
             if not nicho:
                 raise HTTPException(status_code=400, detail="Debes especificar el nicho.")
-            await eliminar_lead_de_nicho(usuario.email, dominio_base, normalizar_nicho(nicho))
+            eliminar_lead_de_nicho(usuario.email, dominio_base, normalizar_nicho(nicho), db)
         else:
-            await eliminar_lead_completamente(usuario.email, dominio_base)
+            eliminar_lead_completamente(usuario.email, dominio_base, db)
 
-        await guardar_evento_historial(usuario.email, dominio_base, "lead", "Lead eliminado")
+        guardar_evento_historial(usuario.email, dominio_base, "lead", "Lead eliminado", db)
 
         # 🔥 También eliminar del CSV correspondiente
-        import pandas as pd
         carpeta_usuario = os.path.join("exports", usuario.email)
         if solo_de_este_nicho and nicho:
             archivo_csv = os.path.join(carpeta_usuario, f"{normalizar_nicho(nicho)}.csv")
@@ -983,10 +972,8 @@ async def eliminar_lead(
             f.write(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error interno al eliminar lead: {str(e)}")
 
-from fastapi import Query
-
 @app.post("/crear_checkout")
-async def crear_checkout(
+def crear_checkout(
     usuario=Depends(get_current_user),
     plan: str = Query(..., description="ID del plan (price_id) elegido")
 ):
@@ -1004,11 +991,11 @@ async def crear_checkout(
         )
         return {"url": checkout.url}
     except Exception as e:
-        print(f"❌ ERROR STRIPE: {e}")  # 👈 añade esta línea
+        print(f"❌ ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/portal_cliente")
-async def portal_cliente(usuario=Depends(get_current_user)):
+def portal_cliente(usuario=Depends(get_current_user)):
     try:
         customers = stripe.Customer.list(email=usuario.email).data
         if not customers:
@@ -1022,14 +1009,13 @@ async def portal_cliente(usuario=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-from fastapi import Request
-import json
-
 @app.post("/webhook")
-async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+async def stripe_webhook(request: Request):
+    from sqlalchemy.orm import Session
+    from backend.database import SessionLocal
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
-
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
     try:
@@ -1040,18 +1026,17 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         customer_email = session.get("customer_email")
-
-        # Lógica básica para asignar plan por defecto (puedes hacerlo dinámico en el futuro)
         nuevo_plan = "pro"
 
         if customer_email:
-            result = await db.execute(
-                select(Usuario).where(Usuario.email == customer_email)
-            )
+            db: Session = SessionLocal()
+            from sqlalchemy import select
+            result = db.execute(select(Usuario).where(Usuario.email == customer_email))
             user = result.scalar_one_or_none()
             if user:
                 user.plan = nuevo_plan
                 db.add(user)
-                await db.commit()
+                db.commit()
+            db.close()
 
     return {"status": "ok"}
