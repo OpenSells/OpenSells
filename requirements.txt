@@ -1,49 +1,27 @@
 # Backend
-fastapi==0.115.12
-uvicorn==0.34.0
-pydantic==2.10.6
-pydantic_core==2.27.2
-starlette==0.46.1
-httpx==0.28.1
-httpcore==1.0.7
-h11==0.14.0
-anyio==4.9.0
-sniffio==1.3.1
+fastapi
+uvicorn[standard]
+python-dotenv
+sqlalchemy
+aiosqlite
+passlib[bcrypt]
+python-jose
+python-multipart
+
+# Scraping y validación
+beautifulsoup4
+requests
+phonenumbers
+scraperapi-sdk
+
+# IA
+openai
 
 # Frontend
-streamlit==1.44.0
-pydeck==0.9.1
-altair==5.5.0
-watchdog==6.0.0
-tornado==6.4.2
-blinker==1.9.0
-gitpython==3.1.44
-numpy==2.2.4
-pandas==2.2.3
-pillow==11.1.0
+streamlit
 
-# Web scraping & data extraction
-beautifulsoup4==4.13.3
-soupsieve==2.6
-requests==2.32.3
-scraperapi-sdk==1.5.3
-phonenumbers==9.0.1
+# Data
+pandas
 
-# OpenAI & AI
-openai==1.68.2
-tenacity==9.0.0
-
-# Utilidades
-python-dateutil==2.9.0.post0
-pytz==2025.2
-typing_extensions==4.13.0
-annotated-types==0.7.0
-distro==1.9.0
-charset-normalizer==3.4.1
-certifi==2025.1.31
-idna==3.10
-urllib3==2.3.0
-colorama==0.4.6
-click==8.1.8
-jiter==0.9.0
-python-dotenv==1.1.0
+# Testing
+pytest

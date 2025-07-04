@@ -1,5 +1,19 @@
+# Entorno virtual
 env/
 __pycache__/
 *.pyc
+
+# Archivos sensibles y temporales
+.env
+*.log
+*.sqlite3
+*.db
+
+# Datos exportados
 *.csv
 exports/
+admin_data/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
