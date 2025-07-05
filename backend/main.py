@@ -22,6 +22,7 @@ import unicodedata
 import re
 from fastapi.responses import StreamingResponse
 from io import BytesIO
+import asyncio
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
@@ -75,7 +76,7 @@ app = FastAPI()
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
-    crear_tablas_si_no_existen()
+    asyncio.run(crear_tablas_si_no_existen())  # <-- Esto fuerza su ejecución al inicio
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
