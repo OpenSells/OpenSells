@@ -76,7 +76,7 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup():
     Base.metadata.create_all(bind=engine)
-    await crear_tablas_si_no_existen()  # ✅ correcto en entorno asíncrono
+    crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
