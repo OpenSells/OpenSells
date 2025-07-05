@@ -38,20 +38,16 @@ def crear_token(data: dict):
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 
-async def obtener_usuario_por_email(email: str, db):
-    query = select(Usuario).where(Usuario.email == email)
-    result = await db.execute(query)
-    return result.scalars().first()
+def obtener_usuario_por_email(email: str, db: Session):
+    return db.query(Usuario).filter(Usuario.email == email).first()
 
-
-async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_db)):
-    """Devuelve el usuario autenticado o lanza HTTP 401."""
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if email is None:
             raise HTTPException(status_code=401, detail="Token inválido")
-        user = await obtener_usuario_por_email(email, db)
+        user = obtener_usuario_por_email(email, db)
         if user is None:
             raise HTTPException(status_code=401, detail="Usuario no encontrado")
         return user
