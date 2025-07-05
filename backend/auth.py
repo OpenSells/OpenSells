@@ -5,6 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.future import select
 from backend.models import Usuario
 from backend.database import get_db
+from sqlalchemy.orm import Session
 import os
 
 # ────────────────────────────────────────────
