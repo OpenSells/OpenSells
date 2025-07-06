@@ -50,38 +50,49 @@ def crear_tablas_si_no_existen():
         """)
         db.commit()
 
-def guardar_tarea_lead(email: str, texto: str, fecha: str = None, dominio: str = None,
-                              tipo: str = "lead", nicho: str = None, prioridad: str = "media"):
-    timestamp = datetime.utcnow().isoformat()
-    completado = 0
-    with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            INSERT INTO lead_tarea (email, dominio, texto, fecha, completado, timestamp, tipo, nicho, prioridad)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (email, dominio, texto, fecha, completado, timestamp, tipo, nicho, prioridad))
-        db.commit()
+from datetime import datetime
+from sqlalchemy.orm import Session
+from backend.models import LeadTarea
 
-def obtener_tareas_lead(email: str, dominio: str):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT id, texto, fecha, completado, timestamp, tipo, prioridad, dominio
-            FROM lead_tarea
-            WHERE email = ? AND dominio = ?
-            ORDER BY timestamp DESC
-        """, (email, dominio))
-        rows = cursor.fetchall()
-        return [
-            {
-                "id": row[0],
-                "texto": row[1],
-                "fecha": row[2],
-                "completado": bool(row[3]),
-                "timestamp": row[4],
-                "tipo": row[5] or "lead",
-                "prioridad": row[6] or "media",
-                "dominio": row[7]
-            } for row in rows
-        ]
+def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, dominio: str = None,
+                                 tipo: str = "lead", nicho: str = None, prioridad: str = "media",
+                                 db=None):
+    timestamp = datetime.utcnow().isoformat()
+    nueva_tarea = LeadTarea(
+        email=email,
+        dominio=dominio,
+        texto=texto,
+        fecha=fecha,
+        completado=False,
+        timestamp=timestamp,
+        tipo=tipo,
+        nicho=nicho,
+        prioridad=prioridad
+    )
+    db.add(nueva_tarea)
+    db.commit()
+
+def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
+    resultados = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.email == email, LeadTarea.dominio == dominio)
+        .order_by(LeadTarea.timestamp.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": tarea.id,
+            "texto": tarea.texto,
+            "fecha": tarea.fecha,
+            "completado": tarea.completado,
+            "timestamp": tarea.timestamp,
+            "tipo": tarea.tipo or "lead",
+            "prioridad": tarea.prioridad or "media",
+            "dominio": tarea.dominio
+        }
+        for tarea in resultados
+    ]
 
 def marcar_tarea_completada(email: str, tarea_id: int):
     with sqlite3.connect(DB_PATH) as db:

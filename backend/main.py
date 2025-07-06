@@ -560,6 +560,9 @@ class TareaRequest(BaseModel):
     nicho: Optional[str] = None
     prioridad: Optional[str] = "media"
 
+from backend.db import guardar_tarea_lead_postgres as guardar_tarea_lead
+from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
+
 @app.post("/tarea_lead")
 def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     guardar_tarea_lead(
@@ -594,6 +597,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
         )
 
     return {"mensaje": "Tarea guardada correctamente"}
+
 
 @app.get("/tareas_lead")
 def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
