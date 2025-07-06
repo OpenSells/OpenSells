@@ -171,7 +171,7 @@ async def generar_variantes_cliente_ideal(
 
     # 1. Si no hay contexto manual ni forzar_variantes, intenta cargar memoria automáticamente
     if not forzar_variantes and not contexto_extra:
-        memoria = await obtener_memoria_usuario(usuario.email)
+        memoria = obtener_memoria_usuario(usuario.email)
         if memoria:
             contexto_extra = f"El usuario indicó esto sobre su negocio: {memoria}"
 
@@ -403,8 +403,8 @@ async def ver_historial(usuario = Depends(get_current_user)):
 
 # 📂 Ver nichos del usuario
 @app.get("/mis_nichos")
-async def mis_nichos(usuario = Depends(get_current_user)):
-    nichos = await obtener_nichos_usuario(usuario.email)
+def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    nichos = obtener_nichos_usuario(usuario.email, db)
     return {"nichos": nichos}
 
 # 🔍 Ver leads por nicho
