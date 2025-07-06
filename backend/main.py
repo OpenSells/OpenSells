@@ -363,7 +363,10 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
     archivo_usuario_nicho = os.path.join(carpeta_usuario, f"{nicho_normalizado}.csv")
 
     if os.path.exists(archivo_usuario_nicho):
-        df_existente = pd.read_csv(archivo_usuario_nicho)
+        try:
+            df_existente = pd.read_csv(archivo_usuario_nicho)
+        except pd.errors.EmptyDataError:
+            df_existente = pd.DataFrame(columns=["Dominio", "Fecha"])
         df_combinado = pd.concat([df_existente, df], ignore_index=True)
         df_combinado.drop_duplicates(subset="Dominio", inplace=True)
     else:
@@ -385,7 +388,10 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
     df["Usuario"] = usuario.email
 
     if os.path.exists(archivo_global):
-        df_global = pd.read_csv(archivo_global)
+        try:
+            df_global = pd.read_csv(archivo_global)
+        except pd.errors.EmptyDataError:
+            df_global = pd.DataFrame(columns=["Dominio", "Fecha", "Usuario"])
         combinado_global = pd.concat([df_global, df], ignore_index=True)
         combinado_global.drop_duplicates(subset="Dominio", inplace=True)
     else:
