@@ -1,12 +1,13 @@
-from backend.db import obtener_todas_tareas_pendientes
+from backend.db import obtener_todas_tareas_pendientes_postgres as obtener_todas_tareas_pendientes
 from backend.db import eliminar_lead_completamente
+from backend.db import obtener_tarea_por_id_postgres as obtener_tarea_por_id
 from fastapi import UploadFile
 from backend.db import normalizar_dominio
 from backend.db import guardar_info_extra, obtener_info_extra
 from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
-from backend.db import guardar_evento_historial, obtener_historial_por_dominio
-from backend.db import guardar_tarea_lead, obtener_tareas_lead, marcar_tarea_completada
+from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
+from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
@@ -426,9 +427,9 @@ class FiltrarUrlsRequest(BaseModel):
     nicho: str
 
 @app.post("/filtrar_urls")
-async def filtrar_urls(payload: FiltrarUrlsRequest, usuario = Depends(get_current_user)):
+def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     payload.nicho = normalizar_nicho(payload.nicho)
-    urls_guardadas = await obtener_urls_extraidas_por_nicho(usuario.email, payload.nicho)
+    urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email, payload.nicho, db)
 
     dominios_guardados = set(extraer_dominio_base(url) for url in urls_guardadas)
     urls_filtradas = [url for url in payload.urls if extraer_dominio_base(url) not in dominios_guardados]
@@ -496,7 +497,7 @@ class NotaDominioRequest(BaseModel):
 
 @app.post("/nota_lead")
 def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import guardar_nota_lead
+    from backend.db import guardar_nota_lead_postgres as guardar_nota_lead
     try:
         dominio_base = normalizar_dominio(payload.dominio.strip())
         guardar_nota_lead(usuario.email, dominio_base, payload.nota.strip(), db)
@@ -507,7 +508,7 @@ def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user),
 
 @app.get("/nota_lead")
 def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import obtener_nota_lead
+    from backend.db import obtener_nota_lead_postgres as obtener_nota_lead
     dominio_base = normalizar_dominio(dominio)
     nota = obtener_nota_lead(usuario.email, dominio_base, db)
 
@@ -525,6 +526,8 @@ class InfoExtraRequest(BaseModel):
 
 @app.post("/guardar_info_extra")
 def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    from backend.db import guardar_info_extra_postgres as guardar_info_extra
+
     dominio = normalizar_dominio(data.dominio.strip())
     guardar_info_extra(
         email=usuario.email,
@@ -539,6 +542,8 @@ def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_u
 
 @app.get("/info_extra")
 def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    from backend.db import obtener_info_extra_postgres as obtener_info_extra
+
     dominio = normalizar_dominio(dominio)
     info = obtener_info_extra(usuario.email, dominio, db)
     return info
@@ -642,7 +647,7 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
 
 @app.post("/editar_tarea")
 def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import editar_tarea_existente
+    from backend.db import editar_tarea_existente_postgres as editar_tarea_existente
     editar_tarea_existente(usuario.email, tarea_id, payload, db)
     guardar_evento_historial(
         usuario.email,
@@ -683,7 +688,7 @@ from sqlalchemy.orm import Session
 
 @app.get("/historial_tareas")
 def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import obtener_historial_por_tipo, obtener_historial_por_nicho
+    from backend.db import obtener_historial_por_tipo_postgres as obtener_historial_por_tipo, obtener_historial_por_nicho_postgres as obtener_historial_por_nicho
 
     if tipo == "nicho" and nicho:
         historial = obtener_historial_por_nicho(usuario.email, nicho, db)

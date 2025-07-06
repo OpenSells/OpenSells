@@ -72,6 +72,36 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
     db.add(nueva_tarea)
     db.commit()
 
+def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
+    tareas = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.email == email)
+        .order_by(
+            LeadTarea.completado.asc(),
+            LeadTarea.prioridad.asc(),
+            LeadTarea.fecha.is_(None),
+            LeadTarea.fecha.asc(),
+            LeadTarea.timestamp.desc()
+        )
+        .all()
+    )
+
+    resultado = []
+    for t in tareas:
+        resultado.append({
+            "id": t.id,
+            "dominio": t.dominio,
+            "texto": t.texto,
+            "fecha": t.fecha,
+            "completado": t.completado,
+            "timestamp": t.timestamp,
+            "tipo": t.tipo,
+            "nicho": t.nicho,
+            "prioridad": t.prioridad,
+        })
+
+    return resultado
+
 def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
     resultados = (
         db.query(LeadTarea)
@@ -94,13 +124,14 @@ def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
         for tarea in resultados
     ]
 
-def marcar_tarea_completada(email: str, tarea_id: int):
-    with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            UPDATE lead_tarea
-            SET completado = 1
-            WHERE email = ? AND id = ?
-        """, (email, tarea_id))
+def marcar_tarea_completada_postgres(email: str, tarea_id: int, db: Session):
+    tarea = db.query(LeadTarea).filter(
+        LeadTarea.id == tarea_id,
+        LeadTarea.email == email
+    ).first()
+
+    if tarea:
+        tarea.completado = True
         db.commit()
 
 def guardar_exportacion(user_email: str, filename: str):
@@ -112,22 +143,24 @@ def guardar_exportacion(user_email: str, filename: str):
         )
         db.commit()
 
-def guardar_leads_extraidos(user_email: str, dominios: list[str], nicho: str, nicho_original: str):
-    from urllib.parse import urlparse
+from datetime import datetime
+from sqlalchemy.orm import Session
+from backend.models import LeadExtraido
+
+def guardar_leads_extraidos(user_email: str, dominios: list[str], nicho: str, nicho_original: str, db: Session):
     timestamp = datetime.utcnow().isoformat()
-    with sqlite3.connect(DB_PATH) as db:
-        for dominio in dominios:
-            # Sanear dominio en caso de que venga como URL
-            try:
-                netloc = urlparse(dominio).netloc
-                dominio_limpio = netloc.replace("www.", "").strip() if netloc else dominio.replace("www.", "").strip()
-            except:
-                dominio_limpio = dominio
-            db.execute("""
-                INSERT INTO leads_extraidos (user_email, url, timestamp, nicho, nicho_original)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_email, dominio_limpio, timestamp, nicho, nicho_original))
-        db.commit()
+    for dominio in dominios:
+        existe = db.query(LeadExtraido).filter_by(user_email=user_email, url=dominio, nicho=nicho).first()
+        if not existe:
+            nuevo = LeadExtraido(
+                user_email=user_email,
+                url=dominio,
+                timestamp=timestamp,
+                nicho=nicho,
+                nicho_original=nicho_original
+            )
+            db.add(nuevo)
+    db.commit()
 
 def obtener_historial(user_email: str):
     with sqlite3.connect(DB_PATH) as db:
@@ -139,26 +172,27 @@ def obtener_historial(user_email: str):
         rows = cursor.fetchall()
         return [{"filename": row[0], "timestamp": row[1]} for row in rows]
 
-def obtener_nichos_usuario(user_email: str):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT nicho, MAX(nicho_original) FROM leads_extraidos
-            WHERE user_email = ?
-            GROUP BY nicho
-            ORDER BY MAX(timestamp) DESC
-        """, (user_email,))
-        rows = cursor.fetchall()
-        return [{"nicho": row[0], "nicho_original": row[1]} for row in rows]
+def obtener_nichos_usuario(user_email: str, db: Session):
+    subquery = (
+        db.query(
+            LeadExtraido.nicho,
+            func.max(LeadExtraido.nicho_original).label("nicho_original")
+        )
+        .filter(LeadExtraido.user_email == user_email)
+        .group_by(LeadExtraido.nicho)
+        .order_by(func.max(LeadExtraido.timestamp).desc())
+        .all()
+    )
+    return [{"nicho": row.nicho, "nicho_original": row.nicho_original} for row in subquery]
 
-def obtener_leads_por_nicho(user_email: str, nicho: str):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT url, timestamp FROM leads_extraidos
-            WHERE user_email = ? AND nicho = ?
-            ORDER BY timestamp DESC
-        """, (user_email, nicho))
-        rows = cursor.fetchall()
-        return [{"url": row[0], "timestamp": row[1]} for row in rows]
+def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session):
+    resultados = (
+        db.query(LeadExtraido)
+        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .order_by(LeadExtraido.timestamp.desc())
+        .all()
+    )
+    return [{"url": lead.url, "timestamp": lead.timestamp} for lead in resultados]
 
 def eliminar_nicho(user_email: str, nicho: str):
     with sqlite3.connect(DB_PATH) as db:
@@ -168,14 +202,13 @@ def eliminar_nicho(user_email: str, nicho: str):
         """, (user_email, nicho))
         db.commit()
 
-def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT url FROM leads_extraidos
-            WHERE user_email = ? AND nicho = ?
-        """, (user_email, nicho))
-        rows = cursor.fetchall()
-        return [row[0] for row in rows]
+def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
+    resultados = (
+        db.query(LeadExtraido.url)
+        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .all()
+    )
+    return [row[0] for row in resultados]
 
 def guardar_estado_lead(email: str, url: str, estado: str):
     timestamp = datetime.utcnow().isoformat()
@@ -219,6 +252,17 @@ def guardar_nota_lead(email: str, url: str, nota: str):
         """, (email, url, nota, timestamp))
         db.commit()
 
+from backend.models import LeadNota
+
+def guardar_nota_lead_postgres(email: str, url: str, nota: str, db: Session):
+    existente = db.query(LeadNota).filter_by(email=email, url=url).first()
+    if existente:
+        existente.nota = nota
+    else:
+        nueva = LeadNota(email=email, url=url, nota=nota)
+        db.add(nueva)
+    db.commit()
+
 def obtener_nota_lead(email: str, url: str) -> str:
     with sqlite3.connect(DB_PATH) as db:
         cursor = db.execute("""
@@ -227,6 +271,10 @@ def obtener_nota_lead(email: str, url: str) -> str:
         """, (email, url))
         row = cursor.fetchone()
         return row[0] if row else ""
+
+def obtener_nota_lead_postgres(email: str, url: str, db: Session) -> str:
+    nota = db.query(LeadNota).filter_by(email=email, url=url).first()
+    return nota.nota if nota else ""
 
 def buscar_leads_global(email: str, query: str):
     query = f"%{query.lower()}%"
@@ -317,6 +365,18 @@ def guardar_evento_historial(email: str, dominio: str, tipo: str, descripcion: s
         """, (email, dominio, tipo, descripcion, timestamp))
         db.commit()
 
+from backend.models import LeadHistorial
+
+def guardar_evento_historial_postgres(email: str, dominio: str, tipo: str, descripcion: str, db: Session):
+    evento = LeadHistorial(
+        email=email,
+        dominio=dominio,
+        tipo=tipo,
+        descripcion=descripcion
+    )
+    db.add(evento)
+    db.commit()
+
 def obtener_historial_por_dominio(email: str, dominio: str):
     with sqlite3.connect(DB_PATH) as db:
         cursor = db.execute("""
@@ -331,23 +391,40 @@ def obtener_historial_por_dominio(email: str, dominio: str):
             for row in rows
         ]
 
-def obtener_tarea_por_id(email: str, tarea_id: int):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT id, dominio, texto, tipo, nicho
-            FROM lead_tarea
-            WHERE email = ? AND id = ?
-        """, (email, tarea_id))
-        row = cursor.fetchone()
-        if row:
-            return {
-                "id": row[0],
-                "dominio": row[1],
-                "texto": row[2],
-                "tipo": row[3],
-                "nicho": row[4]
-            }
-        return None
+def obtener_historial_por_dominio_postgres(email: str, dominio: str, db: Session):
+    eventos = (
+        db.query(LeadHistorial)
+        .filter(LeadHistorial.email == email, LeadHistorial.dominio == dominio)
+        .order_by(LeadHistorial.timestamp.desc())
+        .all()
+    )
+
+    return [
+        {
+            "tipo": evento.tipo,
+            "descripcion": evento.descripcion,
+            "timestamp": evento.timestamp
+        }
+        for evento in eventos
+    ]
+
+def obtener_tarea_por_id_postgres(email: str, tarea_id: int, db: Session):
+    tarea = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.id == tarea_id, LeadTarea.email == email)
+        .first()
+    )
+    if tarea:
+        return {
+            "id": tarea.id,
+            "dominio": tarea.dominio,
+            "texto": tarea.texto,
+            "tipo": tarea.tipo,
+            "nicho": tarea.nicho
+        }
+    return None
+
+
 
 def guardar_memoria_usuario(email: str, descripcion: str):
     timestamp = datetime.utcnow().isoformat()
@@ -392,6 +469,24 @@ def obtener_historial_por_tipo(email: str, tipo: str):
         rows = cursor.fetchall()
         return [{"tipo": row[0], "descripcion": row[1], "timestamp": row[2]} for row in rows]
 
+def obtener_historial_por_tipo_postgres(email: str, tipo: str, db: Session):
+    eventos = (
+        db.query(LeadHistorial)
+        .filter(LeadHistorial.email == email, LeadHistorial.tipo == tipo)
+        .order_by(LeadHistorial.timestamp.desc())
+        .all()
+    )
+    return [{"tipo": e.tipo, "descripcion": e.descripcion, "timestamp": e.timestamp} for e in eventos]
+
+def obtener_historial_por_nicho_postgres(email: str, nicho: str, db: Session):
+    eventos = (
+        db.query(LeadHistorial)
+        .filter(LeadHistorial.email == email, LeadHistorial.tipo == "nicho", LeadHistorial.dominio == nicho)
+        .order_by(LeadHistorial.timestamp.desc())
+        .all()
+    )
+    return [{"tipo": e.tipo, "descripcion": e.descripcion, "timestamp": e.timestamp} for e in eventos]
+
 def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str):
     with sqlite3.connect(DB_PATH) as db:
         db.execute("""
@@ -411,30 +506,28 @@ def extraer_dominio_base(url: str) -> str:
     else:
         return url.replace("www.", "").strip()
 
-def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, nicho_destino: str, nicho_original_destino: str):
+def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, nicho_destino: str, nicho_original_destino: str, db: Session):
+    from backend.models import LeadExtraido, LeadTarea
+
     dominio_limpio = extraer_dominio_base(dominio_original)
-    with sqlite3.connect(DB_PATH) as db:
-        # 🗑️ Borrar de leads_extraidos (tabla de leads)
-        db.execute("""
-            DELETE FROM leads_extraidos
-            WHERE user_email = ? AND url = ? AND nicho = ?
-        """, (user_email, dominio_limpio, nicho_origen))
 
-        # ✅ Insertar en leads_extraidos con nuevo nicho
-        timestamp = datetime.utcnow().isoformat()
-        db.execute("""
-            INSERT INTO leads_extraidos (user_email, url, timestamp, nicho, nicho_original)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_email, dominio_limpio, timestamp, nicho_destino, nicho_original_destino))
+    # 🗑️ Eliminar del nicho original
+    db.query(LeadExtraido).filter_by(user_email=user_email, url=dominio_limpio, nicho=nicho_origen).delete()
 
-        # 🔁 Actualizar todas las tareas que correspondan a este dominio
-        db.execute("""
-            UPDATE lead_tarea
-            SET nicho = ?
-            WHERE email = ? AND dominio = ?
-        """, (nicho_destino, user_email, dominio_limpio))
+    # ✅ Insertar en el nuevo nicho
+    nuevo = LeadExtraido(
+        user_email=user_email,
+        url=dominio_limpio,
+        timestamp=datetime.utcnow().isoformat(),
+        nicho=nicho_destino,
+        nicho_original=nicho_original_destino
+    )
+    db.add(nuevo)
 
-        db.commit()
+    # 🔁 Actualizar tareas relacionadas
+    db.query(LeadTarea).filter_by(email=user_email, dominio=dominio_limpio).update({"nicho": nicho_destino})
+
+    db.commit()
 
 from urllib.parse import urlparse
 
@@ -506,6 +599,21 @@ def editar_tarea_existente(email: str, tarea_id: int, datos):
         ))
         db.commit()
 
+def editar_tarea_existente_postgres(email: str, tarea_id: int, datos, db: Session):
+    tarea = db.query(LeadTarea).filter(
+        LeadTarea.id == tarea_id,
+        LeadTarea.email == email
+    ).first()
+
+    if tarea:
+        tarea.texto = datos.texto
+        tarea.fecha = datos.fecha
+        tarea.prioridad = datos.prioridad or "media"
+        tarea.tipo = datos.tipo
+        tarea.nicho = datos.nicho
+        tarea.dominio = datos.dominio
+        db.commit()
+
 def obtener_historial_por_nicho(email: str, nicho: str):
     with sqlite3.connect(DB_PATH) as db:
         cursor = db.execute("""
@@ -517,14 +625,14 @@ def obtener_historial_por_nicho(email: str, nicho: str):
         rows = cursor.fetchall()
         return [{"tipo": row[0], "descripcion": row[1], "timestamp": row[2]} for row in rows]
 
-def obtener_todos_los_dominios_usuario(email: str):
-    with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT DISTINCT url FROM leads_extraidos
-            WHERE user_email = ?
-        """, (email,))
-        rows = cursor.fetchall()
-        return [row[0] for row in rows]
+def obtener_todos_los_dominios_usuario(email: str, db: Session):
+    resultados = (
+        db.query(LeadExtraido.url)
+        .filter(LeadExtraido.user_email == email)
+        .distinct()
+        .all()
+    )
+    return [row[0] for row in resultados]
 
 
 def guardar_info_extra(email: str, dominio: str, email_contacto: str, telefono: str, info_adicional: str):
@@ -541,6 +649,25 @@ def guardar_info_extra(email: str, dominio: str, email_contacto: str, telefono: 
         """, (email, dominio, email_contacto, telefono, info_adicional, timestamp))
         db.commit()
 
+from backend.models import LeadInfoExtra
+
+def guardar_info_extra_postgres(email: str, dominio: str, email_contacto: str, telefono: str, info_adicional: str, db: Session):
+    existente = db.query(LeadInfoExtra).filter_by(email=email, dominio=dominio).first()
+    if existente:
+        existente.email_contacto = email_contacto
+        existente.telefono = telefono
+        existente.info_adicional = info_adicional
+    else:
+        nuevo = LeadInfoExtra(
+            email=email,
+            dominio=dominio,
+            email_contacto=email_contacto,
+            telefono=telefono,
+            info_adicional=info_adicional
+        )
+        db.add(nuevo)
+    db.commit()
+
 
 def obtener_info_extra(email: str, dominio: str):
     with sqlite3.connect(DB_PATH) as db:
@@ -555,3 +682,11 @@ def obtener_info_extra(email: str, dominio: str):
             "telefono": row[1] if row else "",
             "info_adicional": row[2] if row else ""
         }
+
+def obtener_info_extra_postgres(email: str, dominio: str, db: Session):
+    info = db.query(LeadInfoExtra).filter_by(email=email, dominio=dominio).first()
+    return {
+        "email_contacto": info.email_contacto if info else "",
+        "telefono": info.telefono if info else "",
+        "info_adicional": info.info_adicional if info else ""
+    }
