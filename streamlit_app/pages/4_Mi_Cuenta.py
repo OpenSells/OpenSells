@@ -33,15 +33,20 @@ st.title("⚙️ Mi Cuenta")
 # -------------------- Plan actual --------------------
 r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
 if r.ok:
-    plan_actual = r.json()["plan"] if "plan" in r.json() else "desconocido"
+    plan = (r.json().get("plan") or "").strip().lower()
 else:
-    plan_actual = "desconocido"
+    plan = "desconocido"
 
 st.subheader("📄 Plan actual")
-st.markdown(f"Tu plan actual es: **{plan_actual}**")
-
-if plan_actual == "free":
+if plan == "free":
+    st.success("🟢 Tu plan actual es: free")
     st.warning("🚫 Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads.")
+elif plan == "pro":
+    st.success("🔵 Tu plan actual es: pro")
+elif plan == "ilimitado":
+    st.success("🟣 Tu plan actual es: ilimitado")
+else:
+    st.warning("⚠️ Tu plan actual es: desconocido")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
