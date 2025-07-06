@@ -376,7 +376,7 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
-    dominios_guardados = await obtener_todos_los_dominios_usuario(usuario.email)
+    dominios_guardados = await obtener_todos_los_dominios_usuario(usuario.email, db)
     dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
     nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
 
