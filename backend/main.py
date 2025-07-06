@@ -1078,3 +1078,10 @@ async def stripe_webhook(request: Request):
                 db.close()
 
     return {"status": "ok"}
+
+from fastapi import Request
+import os
+
+@app.get("/debug-db")
+def debug_db(request: Request):
+    return {"DATABASE_URL": os.getenv("DATABASE_URL")}
