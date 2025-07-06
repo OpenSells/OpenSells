@@ -340,7 +340,7 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion)):
+async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
 
