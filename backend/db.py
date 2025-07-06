@@ -1,3 +1,4 @@
+from sqlalchemy import func
 import sqlite3
 from datetime import datetime
 
