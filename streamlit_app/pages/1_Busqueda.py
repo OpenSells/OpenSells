@@ -58,6 +58,31 @@ for flag, valor in {
 
 headers = obtener_headers()
 
+# -------------------- Mostrar plan activo --------------------
+try:
+    r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
+    plan = (r_plan.json().get("plan") or "").strip().lower() if r_plan.status_code == 200 else "free"
+except Exception:
+    plan = "free"
+
+st.markdown("### 💼 Tu plan actual:")
+if plan == "free":
+    st.info("🟢 Plan gratuito (free). Algunas funciones están limitadas.")
+elif plan == "pro":
+    st.success("🔵 Plan PRO activo. Puedes extraer y exportar leads.")
+elif plan == "ilimitado":
+    st.success("🟣 Plan Ilimitado activo. Acceso completo.")
+else:
+    st.warning("⚠️ Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
+
+
+# Verificar plan del usuario
+try:
+    r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
+    plan = (r_plan.json().get("plan") or "").strip().lower() if r_plan.status_code == 200 else "free"
+except Exception:
+    plan = "free"
+
 # -------------------- Reiniciar búsqueda --------------------
 
 def reiniciar_busqueda():
@@ -272,8 +297,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
     seleccionadas = st.session_state.seleccionadas
 
     # Comprobar si el usuario tiene plan activo
-    r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    plan = r_plan.json().get("plan", "free") if r_plan.status_code == 200 else "free"
+    # Ya tienes `plan` arriba, no es necesario volver a pedirlo
 
     if plan == "free":
         try:

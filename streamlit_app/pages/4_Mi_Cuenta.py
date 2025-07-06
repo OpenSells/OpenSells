@@ -31,11 +31,26 @@ if "email" not in st.session_state:
 st.title("⚙️ Mi Cuenta")
 
 # -------------------- Plan actual --------------------
-r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-if r.ok:
-    plan = (r.json().get("plan") or "").strip().lower()
-else:
+# Validar token antes de hacer la petición
+if "token" not in st.session_state:
+    st.error("⚠️ Debes iniciar sesión para ver tu plan.")
+    st.stop()
+
+headers = {"Authorization": f"Bearer {st.session_state.token}"}
+
+# Obtener plan del usuario
+try:
+    r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
+    if r.status_code == 200:
+        plan = (r.json().get("plan") or "").strip().lower()
+    else:
+        st.warning("⚠️ No se pudo verificar tu suscripción. Vuelve a iniciar sesión.")
+        plan = "desconocido"
+except Exception as e:
+    st.error(f"❌ Error de conexión al verificar el plan: {e}")
     plan = "desconocido"
+
+st.text(f"🔍 Plan detectado: {plan}")
 
 st.subheader("📄 Plan actual")
 if plan == "free":
