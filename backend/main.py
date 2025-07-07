@@ -376,11 +376,11 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
-    dominios_guardados = await obtener_todos_los_dominios_usuario(usuario.email, db)
+    dominios_guardados = obtener_todos_los_dominios_usuario(usuario.email, db)
     dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
     nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
 
-    await guardar_leads_extraidos(usuario.email, nuevos_dominios, nicho_normalizado, nicho_original)
+    guardar_leads_extraidos(usuario.email, nuevos_dominios, nicho_normalizado, nicho_original)
 
     # Guardar CSV global para admin
     os.makedirs("admin_data", exist_ok=True)
@@ -404,7 +404,7 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
 # 📜 Historial de exportaciones
 @app.get("/historial")
 async def ver_historial(usuario = Depends(get_current_user)):
-    historial = await obtener_historial(usuario.email)
+    historial = obtener_historial(usuario.email)
     return {"historial": historial}
 
 # 📂 Ver nichos del usuario
@@ -417,14 +417,14 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 @app.get("/leads_por_nicho")
 async def leads_por_nicho(nicho: str, usuario = Depends(get_current_user)):
     nicho = normalizar_nicho(nicho)
-    leads = await obtener_leads_por_nicho(usuario.email, nicho)
+    leads = obtener_leads_por_nicho(usuario.email, nicho)
     return {"nicho": nicho, "leads": leads}
 
 # 🗑️ Eliminar un nicho
 @app.delete("/eliminar_nicho")
 async def eliminar_nicho_usuario(nicho: str, usuario = Depends(get_current_user)):
     nicho = normalizar_nicho(nicho)
-    await eliminar_nicho(usuario.email, nicho)
+    eliminar_nicho(usuario.email, nicho)
     return {"mensaje": f"Nicho '{nicho}' eliminado correctamente"}
 
 # ✅ Filtrar URLs repetidas por nicho
