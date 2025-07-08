@@ -19,6 +19,8 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
+from json import JSONDecodeError
+
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -37,6 +39,14 @@ def normalizar_dominio(url: str) -> str:
 
 def md5(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
+
+def safe_json(resp: requests.Response) -> dict:
+    """Intenta decodificar JSON mostrando el texto en caso de error."""
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
 
 # ── Protección de acceso ─────────────────────────────
 if "token" not in st.session_state:
@@ -59,7 +69,9 @@ else:
 
 # ── Cargar nichos del backend ───────────────────────
 resp = requests.get(f"{BACKEND_URL}/mis_nichos", headers=h())
-nichos: list[dict] = resp.json().get("nichos", []) if resp.status_code == 200 else []
+nichos: list[dict] = []
+if resp.status_code == 200:
+    nichos = safe_json(resp).get("nichos", [])
 
 if not nichos:
     st.info("Aún no tienes nichos guardados.")
@@ -73,7 +85,7 @@ for n in nichos:
         params={"nicho": n["nicho"]},
         headers=h(),
     )
-    leads = r.json().get("leads", []) if r.status_code == 200 else []
+    leads = safe_json(r).get("leads", []) if r.status_code == 200 else []
     n["total_leads"] = len(leads)
 
     for idx, l in enumerate(leads):
@@ -168,7 +180,7 @@ for n in nichos_visibles:
             params={"nicho": n["nicho"]},
             headers=h(),
         )
-        leads = resp_leads.json().get("leads", []) if resp_leads.status_code == 200 else []
+        leads = safe_json(resp_leads).get("leads", []) if resp_leads.status_code == 200 else []
 
         # ── Filtro interno por dominio ───────────────
         filtro = st.text_input(
@@ -224,7 +236,11 @@ for n in nichos_visibles:
                                 st.session_state[key_exp] = True
                                 st.rerun()
                             else:
-                                st.error(f"Error al guardar: {res.json().get('detail', 'Error desconocido')}")
+                                try:
+                                    detail = res.json().get('detail', 'Error desconocido')
+                                except JSONDecodeError:
+                                    detail = res.text
+                                st.error(f"Error al guardar: {detail}")
 
         if "lead_a_mover" not in st.session_state:
             st.session_state["lead_a_mover"] = None
@@ -275,7 +291,11 @@ for n in nichos_visibles:
                         st.session_state["solo_nicho_visible"] = n["nicho"]
                         st.rerun()
                     else:
-                        st.error(f"Error al mover lead: {res.json().get('detail', 'Error desconocido')}")
+                        try:
+                            detail = res.json().get('detail', 'Error desconocido')
+                        except JSONDecodeError:
+                            detail = res.text
+                        st.error(f"Error al mover lead: {detail}")
 
             # Botón Información extra
             if cols_row[3].button("📝", key=f"btn_info_{clave_base}"):
@@ -283,11 +303,12 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = requests.get(
+                info_resp = requests.get(
                     f"{BACKEND_URL}/info_extra",
                     params={"dominio": dominio},
                     headers=h()
-                ).json()
+                )
+                info = safe_json(info_resp)
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)

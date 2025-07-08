@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from openai import OpenAI
+from json import JSONDecodeError
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -23,6 +24,13 @@ def normalizar_dominio(url):
     u = url if url.startswith("http") else f"http://{url}"
     return urlparse(u).netloc.replace("www.", "").split("/")[0]
 
+def safe_json(resp: requests.Response) -> dict:
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
+
 # -------------------- Login --------------------
 
 def login():
@@ -32,7 +40,8 @@ def login():
     if st.button("Iniciar sesión", key="btn_login"):
         r = requests.post(f"{BACKEND_URL}/login", data={"username": email, "password": password})
         if r.status_code == 200:
-            st.session_state.token = r.json().get("access_token")
+            data = safe_json(r)
+            st.session_state.token = data.get("access_token")
             st.session_state.email = email
             st.rerun()
         else:
@@ -61,7 +70,10 @@ headers = obtener_headers()
 # -------------------- Mostrar plan activo --------------------
 try:
     r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    plan = (r_plan.json().get("plan") or "").strip().lower() if r_plan.status_code == 200 else "free"
+    if r_plan.status_code == 200:
+        plan = safe_json(r_plan).get("plan", "").strip().lower()
+    else:
+        plan = "free"
 except Exception:
     plan = "free"
 
@@ -125,7 +137,8 @@ def procesar_extraccion():
             headers=headers,
         )
         if r.status_code == 200:
-            st.session_state.dominios = r.json().get("dominios", [])
+            data = safe_json(r)
+            st.session_state.dominios = data.get("dominios", [])
             st.session_state.fase_extraccion = "extrayendo"
             st.rerun()
         else:
@@ -146,7 +159,7 @@ def procesar_extraccion():
             headers=headers,
         )
         if r.status_code == 200:
-            data = r.json()
+            data = safe_json(r)
             st.session_state.payload_export = data.get("payload_export", {})
             st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
             st.session_state.resultados = data.get("resultados", [])
@@ -193,10 +206,10 @@ if st.session_state.loading:
 st.title("🎯 Encuentra tus próximos clientes")
 
 memoria_resp = requests.get(f"{BACKEND_URL}/mi_memoria", headers=headers)
-memoria = memoria_resp.json().get("memoria", "") if memoria_resp.status_code == 200 else ""
+memoria = safe_json(memoria_resp).get("memoria", "") if memoria_resp.status_code == 200 else ""
 
 nichos_resp = requests.get(f"{BACKEND_URL}/mis_nichos", headers=headers)
-nichos_previos = [n["nicho_original"] for n in nichos_resp.json().get("nichos", [])] if nichos_resp.status_code == 200 else []
+nichos_previos = [n["nicho_original"] for n in safe_json(nichos_resp).get("nichos", [])] if nichos_resp.status_code == 200 else []
 
 # -------------------- Input Cliente Ideal --------------------
 cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia")
@@ -251,7 +264,7 @@ if st.button("🚀 Buscar variantes"):
         with st.spinner("Generando variantes con IA..."):
             r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
-            data = r.json()
+            data = safe_json(r)
             if "pregunta_sugerida" in data:
                 st.session_state.pregunta_sugerida = data["pregunta_sugerida"]
             else:
@@ -273,7 +286,7 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
             r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
             st.session_state.pregunta_sugerida = None
-            st.session_state.variantes = r.json().get("variantes_generadas", [])
+            st.session_state.variantes = safe_json(r).get("variantes_generadas", [])
 
 # -------------------- Selección de variantes --------------------
 if st.session_state.get("variantes"):
@@ -303,7 +316,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
                 params={"plan": price_id}
             )
             if r_checkout.ok:
-                checkout_url = r_checkout.json()["url"]
+                checkout_url = safe_json(r_checkout).get("url", "")
                 st.warning("🚫 Tu suscripción actual no permite extraer leads.")
                 st.markdown(f"""
                 <div style='text-align:center; margin-top: 1rem;'>

@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
+from json import JSONDecodeError
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
@@ -44,11 +45,18 @@ def norm_dom(url: str) -> str:
         url = "http://" + url
     return urlparse(url).netloc.replace("www.", "").split("/")[0]
 
+def safe_json(resp: requests.Response) -> dict:
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
+
 def api_get(endpoint: str, **params):
     try:
         r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=30)
         r.raise_for_status()
-        return r.json()
+        return safe_json(r)
     except Exception as e:
         st.error(f"Error de red: {e}")
         return {}
@@ -57,7 +65,7 @@ def api_post(endpoint: str, payload: dict = None, params: dict = None):
     try:
         r = requests.post(f"{BACKEND_URL}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
         r.raise_for_status()
-        return r.json()
+        return safe_json(r)
     except Exception as e:
         st.error(f"Error enviando datos: {e}")
         return {}
