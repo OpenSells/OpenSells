@@ -312,9 +312,9 @@ for n in nichos_visibles:
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)
-                    email_nuevo = c1.text_input("📧 Email", value=info.get("email_contacto", ""), key=f"email_{clave_base}")
+                    email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key=f"email_{clave_base}")
                     tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key=f"tel_{clave_base}")
-                    info_nueva = st.text_area("📝 Información libre", value=info.get("info_adicional", ""), key=f"info_{clave_base}")
+                    info_nueva = st.text_area("📝 Información libre", value=info.get("informacion", ""), key=f"info_{clave_base}")
 
                     if st.form_submit_button("💾 Guardar información"):
                         res = requests.post(
@@ -322,9 +322,9 @@ for n in nichos_visibles:
                             headers=h(),
                             json={
                                 "dominio": dominio,
-                                "email_contacto": email_nuevo,
+                                "email": email_nuevo,
                                 "telefono": tel_nuevo,
-                                "info_adicional": info_nueva
+                                "informacion": info_nueva
                             }
                         )
                         if res.status_code == 200:

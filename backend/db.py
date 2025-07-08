@@ -40,13 +40,13 @@ def crear_tablas_si_no_existen():
         """)
         db.execute("""
         CREATE TABLE IF NOT EXISTS lead_info_extra (
-            email TEXT NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             dominio TEXT NOT NULL,
-            email_contacto TEXT,
+            email TEXT,
             telefono TEXT,
-            info_adicional TEXT,
-            timestamp TEXT,
-            PRIMARY KEY (email, dominio)
+            informacion TEXT,
+            user_email TEXT,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
         db.commit()
@@ -636,58 +636,59 @@ def obtener_todos_los_dominios_usuario(email: str, db: Session):
     return [row[0] for row in resultados]
 
 
-def guardar_info_extra(email: str, dominio: str, email_contacto: str, telefono: str, info_adicional: str):
+def guardar_info_extra(user_email: str, dominio: str, email: str, telefono: str, informacion: str):
     timestamp = datetime.utcnow().isoformat()
     with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            INSERT INTO lead_info_extra (email, dominio, email_contacto, telefono, info_adicional, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(email, dominio) DO UPDATE SET
-                email_contacto = excluded.email_contacto,
-                telefono = excluded.telefono,
-                info_adicional = excluded.info_adicional,
-                timestamp = excluded.timestamp
-        """, (email, dominio, email_contacto, telefono, info_adicional, timestamp))
+        cur = db.execute(
+            "SELECT id FROM lead_info_extra WHERE user_email = ? AND dominio = ?",
+            (user_email, dominio),
+        )
+        row = cur.fetchone()
+        if row:
+            db.execute(
+                "UPDATE lead_info_extra SET email = ?, telefono = ?, informacion = ?, timestamp = ? WHERE id = ?",
+                (email, telefono, informacion, timestamp, row[0]),
+            )
+        else:
+            db.execute(
+                "INSERT INTO lead_info_extra (dominio, email, telefono, informacion, user_email, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                (dominio, email, telefono, informacion, user_email, timestamp),
+            )
         db.commit()
 
 from backend.models import LeadInfoExtra
 
-def guardar_info_extra_postgres(email: str, dominio: str, email_contacto: str, telefono: str, info_adicional: str, db: Session):
-    existente = db.query(LeadInfoExtra).filter_by(email=email, dominio=dominio).first()
+def guardar_info_extra_postgres(user_email: str, dominio: str, email: str, telefono: str, informacion: str, db: Session):
+    existente = db.query(LeadInfoExtra).filter_by(user_email=user_email, dominio=dominio).first()
     if existente:
-        existente.email_contacto = email_contacto
+        existente.email = email
         existente.telefono = telefono
-        existente.info_adicional = info_adicional
+        existente.informacion = informacion
     else:
         nuevo = LeadInfoExtra(
-            email=email,
             dominio=dominio,
-            email_contacto=email_contacto,
+            email=email,
             telefono=telefono,
-            info_adicional=info_adicional
+            informacion=informacion,
+            user_email=user_email
         )
         db.add(nuevo)
     db.commit()
 
 
-def obtener_info_extra(email: str, dominio: str):
+def obtener_info_extra(user_email: str, dominio: str):
     with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
-            SELECT email_contacto, telefono, info_adicional
-            FROM lead_info_extra
-            WHERE email = ? AND dominio = ?
-        """, (email, dominio))
+        cursor = db.execute("SELECT email, telefono, informacion FROM lead_info_extra WHERE user_email = ? AND dominio = ?", (user_email, dominio))
         row = cursor.fetchone()
         return {
-            "email_contacto": row[0] if row else "",
+            "email": row[0] if row else "",
             "telefono": row[1] if row else "",
-            "info_adicional": row[2] if row else ""
+            "informacion": row[2] if row else ""
         }
-
-def obtener_info_extra_postgres(email: str, dominio: str, db: Session):
-    info = db.query(LeadInfoExtra).filter_by(email=email, dominio=dominio).first()
+def obtener_info_extra_postgres(user_email: str, dominio: str, db: Session):
+    info = db.query(LeadInfoExtra).filter_by(user_email=user_email, dominio=dominio).first()
     return {
-        "email_contacto": info.email_contacto if info else "",
+        "email": info.email if info else "",
         "telefono": info.telefono if info else "",
-        "info_adicional": info.info_adicional if info else ""
+        "informacion": info.informacion if info else ""
     }

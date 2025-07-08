@@ -356,15 +356,15 @@ with tabs[3]:
             info = api_get("info_extra", dominio=norm)
             with st.form(key="form_info_extra_detalle"):
                 c1, c2 = st.columns(2)
-                email_nuevo = c1.text_input("📧 Email", value=info.get("email_contacto", ""), key="email_info")
+                email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key="email_info")
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
-                info_nueva = st.text_area("🗒️ Información libre", value=info.get("info_adicional", ""), key="nota_info")
+                info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
                     respuesta = api_post("guardar_info_extra", {
                         "dominio": norm,
-                        "email_contacto": email_nuevo,
+                        "email": email_nuevo,
                         "telefono": tel_nuevo,
-                        "info_adicional": info_nueva
+                        "informacion": info_nueva
                     })
                     if respuesta.get("mensaje"):
                         st.success("Información guardada correctamente ✅")

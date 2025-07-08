@@ -526,9 +526,9 @@ def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = 
 
 class InfoExtraRequest(BaseModel):
     dominio: str
-    email_contacto: Optional[str] = ""
+    email: Optional[str] = ""
     telefono: Optional[str] = ""
-    info_adicional: Optional[str] = ""
+    informacion: Optional[str] = ""
 
 @app.post("/guardar_info_extra")
 def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
@@ -536,11 +536,11 @@ def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_u
 
     dominio = normalizar_dominio(data.dominio.strip())
     guardar_info_extra(
-        email=usuario.email,
+        user_email=usuario.email,
         dominio=dominio,
-        email_contacto=data.email_contacto.strip(),
+        email=data.email.strip(),
         telefono=data.telefono.strip(),
-        info_adicional=data.info_adicional.strip(),
+        informacion=data.informacion.strip(),
         db=db
     )
     guardar_evento_historial(usuario.email, dominio, "info", "Información extra guardada o actualizada", db)
