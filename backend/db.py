@@ -1,3 +1,14 @@
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+Base = declarative_base()
+
 from sqlalchemy import func
 import sqlite3
 from datetime import datetime
@@ -296,6 +307,24 @@ def buscar_leads_global(email: str, query: str):
         rows = cursor.fetchall()
         return [row[0] for row in rows]
 
+def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[str]:
+    query = f"%{query.lower()}%"
+    resultados = (
+        db.query(LeadExtraido.url)
+        .outerjoin(LeadNota, (LeadNota.url == LeadExtraido.url) & (LeadNota.email == LeadExtraido.user_email))
+        .filter(
+            LeadExtraido.user_email == email,
+            (
+                LeadExtraido.url.ilike(query) |
+                LeadNota.nota.ilike(query)
+            )
+        )
+        .order_by(LeadExtraido.timestamp.desc())
+        .distinct()
+        .all()
+    )
+    return [r[0] for r in resultados]
+
 def obtener_tareas_pendientes(email: str):
     with sqlite3.connect(DB_PATH) as db:
         cursor = db.execute("""
@@ -368,12 +397,15 @@ def guardar_evento_historial(email: str, dominio: str, tipo: str, descripcion: s
 
 from backend.models import LeadHistorial
 
+from datetime import datetime
+
 def guardar_evento_historial_postgres(email: str, dominio: str, tipo: str, descripcion: str, db: Session):
     evento = LeadHistorial(
         email=email,
         dominio=dominio,
         tipo=tipo,
-        descripcion=descripcion
+        descripcion=descripcion,
+        timestamp=datetime.utcnow().isoformat()
     )
     db.add(evento)
     db.commit()

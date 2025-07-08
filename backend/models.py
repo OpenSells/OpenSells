@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
-from backend.database import Base
+from backend.db import Base
 
 # Tabla de usuarios
 class Usuario(Base):

@@ -8,6 +8,7 @@ from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
+from backend.db import buscar_leads_global_postgres as buscar_leads_global
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
@@ -665,8 +666,8 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
     return {"mensaje": "Tarea editada correctamente"}
 
 @app.get("/tareas_pendientes")
-def tareas_pendientes(usuario=Depends(get_current_user)):
-    tareas = obtener_todas_tareas_pendientes(usuario.email)
+def tareas_pendientes(usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+    tareas = obtener_todas_tareas_pendientes(usuario.email, db)
     return {"tareas": tareas}
 
 @app.get("/historial_lead")

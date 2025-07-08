@@ -10,6 +10,7 @@ from json import JSONDecodeError
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 # -------------------- Autenticación --------------------

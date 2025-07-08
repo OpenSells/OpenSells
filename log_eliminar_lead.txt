@@ -32,3 +32,4 @@
 [2025-06-27 00:31:32.579829] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: medicinaesteticadrablanco.com — Solo este nicho: True — Nicho: salamancaffa
 [2025-07-02 21:58:59.259603] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: mkparadise.com — Solo este nicho: True — Nicho: solodom
 [2025-07-03 20:57:37.274542] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: agenciasinmobiliarias.com.es — Solo este nicho: True — Nicho: immo
+[2025-07-08 15:55:53.063194] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: odental.es — Solo este nicho: True — Nicho: madrik

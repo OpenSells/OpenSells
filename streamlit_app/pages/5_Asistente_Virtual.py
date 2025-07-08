@@ -8,6 +8,7 @@ from json import JSONDecodeError
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
