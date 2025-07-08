@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from openai import OpenAI
 
 load_dotenv()
-BACKEND_URL = "https://opensells.onrender.com"
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 # -------------------- Helpers --------------------
@@ -67,13 +67,13 @@ except Exception:
 
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":
-    st.info("🟢 Plan gratuito (free). Algunas funciones están limitadas.")
+    st.info("Plan gratuito (free). Algunas funciones están limitadas.")
 elif plan == "pro":
-    st.success("🔵 Plan PRO activo. Puedes extraer y exportar leads.")
+    st.success("Plan PRO activo. Puedes extraer y exportar leads.")
 elif plan == "ilimitado":
-    st.success("🟣 Plan Ilimitado activo. Acceso completo.")
+    st.success("Plan Ilimitado activo. Acceso completo.")
 else:
-    st.warning("⚠️ Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
+    st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
 
 
 # Verificar plan del usuario

@@ -340,7 +340,7 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
 
@@ -363,10 +363,7 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
     archivo_usuario_nicho = os.path.join(carpeta_usuario, f"{nicho_normalizado}.csv")
 
     if os.path.exists(archivo_usuario_nicho):
-        try:
-            df_existente = pd.read_csv(archivo_usuario_nicho)
-        except pd.errors.EmptyDataError:
-            df_existente = pd.DataFrame(columns=["Dominio", "Fecha"])
+        df_existente = pd.read_csv(archivo_usuario_nicho)
         df_combinado = pd.concat([df_existente, df], ignore_index=True)
         df_combinado.drop_duplicates(subset="Dominio", inplace=True)
     else:
@@ -376,11 +373,11 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
-    dominios_guardados = await obtener_todos_los_dominios_usuario(usuario.email, db)
+    dominios_guardados = obtener_todos_los_dominios_usuario(usuario.email, db)
     dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
     nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
 
-    await guardar_leads_extraidos(usuario.email, nuevos_dominios, nicho_normalizado, nicho_original)
+    guardar_leads_extraidos(usuario.email, nuevos_dominios, nicho_normalizado, nicho_original, db)
 
     # Guardar CSV global para admin
     os.makedirs("admin_data", exist_ok=True)
@@ -388,10 +385,7 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
     df["Usuario"] = usuario.email
 
     if os.path.exists(archivo_global):
-        try:
-            df_global = pd.read_csv(archivo_global)
-        except pd.errors.EmptyDataError:
-            df_global = pd.DataFrame(columns=["Dominio", "Fecha", "Usuario"])
+        df_global = pd.read_csv(archivo_global)
         combinado_global = pd.concat([df_global, df], ignore_index=True)
         combinado_global.drop_duplicates(subset="Dominio", inplace=True)
     else:
@@ -403,8 +397,8 @@ async def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_su
 
 # 📜 Historial de exportaciones
 @app.get("/historial")
-async def ver_historial(usuario = Depends(get_current_user)):
-    historial = await obtener_historial(usuario.email)
+def ver_historial(usuario = Depends(get_current_user)):
+    historial = obtener_historial(usuario.email)
     return {"historial": historial}
 
 # 📂 Ver nichos del usuario
@@ -415,16 +409,16 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
-async def leads_por_nicho(nicho: str, usuario = Depends(get_current_user)):
+def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session = Depends(get_db)):
     nicho = normalizar_nicho(nicho)
-    leads = await obtener_leads_por_nicho(usuario.email, nicho)
+    leads = obtener_leads_por_nicho(usuario.email, nicho, db)
     return {"nicho": nicho, "leads": leads}
 
 # 🗑️ Eliminar un nicho
 @app.delete("/eliminar_nicho")
-async def eliminar_nicho_usuario(nicho: str, usuario = Depends(get_current_user)):
+def eliminar_nicho_usuario(nicho: str, usuario = Depends(get_current_user)):
     nicho = normalizar_nicho(nicho)
-    await eliminar_nicho(usuario.email, nicho)
+    eliminar_nicho(usuario.email, nicho)
     return {"mensaje": f"Nicho '{nicho}' eliminado correctamente"}
 
 # ✅ Filtrar URLs repetidas por nicho
@@ -443,7 +437,7 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
     return {"urls_filtradas": urls_filtradas}
 
 @app.get("/exportar_todos_mis_leads")
-async def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
+def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
     carpeta_usuario = os.path.join("exports", usuario.email)
     if not os.path.exists(carpeta_usuario):
         raise HTTPException(status_code=404, detail="No hay leads para exportar")

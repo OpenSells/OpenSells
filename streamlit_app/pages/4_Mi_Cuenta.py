@@ -8,7 +8,7 @@ import pandas as pd
 import io
 
 load_dotenv()
-BACKEND_URL = "https://opensells.onrender.com"
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 # -------------------- Autenticación --------------------
@@ -50,18 +50,18 @@ except Exception as e:
     st.error(f"❌ Error de conexión al verificar el plan: {e}")
     plan = "desconocido"
 
-st.text(f"🔍 Plan detectado: {plan}")
+st.text(f"Plan detectado: {plan}")
 
 st.subheader("📄 Plan actual")
 if plan == "free":
-    st.success("🟢 Tu plan actual es: free")
-    st.warning("🚫 Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads.")
+    st.success("Tu plan actual es: free")
+    st.warning("Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads.")
 elif plan == "pro":
-    st.success("🔵 Tu plan actual es: pro")
+    st.success("Tu plan actual es: pro")
 elif plan == "ilimitado":
-    st.success("🟣 Tu plan actual es: ilimitado")
+    st.success("Tu plan actual es: ilimitado")
 else:
-    st.warning("⚠️ Tu plan actual es: desconocido")
+    st.warning("Tu plan actual es: desconocido")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")

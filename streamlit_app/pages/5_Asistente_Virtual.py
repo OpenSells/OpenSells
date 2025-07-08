@@ -6,7 +6,7 @@ from openai import OpenAI
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -22,7 +22,7 @@ HDR = {"Authorization": f"Bearer {st.session_state.token}"}
 # ────────────────── Helpers ─────────────────────────
 def api_get(endpoint: str, **params):
     try:
-        r = requests.get(f"{BACKEND}/{endpoint}", params=params, headers=HDR, timeout=20)
+        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=20)
         r.raise_for_status()
         return r.json()
     except Exception as e:

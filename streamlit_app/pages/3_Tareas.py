@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
@@ -46,7 +46,7 @@ def norm_dom(url: str) -> str:
 
 def api_get(endpoint: str, **params):
     try:
-        r = requests.get(f"{BACKEND}/{endpoint}", params=params, headers=HDR, timeout=30)
+        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=30)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -55,7 +55,7 @@ def api_get(endpoint: str, **params):
 
 def api_post(endpoint: str, payload: dict = None, params: dict = None):
     try:
-        r = requests.post(f"{BACKEND}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
+        r = requests.post(f"{BACKEND_URL}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception as e:
