@@ -76,12 +76,6 @@ else:
     st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
 
 
-# Verificar plan del usuario
-try:
-    r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    plan = (r_plan.json().get("plan") or "").strip().lower() if r_plan.status_code == 200 else "free"
-except Exception:
-    plan = "free"
 
 # -------------------- Reiniciar búsqueda --------------------
 

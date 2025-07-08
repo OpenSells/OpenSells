@@ -96,7 +96,8 @@ def extraer_dominio_base(url: str) -> str:
         dominio = urlparse("http://" + url).netloc  # ← SOLUCIÓN
     return dominio.replace("www.", "").strip()
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=openai_key) if openai_key else None
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 
 class MemoriaUsuarioRequest(BaseModel):
@@ -165,6 +166,8 @@ async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
     usuario=Depends(get_current_user)
 ):
+    if openai_client is None:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
     cliente_ideal = request.cliente_ideal.strip()
     forzar_variantes = request.forzar_variantes or False
     contexto_extra = request.contexto_extra or ""
@@ -220,6 +223,9 @@ Dado el nicho o búsqueda "{prompt_base}", genera exactamente 6 palabras clave o
 @app.post("/buscar_variantes_seleccionadas")
 def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest):
     variantes = payload.variantes[:3]
+
+    if openai_client is None:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
 
     detectar_pais_prompt = f"""
 Dado el siguiente conjunto de variantes de búsqueda:
