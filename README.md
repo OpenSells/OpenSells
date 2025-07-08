@@ -1,3 +1,51 @@
+## 📋 Resumen de migración y mejoras recientes (actualizado 07/07/2025)
+
+### ✅ 1. Preparativos y Debugging Inicial
+- Corrección de errores como `asyncio.run`, `await` fuera de funciones `async`, y imports faltantes.
+- Errores solucionados: `NameError: AsyncSession`, `TypeError` en corutinas, `sqlite3.OperationalError`.
+
+### ✅ 2. Migración total de SQLite a PostgreSQL
+- PostgreSQL alojado en Render con `DATABASE_URL`.
+- Modelos migrados: Usuario, LeadTarea, LeadHistorial, LeadNota, LeadEstado, LeadExtraido, LeadInfoExtra, UsuarioMemoria.
+- Archivos clave actualizados: `main.py`, `db.py`, `models.py`, `auth.py`.
+
+### ✅ 3. Autenticación y sesiones
+- Sistema de login y registro con JWT y verificación de plan.
+- Endpoint `/protegido` devuelve email y plan del usuario.
+
+### ✅ 4. Planes de pago con Stripe
+- Planes configurados: free, pro, ilimitado.
+- Webhook `/webhook` preparado para activar el plan tras suscripción.
+- Frontend integrado con redirección a Stripe Checkout y portal de cliente.
+
+### ✅ 5. Integración Frontend y validación de planes
+- Consultas al endpoint `/protegido` para obtener el plan.
+- Validación de token en `st.session_state`.
+- Headers unificados para autenticación en frontend.
+
+### ✅ 6. Exportación y guardado de leads
+- CSVs por usuario/nicho + CSV global (`admin_data/todos_los_leads.csv`).
+- Leads únicos por dominio guardados en PostgreSQL.
+
+### ✅ 7. Endpoints migrados
+- Autenticación: `/register`, `/login`, `/protegido`.
+- Leads y tareas: `/nota_lead`, `/guardar_info_extra`, `/tarea_lead`, `/editar_tarea`, `/historial_tareas`.
+- Exportación y búsqueda: `/exportar_csv`, `/extraer_multiples`, `/crear_checkout`.
+
+### ✅ 8. Validación en pgAdmin
+- Conexión externa verificada.
+- Datos persistentes tras reinicios en Render.
+
+### ✅ 9. Debugging final
+- Manejo de errores de CSV vacío, JWT y parámetros requeridos.
+- Uso de `try-except` en lectura de CSVs.
+
+### 🟡 Pendientes
+- Eliminar uso total de CSVs si se migra todo a PostgreSQL.
+- Añadir logs o panel admin.
+- Activar webhook real de Stripe al tener dominio público.
+- Edición/eliminación masiva desde base de datos.
+
 # Wrapper Leads SaaS 🚀
 
 Wrapper Leads SaaS es una plataforma SaaS para la extracción automática de leads desde sitios web públicos, combinando scraping inteligente, procesamiento IA y una interfaz sencilla.

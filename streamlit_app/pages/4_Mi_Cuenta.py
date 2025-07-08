@@ -6,9 +6,11 @@ from dotenv import load_dotenv
 import os
 import pandas as pd
 import io
+from json import JSONDecodeError
 
 load_dotenv()
-BACKEND_URL = "https://opensells.onrender.com"
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 # -------------------- Autenticación --------------------
@@ -18,11 +20,19 @@ if "token" not in st.session_state:
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
+def safe_json(resp: requests.Response) -> dict:
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
+
 # -------------------- Cargar email si falta --------------------
 if "email" not in st.session_state:
     r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
     if r.status_code == 200:
-        st.session_state.email = r.json()["mensaje"].split(",")[-1].strip()
+        data = safe_json(r)
+        st.session_state.email = data.get("mensaje", "").split(",")[-1].strip()
     else:
         st.warning("No se pudo obtener tu email. Intenta volver a iniciar sesión.")
         st.stop()
@@ -42,7 +52,7 @@ headers = {"Authorization": f"Bearer {st.session_state.token}"}
 try:
     r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
     if r.status_code == 200:
-        plan = (r.json().get("plan") or "").strip().lower()
+        plan = safe_json(r).get("plan", "").strip().lower()
     else:
         st.warning("⚠️ No se pudo verificar tu suscripción. Vuelve a iniciar sesión.")
         plan = "desconocido"
@@ -50,25 +60,25 @@ except Exception as e:
     st.error(f"❌ Error de conexión al verificar el plan: {e}")
     plan = "desconocido"
 
-st.text(f"🔍 Plan detectado: {plan}")
+st.text(f"Plan detectado: {plan}")
 
 st.subheader("📄 Plan actual")
 if plan == "free":
-    st.success("🟢 Tu plan actual es: free")
-    st.warning("🚫 Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads.")
+    st.success("Tu plan actual es: free")
+    st.warning("Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads.")
 elif plan == "pro":
-    st.success("🔵 Tu plan actual es: pro")
+    st.success("Tu plan actual es: pro")
 elif plan == "ilimitado":
-    st.success("🟣 Tu plan actual es: ilimitado")
+    st.success("Tu plan actual es: ilimitado")
 else:
-    st.warning("⚠️ Tu plan actual es: desconocido")
+    st.warning("Tu plan actual es: desconocido")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
 st.caption("Describe brevemente tu negocio, tus objetivos y el tipo de cliente que buscas.")
 
 resp = requests.get(f"{BACKEND_URL}/mi_memoria", headers=headers)
-memoria = resp.json().get("memoria", "") if resp.status_code == 200 else ""
+memoria = safe_json(resp).get("memoria", "") if resp.status_code == 200 else ""
 nueva_memoria = st.text_area("Tu descripción de negocio", value=memoria, height=200)
 
 if st.button("💾 Guardar memoria"):
@@ -78,14 +88,16 @@ if st.button("💾 Guardar memoria"):
 # -------------------- Estadísticas --------------------
 st.subheader("📊 Estadísticas de uso")
 
-nichos = requests.get(f"{BACKEND_URL}/mis_nichos", headers=headers).json().get("nichos", [])
+resp_nichos = requests.get(f"{BACKEND_URL}/mis_nichos", headers=headers)
+nichos = safe_json(resp_nichos).get("nichos", []) if resp_nichos.status_code == 200 else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
 total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
     total_leads = len(df)
 
-tareas = requests.get(f"{BACKEND_URL}/tareas_pendientes", headers=headers).json().get("tareas", [])
+resp_tareas = requests.get(f"{BACKEND_URL}/tareas_pendientes", headers=headers)
+tareas = safe_json(resp_tareas).get("tareas", []) if resp_tareas.status_code == 200 else []
 
 st.markdown(f"""
 - 🧠 **Nichos activos:** {len(nichos)}
@@ -112,7 +124,11 @@ with st.form("form_pass"):
             if r.status_code == 200:
                 st.success("Contraseña actualizada correctamente.")
             else:
-                st.error(r.json().get("detail", "Error al cambiar contraseña."))
+                try:
+                    detail = r.json().get("detail", "Error al cambiar contraseña.")
+                except JSONDecodeError:
+                    detail = r.text
+                st.error(detail)
 
 # -------------------- Suscripción --------------------
 st.subheader("💳 Suscripción")
@@ -134,7 +150,7 @@ with col1:
         try:
             r = requests.post(f"{BACKEND_URL}/crear_checkout", headers=headers, params={"plan": price_id})
             if r.ok:
-                url = r.json()["url"]
+                url = safe_json(r).get("url", "")
                 st.success("Redirigiendo a Stripe...")
             else:
                 st.error("No se pudo iniciar el pago.")
@@ -155,7 +171,7 @@ with col2:
         try:
             r = requests.get(f"{BACKEND_URL}/portal_cliente", headers=headers)
             if r.ok:
-                url_portal = r.json()["url"]
+                url_portal = safe_json(r).get("url", "")
                 st.success("Abriendo portal de cliente...")
                 st.markdown(f"[👉 Abrir portal de Stripe]({url_portal})", unsafe_allow_html=True)
             else:

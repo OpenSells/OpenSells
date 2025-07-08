@@ -3,10 +3,12 @@ import os
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+from json import JSONDecodeError
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -22,11 +24,18 @@ HDR = {"Authorization": f"Bearer {st.session_state.token}"}
 # ────────────────── Helpers ─────────────────────────
 def api_get(endpoint: str, **params):
     try:
-        r = requests.get(f"{BACKEND}/{endpoint}", params=params, headers=HDR, timeout=20)
+        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=20)
         r.raise_for_status()
-        return r.json()
+        return safe_json(r)
     except Exception as e:
         return {"error": str(e)}
+
+def safe_json(resp: requests.Response) -> dict:
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
 
 # ────────────────── Datos base ──────────────────────
 nichos = api_get("mis_nichos").get("nichos", [])

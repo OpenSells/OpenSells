@@ -4,10 +4,12 @@ from urllib.parse import urlparse
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
+from json import JSONDecodeError
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
@@ -44,20 +46,27 @@ def norm_dom(url: str) -> str:
         url = "http://" + url
     return urlparse(url).netloc.replace("www.", "").split("/")[0]
 
+def safe_json(resp: requests.Response) -> dict:
+    try:
+        return resp.json()
+    except JSONDecodeError:
+        st.error(f"Respuesta no válida: {resp.text}")
+        return {}
+
 def api_get(endpoint: str, **params):
     try:
-        r = requests.get(f"{BACKEND}/{endpoint}", params=params, headers=HDR, timeout=30)
+        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=30)
         r.raise_for_status()
-        return r.json()
+        return safe_json(r)
     except Exception as e:
         st.error(f"Error de red: {e}")
         return {}
 
 def api_post(endpoint: str, payload: dict = None, params: dict = None):
     try:
-        r = requests.post(f"{BACKEND}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
+        r = requests.post(f"{BACKEND_URL}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
         r.raise_for_status()
-        return r.json()
+        return safe_json(r)
     except Exception as e:
         st.error(f"Error enviando datos: {e}")
         return {}
@@ -348,15 +357,15 @@ with tabs[3]:
             info = api_get("info_extra", dominio=norm)
             with st.form(key="form_info_extra_detalle"):
                 c1, c2 = st.columns(2)
-                email_nuevo = c1.text_input("📧 Email", value=info.get("email_contacto", ""), key="email_info")
+                email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key="email_info")
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
-                info_nueva = st.text_area("🗒️ Información libre", value=info.get("info_adicional", ""), key="nota_info")
+                info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
                     respuesta = api_post("guardar_info_extra", {
                         "dominio": norm,
-                        "email_contacto": email_nuevo,
+                        "email": email_nuevo,
                         "telefono": tel_nuevo,
-                        "info_adicional": info_nueva
+                        "informacion": info_nueva
                     })
                     if respuesta.get("mensaje"):
                         st.success("Información guardada correctamente ✅")

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
-from backend.database import Base
+from backend.db import Base
 
 # Tabla de usuarios
 class Usuario(Base):
@@ -51,11 +51,11 @@ class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
 
     id = Column(Integer, primary_key=True)
-    email = Column(String, nullable=False)
     dominio = Column(String, nullable=False)
-    email_contacto = Column(String)
+    email = Column(String)
     telefono = Column(String)
-    info_adicional = Column(Text)
+    informacion = Column(Text)
+    user_email = Column(String)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
 class LeadExtraido(Base):
