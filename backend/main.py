@@ -675,18 +675,18 @@ def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session 
     return {"historial": eventos}
 
 @app.post("/mi_memoria")
-def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
     try:
-        guardar_memoria_usuario(usuario.email, request.descripcion.strip(), db)
+        guardar_memoria_usuario(usuario.email, request.descripcion.strip())
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar memoria: {str(e)}")
 
 @app.get("/mi_memoria")
-def obtener_memoria(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_memoria(usuario=Depends(get_current_user)):
     try:
-        memoria = obtener_memoria_usuario(usuario.email, db)
-        return {"memoria": memoria}
+        memoria = obtener_memoria_usuario(usuario.email)
+        return {"memoria": memoria or ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")
 
