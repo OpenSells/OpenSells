@@ -1,16 +1,16 @@
 # 4_Mi_Cuenta.py – Página de cuenta de usuario
 
 import streamlit as st
-import requests
-from dotenv import load_dotenv
 import os
+import requests
 import pandas as pd
 import io
+from dotenv import load_dotenv
 from json import JSONDecodeError
+from streamlit_app.cache_utils import cached_get, cached_post
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
-print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 # -------------------- Autenticación --------------------
@@ -20,19 +20,12 @@ if "token" not in st.session_state:
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
-def safe_json(resp: requests.Response) -> dict:
-    try:
-        return resp.json()
-    except JSONDecodeError:
-        st.error(f"Respuesta no válida: {resp.text}")
-        return {}
 
 # -------------------- Cargar email si falta --------------------
 if "email" not in st.session_state:
-    r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    if r.status_code == 200:
-        data = safe_json(r)
-        st.session_state.email = data.get("mensaje", "").split(",")[-1].strip()
+    r = cached_get("protegido", st.session_state.token)
+    if r:
+        st.session_state.email = r.get("mensaje", "").split(",")[-1].strip()
     else:
         st.warning("No se pudo obtener tu email. Intenta volver a iniciar sesión.")
         st.stop()
@@ -50,9 +43,9 @@ headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 # Obtener plan del usuario
 try:
-    r = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    if r.status_code == 200:
-        plan = safe_json(r).get("plan", "").strip().lower()
+    data_plan = cached_get("protegido", st.session_state.token)
+    if data_plan:
+        plan = data_plan.get("plan", "").strip().lower()
     else:
         st.warning("⚠️ No se pudo verificar tu suscripción. Vuelve a iniciar sesión.")
         plan = "desconocido"
@@ -77,27 +70,27 @@ else:
 st.subheader("🧠 Memoria personalizada")
 st.caption("Describe brevemente tu negocio, tus objetivos y el tipo de cliente que buscas.")
 
-resp = requests.get(f"{BACKEND_URL}/mi_memoria", headers=headers)
-memoria = safe_json(resp).get("memoria", "") if resp.status_code == 200 else ""
+resp = cached_get("mi_memoria", st.session_state.token)
+memoria = resp.get("memoria", "") if resp else ""
 nueva_memoria = st.text_area("Tu descripción de negocio", value=memoria, height=200)
 
 if st.button("💾 Guardar memoria"):
-    r = requests.post(f"{BACKEND_URL}/mi_memoria", headers=headers, json={"descripcion": nueva_memoria.strip()})
-    st.success("Memoria guardada correctamente." if r.status_code == 200 else "Error al guardar la memoria.")
+    r = cached_post("mi_memoria", st.session_state.token, payload={"descripcion": nueva_memoria.strip()})
+    st.success("Memoria guardada correctamente." if r else "Error al guardar la memoria.")
 
 # -------------------- Estadísticas --------------------
 st.subheader("📊 Estadísticas de uso")
 
-resp_nichos = requests.get(f"{BACKEND_URL}/mis_nichos", headers=headers)
-nichos = safe_json(resp_nichos).get("nichos", []) if resp_nichos.status_code == 200 else []
+resp_nichos = cached_get("mis_nichos", st.session_state.token)
+nichos = resp_nichos.get("nichos", []) if resp_nichos else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
 total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
     total_leads = len(df)
 
-resp_tareas = requests.get(f"{BACKEND_URL}/tareas_pendientes", headers=headers)
-tareas = safe_json(resp_tareas).get("tareas", []) if resp_tareas.status_code == 200 else []
+resp_tareas = cached_get("tareas_pendientes", st.session_state.token)
+tareas = resp_tareas.get("tareas", []) if resp_tareas else []
 
 st.markdown(f"""
 - 🧠 **Nichos activos:** {len(nichos)}
@@ -120,15 +113,11 @@ with st.form("form_pass"):
             st.warning("Las contraseñas no coinciden.")
         else:
             payload = {"actual": actual, "nueva": nueva}
-            r = requests.post(f"{BACKEND_URL}/cambiar_password", headers=headers, json=payload)
-            if r.status_code == 200:
+            r = cached_post("cambiar_password", st.session_state.token, payload=payload)
+            if r:
                 st.success("Contraseña actualizada correctamente.")
             else:
-                try:
-                    detail = r.json().get("detail", "Error al cambiar contraseña.")
-                except JSONDecodeError:
-                    detail = r.text
-                st.error(detail)
+                st.error(r.get("detail", "Error al cambiar contraseña.") if isinstance(r, dict) else "Error al cambiar contraseña.")
 
 # -------------------- Suscripción --------------------
 st.subheader("💳 Suscripción")
@@ -148,9 +137,9 @@ with col1:
     if st.button("💳 Iniciar suscripción"):
         price_id = planes[plan_elegido]
         try:
-            r = requests.post(f"{BACKEND_URL}/crear_checkout", headers=headers, params={"plan": price_id})
-            if r.ok:
-                url = safe_json(r).get("url", "")
+            r = cached_post("crear_checkout", st.session_state.token, params={"plan": price_id})
+            if r and r.get("url"):
+                url = r.get("url", "")
                 st.success("Redirigiendo a Stripe...")
             else:
                 st.error("No se pudo iniciar el pago.")
@@ -169,9 +158,9 @@ window.open("{url}", "_self");
 with col2:
     if st.button("🧾 Gestionar suscripción"):
         try:
-            r = requests.get(f"{BACKEND_URL}/portal_cliente", headers=headers)
-            if r.ok:
-                url_portal = safe_json(r).get("url", "")
+            r = cached_get("portal_cliente", st.session_state.token)
+            if r and r.get("url"):
+                url_portal = r.get("url", "")
                 st.success("Abriendo portal de cliente...")
                 st.markdown(f"[👉 Abrir portal de Stripe]({url_portal})", unsafe_allow_html=True)
             else:

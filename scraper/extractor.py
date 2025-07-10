@@ -5,12 +5,14 @@ import phonenumbers
 import os
 from dotenv import load_dotenv  # ✅ Carga automática de variables
 from openai import OpenAI
+import logging
 
 # Cargar variables desde .env
 load_dotenv()
 
 # Inicializar cliente OpenAI con la clave cargada
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 def validar_emails_por_regla(emails, dominio_base):
     preferidos = [e for e in emails if any(p in e for p in ["info", "contact", "hola", dominio_base])]
@@ -41,7 +43,7 @@ Tengo esta lista de {tipo}s obtenidos de una página web de un negocio:
         texto = response.choices[0].message.content.strip()
         return [x.strip() for x in texto.split(",") if x.strip()]
     except Exception as e:
-        print("⚠️ Error con OpenAI:", e)
+        logger.warning(f"Error con OpenAI: {e}")
         return lista[:2]
 
 def extraer_datos_desde_url(url: str, pais: str = "ES") -> dict:

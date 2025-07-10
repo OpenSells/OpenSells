@@ -1,16 +1,12 @@
 import streamlit as st
 import os
-import requests
 from dotenv import load_dotenv
-from openai import OpenAI
-from json import JSONDecodeError
+from streamlit_app.cache_utils import cached_get, get_openai_client
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
-print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = get_openai_client()
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 st.title("🤖 Tu Asistente Virtual")
@@ -19,27 +15,10 @@ if "token" not in st.session_state:
     st.error("Debes iniciar sesión para usar el asistente.")
     st.stop()
 
-HDR = {"Authorization": f"Bearer {st.session_state.token}"}
-
-# ────────────────── Helpers ─────────────────────────
-def api_get(endpoint: str, **params):
-    try:
-        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=20)
-        r.raise_for_status()
-        return safe_json(r)
-    except Exception as e:
-        return {"error": str(e)}
-
-def safe_json(resp: requests.Response) -> dict:
-    try:
-        return resp.json()
-    except JSONDecodeError:
-        st.error(f"Respuesta no válida: {resp.text}")
-        return {}
 
 # ────────────────── Datos base ──────────────────────
-nichos = api_get("mis_nichos").get("nichos", [])
-tareas = api_get("tareas_pendientes").get("tareas", [])
+nichos = cached_get("mis_nichos", st.session_state.token).get("nichos", [])
+tareas = cached_get("tareas_pendientes", st.session_state.token).get("tareas", [])
 
 resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
 resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."

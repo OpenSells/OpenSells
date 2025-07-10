@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import Optional
 from openai import OpenAI
 import requests
+import logging
 from fastapi.responses import FileResponse
 import pandas as pd
 import os
@@ -25,9 +26,13 @@ import re
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 import asyncio
+from time import perf_counter
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
@@ -254,11 +259,11 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
 
     for variante in variantes:
         query = variante
-        print(f"\n🔍 Procesando variante: '{query}'")
+        logger.info(f"Procesando variante: '{query}'")
 
         for pagina in range(paginas_por_variante):
             start = pagina * resultados_por_pagina
-            print(f"➡️ Página {pagina+1} (start={start})")
+            logger.info(f"Página {pagina+1} (start={start})")
 
             params = {
                 'api_key': SCRAPERAPI_KEY,
@@ -285,7 +290,7 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
                 paginas_procesadas += 1
 
             except requests.exceptions.RequestException as e:
-                print(f"❌ Error en página {pagina+1} para '{query}': {e}")
+                logger.error(f"Error en página {pagina+1} para '{query}': {e}")
                 continue
 
     todas_urls = list(set(todas_urls))[:60]
@@ -326,6 +331,7 @@ from datetime import datetime
 
 @app.post("/extraer_multiples")
 def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar_suscripcion)):
+    start = perf_counter()
     resultados = []
 
     dominios_unicos = list(set(extraer_dominio_base(url) for url in payload.urls))
@@ -337,17 +343,22 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
             "Fecha": datetime.now().strftime("%Y-%m-%d")
         })
 
-    return {
+    resp = {
         "resultados": resultados,
         "payload_export": {
             "urls": urls_base,
             "pais": payload.pais
         }
     }
+    logger.info(
+        "extraer_multiples %d urls en %.2fs", len(payload.urls), perf_counter() - start
+    )
+    return resp
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
 def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+    start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
 
@@ -400,6 +411,10 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
 
     combinado_global.to_csv(archivo_global, index=False, encoding="utf-8-sig")
 
+    logger.info(
+        "exportar_csv %s -> %d dominios en %.2fs", nicho_normalizado, len(dominios_unicos), perf_counter() - start
+    )
+
     return FileResponse(archivo_usuario_nicho, filename=f"{nicho_original}.csv", media_type="text/csv")
 
 # 📜 Historial de exportaciones
@@ -445,6 +460,7 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
 
 @app.get("/exportar_todos_mis_leads")
 def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
+    start = perf_counter()
     carpeta_usuario = os.path.join("exports", usuario.email)
     if not os.path.exists(carpeta_usuario):
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
@@ -461,6 +477,9 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
     buffer.seek(0)
 
     nombre_archivo = f"leads_totales_{usuario.email}.csv"
+    logger.info(
+        "exportar_todos_mis_leads %d archivos en %.2fs", len(archivos_csv), perf_counter() - start
+    )
     return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
 
 class EstadoDominioRequest(BaseModel):
@@ -473,12 +492,12 @@ from sqlalchemy.orm import Session  # asegúrate de tener este import
 def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         url = normalizar_dominio(payload.dominio.strip())
-        print(f"📩 Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email}'")
+        logger.info(f"Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email}'")
         guardar_estado_lead(usuario.email, url, payload.estado.strip(), db)
         guardar_evento_historial(usuario.email, url, "estado", f"Estado cambiado a '{payload.estado}'", db)
         return {"mensaje": "Estado actualizado"}
     except Exception as e:
-        print(f"❌ ERROR al guardar estado: {str(e)}")
+        logger.error(f"ERROR al guardar estado: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno al guardar estado")
 
 @app.get("/estado_lead")
@@ -1046,7 +1065,7 @@ def crear_checkout(
         )
         return {"url": checkout.url}
     except Exception as e:
-        print(f"❌ ERROR STRIPE: {e}")
+        logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/portal_cliente")
