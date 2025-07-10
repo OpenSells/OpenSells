@@ -5,18 +5,15 @@ import requests
 import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
-from openai import OpenAI
 from json import JSONDecodeError
+from streamlit_app.cache_utils import cached_get, cached_post, get_openai_client, auth_headers
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
-print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 # -------------------- Helpers --------------------
 
-def obtener_headers():
-    return {"Authorization": f"Bearer {st.session_state.token}"}
 
 
 def normalizar_dominio(url):
@@ -64,17 +61,14 @@ for flag, valor in {
     "guardando_mostrado": False,
     "mostrar_resultado": False,
 }.items():
-    st.session_state.setdefault(flag, valor)
+st.session_state.setdefault(flag, valor)
 
-headers = obtener_headers()
+headers = auth_headers(st.session_state.token)
 
 # -------------------- Mostrar plan activo --------------------
 try:
-    r_plan = requests.get(f"{BACKEND_URL}/protegido", headers=headers)
-    if r_plan.status_code == 200:
-        plan = safe_json(r_plan).get("plan", "").strip().lower()
-    else:
-        plan = "free"
+    r_plan = cached_get("protegido", st.session_state.token)
+    plan = (r_plan.get("plan") or "").strip().lower() if r_plan else "free"
 except Exception:
     plan = "free"
 
@@ -206,11 +200,11 @@ if st.session_state.loading:
 
 st.title("🎯 Encuentra tus próximos clientes")
 
-memoria_resp = requests.get(f"{BACKEND_URL}/mi_memoria", headers=headers)
-memoria = safe_json(memoria_resp).get("memoria", "") if memoria_resp.status_code == 200 else ""
+memoria_data = cached_get("mi_memoria", st.session_state.token)
+memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
-nichos_resp = requests.get(f"{BACKEND_URL}/mis_nichos", headers=headers)
-nichos_previos = [n["nicho_original"] for n in safe_json(nichos_resp).get("nichos", [])] if nichos_resp.status_code == 200 else []
+nichos_data = cached_get("mis_nichos", st.session_state.token)
+nichos_previos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
 
 # -------------------- Input Cliente Ideal --------------------
 cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia")
@@ -219,7 +213,7 @@ cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: c
 with st.expander("💡 Sugerencias de nichos rentables para ti"):
     if memoria or nichos_previos:
         try:
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            client = get_openai_client()
             prompt = (
                 "Eres un experto en crecimiento de negocios online. Sugiere 5 nichos de mercado distintos, con potencial de alta rentabilidad, "
                 "adaptados a la siguiente información del usuario. Memoria (sobre su negocio): '" + memoria + "'. "

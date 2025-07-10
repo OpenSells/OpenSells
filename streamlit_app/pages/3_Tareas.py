@@ -1,15 +1,15 @@
-import os, requests
+import os
 from hashlib import md5
 from urllib.parse import urlparse
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
-from json import JSONDecodeError
+from streamlit_app.cache_utils import cached_get, cached_post
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
-print("Backend URL cargado:", BACKEND_URL)  # 👈 AÑADE ESTO
+from streamlit_app.cache_utils import cached_get, cached_post
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
@@ -46,34 +46,12 @@ def norm_dom(url: str) -> str:
         url = "http://" + url
     return urlparse(url).netloc.replace("www.", "").split("/")[0]
 
-def safe_json(resp: requests.Response) -> dict:
-    try:
-        return resp.json()
-    except JSONDecodeError:
-        st.error(f"Respuesta no válida: {resp.text}")
-        return {}
-
-def api_get(endpoint: str, **params):
-    try:
-        r = requests.get(f"{BACKEND_URL}/{endpoint}", params=params, headers=HDR, timeout=30)
-        r.raise_for_status()
-        return safe_json(r)
-    except Exception as e:
-        st.error(f"Error de red: {e}")
-        return {}
-
-def api_post(endpoint: str, payload: dict = None, params: dict = None):
-    try:
-        r = requests.post(f"{BACKEND_URL}/{endpoint}", json=payload, params=params, headers=HDR, timeout=15)
-        r.raise_for_status()
-        return safe_json(r)
-    except Exception as e:
-        st.error(f"Error enviando datos: {e}")
-        return {}
 
 # ────────────────── Datos base ──────────────────────
-todos = [t for t in api_get("tareas_pendientes").get("tareas", []) if not t.get("completado", False)]
-map_n = {n["nicho"]: n["nicho_original"] for n in api_get("mis_nichos").get("nichos", [])}
+datos_tareas = cached_get("tareas_pendientes", st.session_state.token)
+todos = [t for t in (datos_tareas.get("tareas") if datos_tareas else []) if not t.get("completado", False)]
+datos_nichos = cached_get("mis_nichos", st.session_state.token)
+map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
 # ────────────────── Render tabla ────────────────────
 def render_list(items: list[dict], key_pref: str):
@@ -119,7 +97,7 @@ def render_list(items: list[dict], key_pref: str):
         cols[4].markdown(prioridad)
 
         if cols[5].button("✔️", key=f"done_{unique_key}"):
-            api_post("tarea_completada", params={"tarea_id": t['id']})
+            cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
             st.success(f"Tarea {t['id']} marcada como completada ✅")
             st.rerun()
 
@@ -146,14 +124,19 @@ def render_list(items: list[dict], key_pref: str):
             )
 
             if c4.button("💾", key=f"guardar_edit_{unique_key}"):
-                api_post("editar_tarea", {
-                    "texto": nuevo_texto.strip(),
-                    "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
-                    "prioridad": nueva_prioridad,
-                    "tipo": t.get("tipo"),
-                    "nicho": t.get("nicho"),
-                    "dominio": t.get("dominio")
-                }, params={"tarea_id": t["id"]})
+                cached_post(
+                    "editar_tarea",
+                    st.session_state.token,
+                    payload={
+                        "texto": nuevo_texto.strip(),
+                        "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
+                        "prioridad": nueva_prioridad,
+                        "tipo": t.get("tipo"),
+                        "nicho": t.get("nicho"),
+                        "dominio": t.get("dominio")
+                    },
+                    params={"tarea_id": t["id"]}
+                )
                 st.session_state[f"editando_{unique_key}"] = False
                 st.success("Tarea actualizada ✅")
                 st.rerun()
@@ -186,12 +169,16 @@ with tabs[1]:
             prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen")
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
-                    api_post("tarea_lead", {
-                        "texto": texto.strip(),
-                        "tipo": "general",
-                        "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                        "prioridad": prioridad
-                    })
+                    cached_post(
+                        "tarea_lead",
+                        st.session_state.token,
+                        payload={
+                            "texto": texto.strip(),
+                            "tipo": "general",
+                            "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                            "prioridad": prioridad
+                        }
+                    )
                     st.success("Tarea creada ✅")
                     st.rerun()
                 else:
@@ -204,7 +191,8 @@ with tabs[1]:
 
     # Toggle para historial
     if st.toggle("📜 Ver historial de tareas generales", key="toggle_historial_general"):
-        historial = api_get("historial_tareas", tipo="general").get("historial", [])
+        datos_hist = cached_get("historial_tareas", st.session_state.token, tipo="general")
+        historial = datos_hist.get("historial", []) if datos_hist else []
         completadas = [
             h for h in historial
             if h.get("tipo") == "general" and h.get("descripcion", "").lower().startswith("tarea completada")
@@ -221,7 +209,8 @@ with tabs[2]:
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
-    ln = api_get("mis_nichos").get("nichos", [])
+    ln_data = cached_get("mis_nichos", st.session_state.token)
+    ln = ln_data.get("nichos", []) if ln_data else []
 
     if not ln:
         st.info("Crea nichos para ver tareas.")
@@ -268,13 +257,17 @@ with tabs[2]:
                     prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho")
                     if st.form_submit_button("💾 Crear tarea"):
                         if texto.strip():
-                            api_post("tarea_lead", {
-                                "texto": texto.strip(),
-                                "tipo": "nicho",
-                                "nicho": nk["nicho"],
-                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                "prioridad": prioridad
-                            })
+                            cached_post(
+                                "tarea_lead",
+                                st.session_state.token,
+                                payload={
+                                    "texto": texto.strip(),
+                                    "tipo": "nicho",
+                                    "nicho": nk["nicho"],
+                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                    "prioridad": prioridad
+                                }
+                            )
                             st.success("Tarea creada ✅")
                             st.rerun()
                         else:
@@ -286,7 +279,8 @@ with tabs[2]:
 
             # Toggle historial
             if st.toggle("📜 Ver historial de tareas de este nicho", key="toggle_historial_nicho"):
-                historial = api_get("historial_tareas", tipo="nicho", nicho=nk["nicho"]).get("historial", [])
+                hist_n = cached_get("historial_tareas", st.session_state.token, tipo="nicho", nicho=nk["nicho"])
+                historial = hist_n.get("historial", []) if hist_n else []
                 completadas = [
                     h for h in historial
                     if h.get("descripcion", "").lower().startswith("tarea completada")
@@ -308,7 +302,8 @@ with tabs[3]:
     if not st.session_state["lead_seleccionado"]:
         q = st.text_input("Filtrar leads por dominio:", placeholder="Ej. clinicadental.com")
         st.session_state["q_lead"] = q
-        resultados = api_get("buscar_leads", query=q).get("resultados", []) if q else []
+        datos_buscar = cached_get("buscar_leads", st.session_state.token, query=q) if q else None
+        resultados = datos_buscar.get("resultados", []) if datos_buscar else []
 
         if resultados:
             st.markdown(f"**Total encontrados: {len(resultados)}**")
@@ -340,13 +335,17 @@ with tabs[3]:
                 prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle")
                 if st.form_submit_button("💾 Crear tarea"):
                     if texto.strip():
-                        api_post("tarea_lead", {
-                            "texto": texto.strip(),
-                            "tipo": "lead",
-                            "dominio": norm,
-                            "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                            "prioridad": prioridad
-                        })
+                        cached_post(
+                            "tarea_lead",
+                            st.session_state.token,
+                            payload={
+                                "texto": texto.strip(),
+                                "tipo": "lead",
+                                "dominio": norm,
+                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                "prioridad": prioridad
+                            }
+                        )
                         st.success("Tarea creada ✅")
                         st.rerun()
                     else:
@@ -354,28 +353,34 @@ with tabs[3]:
 
         # Toggle info extra
         if st.toggle("📝 Información extra del lead", key="toggle_info"):
-            info = api_get("info_extra", dominio=norm)
+            info = cached_get("info_extra", st.session_state.token, dominio=norm) or {}
             with st.form(key="form_info_extra_detalle"):
                 c1, c2 = st.columns(2)
                 email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key="email_info")
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
                 info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
-                    respuesta = api_post("guardar_info_extra", {
-                        "dominio": norm,
-                        "email": email_nuevo,
-                        "telefono": tel_nuevo,
-                        "informacion": info_nueva
-                    })
-                    if respuesta.get("mensaje"):
+                    respuesta = cached_post(
+                        "guardar_info_extra",
+                        st.session_state.token,
+                        payload={
+                            "dominio": norm,
+                            "email": email_nuevo,
+                            "telefono": tel_nuevo,
+                            "informacion": info_nueva
+                        }
+                    )
+                    if respuesta and respuesta.get("mensaje"):
                         st.success("Información guardada correctamente ✅")
 
         st.markdown("#### 📋 Tareas activas")
-        tareas_l = api_get("tareas_lead", dominio=norm).get("tareas", [])
+        tareas_datos = cached_get("tareas_lead", st.session_state.token, dominio=norm)
+        tareas_l = tareas_datos.get("tareas", []) if tareas_datos else []
         render_list([t for t in tareas_l if not t.get("completado", False)], f"lead_t_{norm}")
 
         st.markdown("#### 📜 Historial")
-        historial = api_get("historial_lead", dominio=norm).get("historial", [])
+        hist_datos = cached_get("historial_lead", st.session_state.token, dominio=norm)
+        historial = hist_datos.get("historial", []) if hist_datos else []
         completadas = [
             h for h in historial
             if h["tipo"] == "tarea" and h["descripcion"].lower().startswith("tarea completada")
