@@ -7,7 +7,7 @@ import pandas as pd
 import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
-from streamlit_app.cache_utils import cached_get, cached_post
+from cache_utils import cached_get, cached_post
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")

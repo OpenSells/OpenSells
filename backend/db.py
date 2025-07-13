@@ -520,13 +520,15 @@ def obtener_historial_por_nicho_postgres(email: str, nicho: str, db: Session):
     )
     return [{"tipo": e.tipo, "descripcion": e.descripcion, "timestamp": e.timestamp} for e in eventos]
 
-def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str):
-    with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            DELETE FROM leads_extraidos
-            WHERE user_email = ? AND url = ? AND nicho = ?
-        """, (user_email, dominio, nicho))
-        db.commit()
+from backend.models import LeadExtraido
+
+def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str, db: Session):
+    db.query(LeadExtraido).filter_by(
+        user_email=user_email,
+        url=dominio,
+        nicho=nicho
+    ).delete()
+    db.commit()
 
 from urllib.parse import urlparse
 

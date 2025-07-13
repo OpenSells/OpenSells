@@ -1,58 +1,59 @@
-## 📋 Resumen de migración y mejoras recientes (actualizado 07/07/2025)
+README Wrapper Leads SaaS (actualizado 07/07/2025)
+📋 Resumen de migración y mejoras recientes (actualizado 07/07/2025)
 
-### ✅ 1. Preparativos y Debugging Inicial
+✅ 1. Preparativos y Debugging Inicial
 - Corrección de errores como `asyncio.run`, `await` fuera de funciones `async`, y imports faltantes.
 - Errores solucionados: `NameError: AsyncSession`, `TypeError` en corutinas, `sqlite3.OperationalError`.
 
-### ✅ 2. Migración total de SQLite a PostgreSQL
+✅ 2. Migración total de SQLite a PostgreSQL
 - PostgreSQL alojado en Render con `DATABASE_URL`.
 - Modelos migrados: Usuario, LeadTarea, LeadHistorial, LeadNota, LeadEstado, LeadExtraido, LeadInfoExtra, UsuarioMemoria.
 - Archivos clave actualizados: `main.py`, `db.py`, `models.py`, `auth.py`.
 
-### ✅ 3. Autenticación y sesiones
+✅ 3. Autenticación y sesiones
 - Sistema de login y registro con JWT y verificación de plan.
 - Endpoint `/protegido` devuelve email y plan del usuario.
 
-### ✅ 4. Planes de pago con Stripe
+✅ 4. Planes de pago con Stripe
 - Planes configurados: free, pro, ilimitado.
 - Webhook `/webhook` preparado para activar el plan tras suscripción.
 - Frontend integrado con redirección a Stripe Checkout y portal de cliente.
 
-### ✅ 5. Integración Frontend y validación de planes
+✅ 5. Integración Frontend y validación de planes
 - Consultas al endpoint `/protegido` para obtener el plan.
 - Validación de token en `st.session_state`.
 - Headers unificados para autenticación en frontend.
 
-### ✅ 6. Exportación y guardado de leads
+✅ 6. Exportación y guardado de leads
 - CSVs por usuario/nicho + CSV global (`admin_data/todos_los_leads.csv`).
 - Leads únicos por dominio guardados en PostgreSQL.
 
-### ✅ 7. Endpoints migrados
+✅ 7. Endpoints migrados
 - Autenticación: `/register`, `/login`, `/protegido`.
 - Leads y tareas: `/nota_lead`, `/guardar_info_extra`, `/tarea_lead`, `/editar_tarea`, `/historial_tareas`.
 - Exportación y búsqueda: `/exportar_csv`, `/extraer_multiples`, `/crear_checkout`.
 
-### ✅ 8. Validación en pgAdmin
+✅ 8. Validación en pgAdmin
 - Conexión externa verificada.
 - Datos persistentes tras reinicios en Render.
 
-### ✅ 9. Debugging final
+✅ 9. Debugging final
 - Manejo de errores de CSV vacío, JWT y parámetros requeridos.
 - Uso de `try-except` en lectura de CSVs.
 
-### 🟡 Pendientes
+🟡 Pendientes
 - Eliminar uso total de CSVs si se migra todo a PostgreSQL.
 - Añadir logs o panel admin.
 - Activar webhook real de Stripe al tener dominio público.
 - Edición/eliminación masiva desde base de datos.
 
-# Wrapper Leads SaaS 🚀
+Wrapper Leads SaaS 🚀
 
 Wrapper Leads SaaS es una plataforma SaaS para la extracción automática de leads desde sitios web públicos, combinando scraping inteligente, procesamiento IA y una interfaz sencilla.
 
 ---
 
-## 🧠 Objetivo del Proyecto
+🧠 Objetivo del Proyecto
 - Generar leads B2B y B2C desde dominios públicos.
 - Enriquecer resultados automáticamente con OpenAI.
 - Permitir uso sin conocimientos técnicos.
@@ -61,7 +62,7 @@ Wrapper Leads SaaS es una plataforma SaaS para la extracción automática de lea
 
 ---
 
-## 🚀 Tecnologías Usadas
+🚀 Tecnologías Usadas
 - **FastAPI** para backend (API REST).
 - **Uvicorn** como servidor ASGI.
 - **ScraperAPI + BeautifulSoup4** para scraping inteligente.
@@ -72,9 +73,8 @@ Wrapper Leads SaaS es una plataforma SaaS para la extracción automática de lea
 
 ---
 
-## 📂 Estructura del Proyecto
+📂 Estructura del Proyecto
 
-```
 wrapper-leads-saas/
 ├── backend/             # API FastAPI
 ├── scraper/             # Extracción inteligente
@@ -86,33 +86,28 @@ wrapper-leads-saas/
 ├── requirements.txt
 ├── iniciar.bat
 └── README.md
-```
 
 ---
 
-## 🛠 Instalación Local (Windows)
+🛠 Instalación Local (Windows)
 
-```bash
 git clone https://github.com/Ayrtonlink/wrapper-leads-saas.git
 cd wrapper-leads-saas
 call env\Scripts\activate.bat
 pip install -r requirements.txt
 uvicorn backend.main:app --reload
 streamlit run streamlit_app/app.py
-```
 
 Crear `.env` con:
 
-```ini
 OPENAI_API_KEY=your_openai_key
 SCRAPERAPI_KEY=your_scraperapi_key
 SECRET_KEY=una_clave_segura
 ENV=local
-```
 
 ---
 
-## ✅ Funcionalidades Principales
+✅ Funcionalidades Principales
 
 - 🔐 Registro y login de usuarios (JWT).
 - 🧠 Generación de variantes de búsqueda con IA.
@@ -134,7 +129,7 @@ ENV=local
 
 ---
 
-## 🔥 Cambios Recientes (Actualización 02/06/2025)
+🔥 Cambios Recientes (Actualización 02/06/2025)
 
 - ✅ Integración del asistente virtual en Streamlit con OpenAI.
 - ✅ Vista mejorada de tareas por tipo (general, nicho, lead).
@@ -152,7 +147,7 @@ ENV=local
 
 ---
 
-## 🆕 Cambios posteriores al 02/06/2025 (actualizado 16/06/2025)
+🆕 Cambios posteriores al 02/06/2025 (actualizado 16/06/2025)
 
 - ✅ Endpoint `/tareas_pendientes` reestructurado para mayor limpieza (extraído a `db.py`).
 - ✅ Filtrado visual de tareas completadas en la sección "Pendientes".
@@ -163,7 +158,7 @@ ENV=local
 
 
 
-## 🆕 Cambios posteriores al 27/06/2025
+🆕 Cambios posteriores al 27/06/2025
 
 - ✅ La extracción ahora solo guarda `Dominio` y `Fecha` por lead, sin emails, teléfonos ni redes sociales.
 - ✅ Eliminado el enriquecimiento IA durante la extracción para mejorar velocidad y evitar errores innecesarios.
@@ -172,7 +167,7 @@ ENV=local
 - ✅ Se oculta el campo de refinamiento si la IA responde "OK." para evitar confusión en el flujo de búsqueda.
 
 
-## 🆕 Cambios posteriores al 29/06/2025
+🆕 Cambios posteriores al 29/06/2025
 
 - ✅ Eliminado el scraping web en `/extraer_multiples`. Ahora solo se procesa el dominio base sin llamadas a ScraperAPI ni a BeautifulSoup.
 - ✅ Extracción mucho más rápida, sin costes ni retardo, ideal para grandes volúmenes.
@@ -188,7 +183,7 @@ ENV=local
 - ✅ El historial registra un evento tipo `"info"` cuando se actualiza esta información.
 - ✅ En `3_Tareas.py`, al seleccionar un dominio, se muestra un formulario editable con estos campos debajo del historial y tareas.
 
-## 🆕 Cambios posteriores al 30/06/2025
+🆕 Cambios posteriores al 30/06/2025
 
 - ✅ Añadido campo `plan` al modelo de usuarios para definir suscripción activa o gratuita.
 - ✅ Todos los nuevos registros se crean con `plan = "free"` por defecto.
@@ -207,7 +202,7 @@ ENV=local
 - ✅ Endpoint `/webhook` preparado para actualizar el plan del usuario cuando finaliza la compra.
 - ⚠️ El webhook de Stripe queda pendiente de activar cuando se tenga dominio público (requisito de Stripe).
 
-## 🆕 Cambios posteriores al 01/07/2025
+🆕 Cambios posteriores al 01/07/2025
 
 - ✅ Validación visual en frontend para evitar que usuarios con plan `free` accedan a la extracción de leads.
 - ✅ Al hacer clic en “Buscar dominios”, si el usuario no tiene suscripción, aparece un aviso con botón directo a Stripe.
@@ -218,7 +213,7 @@ ENV=local
 - ✅ El nombre del dominio en “Mis Nichos” ahora es clicable y abre la web en una nueva pestaña.
 - ✅ Lo mismo se aplica al dominio seleccionado en la sección “Leads” dentro de “Tareas”.
 
-## 🆕 Cambios posteriores al 03/07/2025
+🆕 Cambios posteriores al 03/07/2025
 
 - ✅ Rediseño visual completo de la sección de tareas en `3_Tareas.py`:
   - Las tareas generales, por lead y por nicho se dividen en dos fases: búsqueda/listado y vista individual.
@@ -238,7 +233,7 @@ ENV=local
   - Eliminado `unsafe_allow_html=True` en la tabla de tareas.
   - Reemplazado `st.experimental_get_query_params()` por `st.query_params` + `clear()` según recomendación oficial.
 
-## ❓ Pendientes Actuales
+❓ Pendientes Actuales
 
 - ❌ Migrar CSVs antiguos a base de datos.
 - 🔄 Añadir barra de progreso real durante extracción.
@@ -250,20 +245,18 @@ ENV=local
 
 ---
 
-## 🧪 Tests
+🧪 Tests
 
-```bash
 pytest tests/
-```
 
 ---
 
-## 👤 Autor
+👤 Autor
 
 - Ayrton  
 - GitHub: [Ayrtonlink](https://github.com/Ayrtonlink)
 
-## 🆕 Cambios posteriores al 27/06/2025
+🆕 Cambios posteriores al 27/06/2025
 
 - ✅ Implementado sistema visual compacto para mover leads entre nichos desde el frontend.
 - ✅ Botón 🔀 alineado horizontalmente con el dominio y el botón 🗑️, sin expanders ni popovers anidados.
@@ -273,7 +266,7 @@ pytest tests/
 - ✅ El botón de eliminar `❌` ha sido reemplazado por 🗑️ para mayor coherencia visual.
 - ✅ Todo el manejo de leads ahora se realiza en una línea compacta por lead.
 
-## 🆕 Cambios posteriores al 21/06/2025
+🆕 Cambios posteriores al 21/06/2025
 
 - ✅ El historial de tareas generales y de nichos ahora funciona correctamente y por separado.
 - ✅ El endpoint `/historial_tareas` acepta ahora un parámetro opcional `nicho` para filtrar correctamente.

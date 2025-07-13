@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
-from streamlit_app.cache_utils import cached_get, cached_post, get_openai_client, auth_headers
+from cache_utils import cached_get, cached_post, get_openai_client, auth_headers
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -61,7 +61,7 @@ for flag, valor in {
     "guardando_mostrado": False,
     "mostrar_resultado": False,
 }.items():
-st.session_state.setdefault(flag, valor)
+    st.session_state.setdefault(flag, valor)
 
 headers = auth_headers(st.session_state.token)
 

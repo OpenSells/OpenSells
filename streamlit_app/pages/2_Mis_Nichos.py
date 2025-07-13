@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 import streamlit as st
 from dotenv import load_dotenv
 
-from streamlit_app.cache_utils import cached_get, cached_post
+from cache_utils import cached_get, cached_post, cached_delete
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -67,7 +67,7 @@ if not nichos:
 # ── Construir índice rápido de leads (para búsquedas globales) ────
 todos_leads = []
 for n in nichos:
-    datos = cached_get("leads_por_nicho", st.session_state.token, nicho=n["nicho"])
+    datos = cached_get("leads_por_nicho", st.session_state.token, query={"nicho": n["nicho"]})
     leads = datos.get("leads", []) if datos else []
     n["total_leads"] = len(leads)
 
@@ -154,7 +154,7 @@ for n in nichos_visibles:
             st.experimental_rerun()
 
         # ── Cargar leads del nicho ───────────────────
-        resp_leads = cached_get("leads_por_nicho", st.session_state.token, nicho=n["nicho"])
+        resp_leads = cached_get("leads_por_nicho", st.session_state.token, query={"nicho": n["nicho"]})
         leads = resp_leads.get("leads", []) if resp_leads else []
 
         # ── Filtro interno por dominio ───────────────
@@ -224,18 +224,22 @@ for n in nichos_visibles:
 
             # Botón eliminar
             if cols_row[1].button("🗑️", key=f"btn_borrar_{clave_base}"):
-                cached_post(
+                res = cached_delete(
                     "eliminar_lead",
                     st.session_state.token,
                     params={
                         "nicho": n["nicho"],
                         "dominio": dominio,
-                        "solo_de_este_nicho": "true",
+                        "solo_de_este_nicho": True,
                     },
                 )
-                st.session_state[key_exp] = True
-                st.session_state["solo_nicho_visible"] = n["nicho"]
-                st.experimental_rerun()
+                if res:
+                    st.session_state.pop("_cache", None)  # ✅ Limpia caché manualmente
+                    st.session_state[key_exp] = True
+                    st.session_state["solo_nicho_visible"] = n["nicho"]
+                    st.experimental_rerun()
+                else:
+                    st.error("❌ Error al eliminar el lead")
 
                         # Botón Mover compacto
             if cols_row[2].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
@@ -270,7 +274,7 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", st.session_state.token, dominio=dominio) or {}
+                info = cached_get("info_extra", st.session_state.token, query={"dominio": dominio}) or {} or {}
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)

@@ -4,12 +4,11 @@ from urllib.parse import urlparse
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
-from streamlit_app.cache_utils import cached_get, cached_post
+from cache_utils import cached_get, cached_post
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
-from streamlit_app.cache_utils import cached_get, cached_post
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 

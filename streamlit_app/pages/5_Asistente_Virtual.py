@@ -1,14 +1,15 @@
 import streamlit as st
 import os
 from dotenv import load_dotenv
-from streamlit_app.cache_utils import cached_get, get_openai_client
+from cache_utils import cached_get, get_openai_client
+
+st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 client = get_openai_client()
 
-st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 st.title("🤖 Tu Asistente Virtual")
 
 if "token" not in st.session_state:
