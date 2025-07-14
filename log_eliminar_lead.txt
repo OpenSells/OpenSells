@@ -48,3 +48,4 @@
 [2025-07-14 10:21:31.788000] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: prontopro.es — Solo este nicho: True — Nicho: murkia
 [2025-07-14 10:21:41.294381] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: elcarmenveterinarios.com — Solo este nicho: True — Nicho: murkia
 [2025-07-14 11:25:48.243570] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: centrodentallavapies.com — Solo este nicho: True — Nicho: madrik
+[2025-07-14 15:49:47.114106] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: windental.es — Solo este nicho: True — Nicho: murkia

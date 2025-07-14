@@ -1,10 +1,15 @@
 import os
 from hashlib import md5
 from urllib.parse import urlparse
+import time
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
 from cache_utils import cached_get, cached_post
+
+def limpiar_cache():
+    if "_cache" in st.session_state:
+        st.session_state._cache.clear()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
@@ -47,7 +52,7 @@ def norm_dom(url: str) -> str:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_tareas = cached_get("tareas_pendientes", st.session_state.token)
+datos_tareas = cached_get("tareas_pendientes", st.session_state.token, nocache_key=time.time())
 todos = [t for t in (datos_tareas.get("tareas") if datos_tareas else []) if not t.get("completado", False)]
 datos_nichos = cached_get("mis_nichos", st.session_state.token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
@@ -97,6 +102,7 @@ def render_list(items: list[dict], key_pref: str):
 
         if cols[5].button("✔️", key=f"done_{unique_key}"):
             cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
+            limpiar_cache()  # ✅ Añadir esto
             st.success(f"Tarea {t['id']} marcada como completada ✅")
             st.rerun()
 
@@ -137,6 +143,7 @@ def render_list(items: list[dict], key_pref: str):
                     params={"tarea_id": t["id"]}
                 )
                 st.session_state[f"editando_{unique_key}"] = False
+                limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
                 st.success("Tarea actualizada ✅")
                 st.rerun()
 
@@ -166,6 +173,7 @@ with tabs[1]:
             cols = st.columns(2)
             fecha = cols[0].date_input("📅 Fecha", value=None, key="f_gen")
             prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen")
+
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
                     cached_post(
@@ -178,6 +186,7 @@ with tabs[1]:
                             "prioridad": prioridad
                         }
                     )
+                    limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
                     st.success("Tarea creada ✅")
                     st.rerun()
                 else:
@@ -190,7 +199,7 @@ with tabs[1]:
 
     # Toggle para historial
     if st.toggle("📜 Ver historial de tareas generales", key="toggle_historial_general"):
-        datos_hist = cached_get("historial_tareas", st.session_state.token, tipo="general")
+        datos_hist = cached_get("historial_tareas", st.session_state.token, query={"tipo": "general"})
         historial = datos_hist.get("historial", []) if datos_hist else []
         completadas = [
             h for h in historial
@@ -267,6 +276,7 @@ with tabs[2]:
                                     "prioridad": prioridad
                                 }
                             )
+                            limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
                             st.success("Tarea creada ✅")
                             st.rerun()
                         else:
@@ -278,7 +288,7 @@ with tabs[2]:
 
             # Toggle historial
             if st.toggle("📜 Ver historial de tareas de este nicho", key="toggle_historial_nicho"):
-                hist_n = cached_get("historial_tareas", st.session_state.token, tipo="nicho", nicho=nk["nicho"])
+                hist_n = cached_get("historial_tareas", st.session_state.token, query={"tipo": "nicho", "nicho": nk["nicho"]})
                 historial = hist_n.get("historial", []) if hist_n else []
                 completadas = [
                     h for h in historial
@@ -301,7 +311,9 @@ with tabs[3]:
     if not st.session_state["lead_seleccionado"]:
         q = st.text_input("Filtrar leads por dominio:", placeholder="Ej. clinicadental.com")
         st.session_state["q_lead"] = q
-        datos_buscar = cached_get("buscar_leads", st.session_state.token, query=q) if q else None
+
+        query = {"busqueda": q} if q else None
+        datos_buscar = cached_get("buscar_leads", st.session_state.token, query=query) if query else None
         resultados = datos_buscar.get("resultados", []) if datos_buscar else []
 
         if resultados:
@@ -370,7 +382,9 @@ with tabs[3]:
                         }
                     )
                     if respuesta and respuesta.get("mensaje"):
+                        limpiar_cache()  # ✅ Limpia la caché para que se vea la información actualizada
                         st.success("Información guardada correctamente ✅")
+                        st.rerun()
 
         st.markdown("#### 📋 Tareas activas")
         tareas_datos = cached_get("tareas_lead", st.session_state.token, dominio=norm)

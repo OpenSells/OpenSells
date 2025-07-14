@@ -12,12 +12,17 @@
 #   4. Limpieza y tipado ligero.
 
 import os
+import sys
 import hashlib
 from urllib.parse import urlparse
 
 import streamlit as st
 from dotenv import load_dotenv
 
+# Añadir raíz del proyecto al path para importar correctamente desde backend/
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete
 
 # ── Config ───────────────────────────────────────────
