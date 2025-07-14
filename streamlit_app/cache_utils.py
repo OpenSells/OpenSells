@@ -19,21 +19,17 @@ def auth_headers(token: str) -> dict:
     """Authorization headers for a given token."""
     return {"Authorization": f"Bearer {token}"}
 
-@st.cache_data(ttl=300)
-def cached_get(endpoint, token, query=None, nocache=False):
+@st.cache_data
+def cached_get(endpoint, token, query=None, nocache_key=None):
+    """
+    GET con caché de Streamlit. Si nocache_key cambia, se fuerza recarga.
+    """
     url = f"{BACKEND_URL}/{endpoint}"
     headers = {"Authorization": f"Bearer {token}"}
     if query:
         url += "?" + urlencode(query)
     try:
-        if nocache:
-            response = requests.get(url, headers=headers)
-        else:
-            if not hasattr(st.session_state, "_cache"):
-                st.session_state._cache = {}
-            if url not in st.session_state._cache:
-                st.session_state._cache[url] = requests.get(url, headers=headers)
-            response = st.session_state._cache[url]
+        response = requests.get(url, headers=headers)
         if response.status_code == 200:
             return response.json()
     except Exception as e:

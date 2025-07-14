@@ -40,6 +40,10 @@ if "token" not in st.session_state:
     st.error("Debes iniciar sesión para ver esta página.")
     st.stop()
 
+# ── Forzar Recarga Caché ─────────────────────────────
+if "forzar_recarga" not in st.session_state:
+    st.session_state["forzar_recarga"] = 0
+
 # ── Título ───────────────────────────────────────────
 st.title("📁 Gestión de Nichos")
 
@@ -99,7 +103,7 @@ if busqueda:
         ):
             st.session_state["solo_nicho_visible"] = l["nicho"]
             st.session_state["busqueda_global"] = ""
-            st.experimental_rerun()
+            st.rerun()
 
     # Nichos coincidentes (solo listamos, sin interacción de momento)
     for n in nichos_coinc:
@@ -112,7 +116,7 @@ if "solo_nicho_visible" in st.session_state:
     if st.button("🔙 Volver a todos los nichos", key="volver_todos"):
         st.session_state.pop("solo_nicho_visible")
         st.session_state.pop("busqueda_global", None)
-        st.experimental_rerun()
+        st.rerun()
 
 # ── Definir qué nichos se muestran ──────────────────
 if "solo_nicho_visible" in st.session_state:
@@ -151,10 +155,16 @@ for n in nichos_visibles:
             cached_post("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
             if st.session_state.get("solo_nicho_visible") == n["nicho"]:
                 st.session_state.pop("solo_nicho_visible", None)
-            st.experimental_rerun()
+            st.session_state["forzar_recarga"] += 1  # 🔄 fuerza recarga de leads y vista
+            st.rerun()
 
         # ── Cargar leads del nicho ───────────────────
-        resp_leads = cached_get("leads_por_nicho", st.session_state.token, query={"nicho": n["nicho"]})
+        resp_leads = cached_get(
+            "leads_por_nicho",
+            st.session_state.token,
+            query={"nicho": n["nicho"]},
+            nocache_key=st.session_state["forzar_recarga"]
+        )
         leads = resp_leads.get("leads", []) if resp_leads else []
 
         # ── Filtro interno por dominio ───────────────
@@ -207,6 +217,7 @@ for n in nichos_visibles:
                             )
                             if res:
                                 st.success("Lead añadido correctamente ✅")
+                                st.session_state["forzar_recarga"] += 1
                                 st.session_state["solo_nicho_visible"] = n["nicho"]
                                 st.session_state[key_exp] = True
                                 st.rerun()
@@ -234,10 +245,10 @@ for n in nichos_visibles:
                     },
                 )
                 if res:
-                    st.session_state.pop("_cache", None)  # ✅ Limpia caché manualmente
+                    st.session_state["forzar_recarga"] += 1
                     st.session_state[key_exp] = True
                     st.session_state["solo_nicho_visible"] = n["nicho"]
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("❌ Error al eliminar el lead")
 
@@ -262,8 +273,9 @@ for n in nichos_visibles:
                     )
                     if res:
                         st.success("Lead movido correctamente ✅")
+                        st.session_state["forzar_recarga"] += 1
                         st.session_state["lead_a_mover"] = None
-                        st.session_state["solo_nicho_visible"] = n["nicho"]
+                        st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
                         st.rerun()
                     else:
                         st.error("Error al mover lead")
@@ -274,7 +286,7 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", st.session_state.token, query={"dominio": dominio}) or {} or {}
+                info = cached_get("info_extra", st.session_state.token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)
@@ -295,3 +307,5 @@ for n in nichos_visibles:
                         )
                         if res:
                             st.success("Información guardada correctamente ✅")
+                            st.session_state["forzar_recarga"] += 1
+                            st.rerun()
