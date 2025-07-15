@@ -576,7 +576,7 @@ def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: 
 
 @app.get("/buscar_leads")
 def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    resultados = buscar_leads_global(usuario.email, query, db)
+    resultados = buscar_leads_global_postgres(usuario.email, query, db)
     return {"resultados": resultados}
 
 from pydantic import BaseModel
