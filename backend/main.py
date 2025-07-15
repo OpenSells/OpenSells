@@ -19,7 +19,6 @@ from typing import Optional
 from openai import OpenAI
 import requests
 import logging
-from fastapi.responses import FileResponse
 import pandas as pd
 import os
 from datetime import datetime
@@ -30,6 +29,7 @@ from fastapi.responses import StreamingResponse
 from io import BytesIO
 import asyncio
 from time import perf_counter
+import csv
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
@@ -378,19 +378,8 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
     df = df.drop_duplicates(subset="Dominio", keep="first")
     df = df.dropna(how="all")
 
-    # Guardar CSV por nicho
-    carpeta_usuario = os.path.join("exports", usuario.email)
-    os.makedirs(carpeta_usuario, exist_ok=True)
-    archivo_usuario_nicho = os.path.join(carpeta_usuario, f"{nicho_normalizado}.csv")
-
-    if os.path.exists(archivo_usuario_nicho):
-        df_existente = pd.read_csv(archivo_usuario_nicho)
-        df_combinado = pd.concat([df_existente, df], ignore_index=True)
-        df_combinado.drop_duplicates(subset="Dominio", inplace=True)
-    else:
-        df_combinado = df
-
-    df_combinado.to_csv(archivo_usuario_nicho, index=False, encoding="utf-8-sig")
+    # No se guarda un CSV permanente. Se generará al vuelo para la descarga.
+    df_combinado = df
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
@@ -400,25 +389,15 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
 
     guardar_leads_extraidos(usuario.email, nuevos_dominios, nicho_normalizado, nicho_original, db)
 
-    # Guardar CSV global para admin
-    os.makedirs("admin_data", exist_ok=True)
-    archivo_global = os.path.join("admin_data", "todos_los_leads.csv")
-    df["Usuario"] = usuario.email
+    # Ya no se mantiene un CSV global. Solo se guardan en la base de datos.
 
-    if os.path.exists(archivo_global):
-        df_global = pd.read_csv(archivo_global)
-        combinado_global = pd.concat([df_global, df], ignore_index=True)
-        combinado_global.drop_duplicates(subset="Dominio", inplace=True)
-    else:
-        combinado_global = df
-
-    combinado_global.to_csv(archivo_global, index=False, encoding="utf-8-sig")
-
+    buffer = BytesIO()
+    df_combinado.to_csv(buffer, index=False, encoding="utf-8-sig")
+    buffer.seek(0)
     logger.info(
         "exportar_csv %s -> %d dominios en %.2fs", nicho_normalizado, len(dominios_unicos), perf_counter() - start
     )
-
-    return FileResponse(archivo_usuario_nicho, filename=f"{nicho_original}.csv", media_type="text/csv")
+    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nicho_original}.csv"})
 
 # 📜 Historial de exportaciones
 @app.get("/historial")
@@ -438,6 +417,35 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
     nicho = normalizar_nicho(nicho)
     leads = obtener_leads_por_nicho(usuario.email, nicho, db)
     return {"nicho": nicho, "leads": leads}
+
+@app.get("/exportar_leads_nicho")
+def exportar_leads_nicho(nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    start = perf_counter()
+    nicho_norm = normalizar_nicho(nicho)
+    leads = obtener_leads_por_nicho(usuario.email, nicho_norm, db)
+
+    if not leads:
+        raise HTTPException(status_code=404, detail="No hay leads para exportar")
+
+    df = pd.DataFrame([
+        {"Dominio": l["url"], "Fecha": l["timestamp"][:10] if l.get("timestamp") else ""}
+        for l in leads
+    ])
+
+    buffer = BytesIO()
+    df.to_csv(buffer, index=False, encoding="utf-8-sig")
+    buffer.seek(0)
+    logger.info(
+        "exportar_leads_nicho %s -> %d leads en %.2fs",
+        nicho_norm,
+        len(df),
+        perf_counter() - start,
+    )
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={nicho}.csv"},
+    )
 
 # 🗑️ Eliminar un nicho
 @app.delete("/eliminar_nicho")
@@ -462,18 +470,28 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
     return {"urls_filtradas": urls_filtradas}
 
 @app.get("/exportar_todos_mis_leads")
-def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
+def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     start = perf_counter()
-    carpeta_usuario = os.path.join("exports", usuario.email)
-    if not os.path.exists(carpeta_usuario):
+    from backend.models import LeadExtraido
+
+    leads = (
+        db.query(LeadExtraido)
+        .filter(LeadExtraido.user_email == usuario.email)
+        .order_by(LeadExtraido.timestamp.desc())
+        .all()
+    )
+
+    if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
-    archivos_csv = [os.path.join(carpeta_usuario, f) for f in os.listdir(carpeta_usuario) if f.endswith(".csv")]
-    if not archivos_csv:
-        raise HTTPException(status_code=404, detail="No hay archivos CSV para exportar")
-
-    df_total = pd.concat([pd.read_csv(archivo) for archivo in archivos_csv], ignore_index=True)
-    df_total.drop_duplicates(subset="Dominio", inplace=True)
+    df_total = pd.DataFrame([
+        {
+            "Dominio": lead.url,
+            "Nicho": lead.nicho_original,
+            "Fecha": str(lead.timestamp)[:10],
+        }
+        for lead in leads
+    ])
 
     buffer = BytesIO()
     df_total.to_csv(buffer, index=False, encoding="utf-8-sig")
@@ -481,7 +499,7 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user)):
 
     nombre_archivo = f"leads_totales_{usuario.email}.csv"
     logger.info(
-        "exportar_todos_mis_leads %d archivos en %.2fs", len(archivos_csv), perf_counter() - start
+        "exportar_todos_mis_leads %d leads en %.2fs", len(df_total), perf_counter() - start
     )
     return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
 
@@ -761,29 +779,10 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
 
         # Comprobar duplicados globales
         existentes = obtener_todos_los_dominios_usuario(usuario.email, db)
-        existentes_normalizados = set([normalizar_dominio(d) for d in existentes])
+        existentes_normalizados = set(normalizar_dominio(d) for d in existentes)
 
         if dominio_normalizado in existentes_normalizados:
             raise HTTPException(status_code=400, detail="Este dominio ya existe en tus leads.")
-
-        # Guardar CSV por nicho
-        fila = {
-            "Dominio": dominio,
-            "Fecha": datetime.now().strftime("%Y-%m-%d")
-        }
-
-        carpeta_usuario = os.path.join("exports", usuario.email)
-        os.makedirs(carpeta_usuario, exist_ok=True)
-        archivo_usuario_nicho = os.path.join(carpeta_usuario, f"{normalizar_nicho(request.nicho)}.csv")
-
-        if os.path.exists(archivo_usuario_nicho):
-            df_existente = pd.read_csv(archivo_usuario_nicho)
-            df_combinado = pd.concat([df_existente, pd.DataFrame([fila])], ignore_index=True)
-            df_combinado.drop_duplicates(subset="Dominio", inplace=True)
-        else:
-            df_combinado = pd.DataFrame([fila])
-
-        df_combinado.to_csv(archivo_usuario_nicho, index=False, encoding="utf-8-sig")
 
         # Guardar en base de datos
         guardar_leads_extraidos(
@@ -834,19 +833,6 @@ def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar
 
     df_nuevo = pd.DataFrame(filas)
 
-    carpeta_usuario = os.path.join("exports", usuario.email)
-    os.makedirs(carpeta_usuario, exist_ok=True)
-    archivo_usuario_nicho = os.path.join(carpeta_usuario, f"{normalizar_nicho(nicho)}.csv")
-
-    if os.path.exists(archivo_usuario_nicho):
-        df_existente = pd.read_csv(archivo_usuario_nicho)
-        df_combinado = pd.concat([df_existente, df_nuevo], ignore_index=True)
-        df_combinado.drop_duplicates(subset="Dominio", inplace=True)
-    else:
-        df_combinado = df_nuevo
-
-    df_combinado.to_csv(archivo_usuario_nicho, index=False, encoding="utf-8-sig")
-
     guardar_leads_extraidos(usuario.email, list(dominios), normalizar_nicho(nicho), nicho, db)
 
     return {"mensaje": f"Se han importado {len(dominios)} leads correctamente."}
@@ -863,50 +849,7 @@ class MoverLeadRequest(BaseModel):
 def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import mover_lead_en_bd
 
-    carpeta_usuario = os.path.join("exports", usuario.email)
-    archivo_origen = os.path.join(carpeta_usuario, f"{normalizar_nicho(request.origen)}.csv")
-    archivo_destino = os.path.join(carpeta_usuario, f"{normalizar_nicho(request.destino)}.csv")
-
-    if not os.path.exists(archivo_origen):
-        raise HTTPException(status_code=404, detail="Nicho de origen no encontrado.")
-
-    df_origen = pd.read_csv(archivo_origen)
-
-    if "Dominio" not in df_origen.columns:
-        raise HTTPException(status_code=400, detail="El archivo de origen no tiene la columna 'Dominio'.")
-
-    dominio_buscado = request.dominio.strip().lower().replace("www.", "")
-
-    df_origen["Dominio_normalizado"] = (
-        df_origen["Dominio"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace("www.", "", regex=False)
-    )
-
-    lead_fila = df_origen[df_origen["Dominio_normalizado"] == dominio_buscado]
-
-    if lead_fila.empty:
-        raise HTTPException(status_code=404, detail=f"El lead '{dominio_buscado}' no se encuentra en el nicho de origen.")
-
-    # Actualizar CSV
-    df_origen = df_origen[df_origen["Dominio_normalizado"] != dominio_buscado]
-
-    if df_origen.empty:
-        os.remove(archivo_origen)
-    else:
-        df_origen.drop(columns=["Dominio_normalizado"], inplace=True)
-        df_origen.to_csv(archivo_origen, index=False, encoding="utf-8-sig")
-
-    if os.path.exists(archivo_destino):
-        df_destino = pd.read_csv(archivo_destino)
-    else:
-        df_destino = pd.DataFrame()
-
-    lead_fila = lead_fila.drop(columns=["Dominio_normalizado"])
-    df_destino = pd.concat([df_destino, lead_fila], ignore_index=True)
-    df_destino.to_csv(archivo_destino, index=False, encoding="utf-8-sig")
+    # Toda la lógica se maneja en la base de datos; no se modifican CSVs locales
 
     # Actualizar en base de datos
     mover_lead_en_bd(
@@ -938,23 +881,6 @@ def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user),
             nuevo_nombre=request.nuevo_nombre,
             db=db
         )
-
-        # Renombrar archivo CSV si existe
-        carpeta_usuario = os.path.join("exports", usuario.email)
-        nicho_antiguo_norm = normalizar_nicho(request.nicho_actual)
-        nicho_nuevo_norm = normalizar_nicho(request.nuevo_nombre)
-
-        nombre_antiguo = os.path.join(carpeta_usuario, f"{nicho_antiguo_norm}.csv")
-        nombre_nuevo = os.path.join(carpeta_usuario, f"{nicho_nuevo_norm}.csv")
-
-        with open("debug_renombrar_csv.log", "a", encoding="utf-8") as f:
-            f.write(f"Intentando renombrar: {nombre_antiguo} → {nombre_nuevo}\n")
-
-        if os.path.exists(nombre_antiguo):
-            os.rename(nombre_antiguo, nombre_nuevo)
-        else:
-            with open("debug_renombrar_csv.log", "a", encoding="utf-8") as f:
-                f.write("❌ Archivo original no encontrado.\n")
 
         guardar_evento_historial(
             email=usuario.email,
@@ -996,46 +922,6 @@ def eliminar_lead(
 
         guardar_evento_historial(usuario.email, dominio_base, "lead", "Lead eliminado", db)
 
-        # 🔥 También eliminar del CSV correspondiente
-        carpeta_usuario = os.path.join("exports", usuario.email)
-        if solo_de_este_nicho and nicho:
-            archivo_csv = os.path.join(carpeta_usuario, f"{normalizar_nicho(nicho)}.csv")
-            if os.path.exists(archivo_csv):
-                try:
-                    df = pd.read_csv(archivo_csv)
-                    df["Dominio_normalizado"] = (
-                        df["Dominio"]
-                        .astype(str)
-                        .str.strip()
-                        .str.lower()
-                        .str.replace("www.", "", regex=False)
-                    )
-                    df = df[df["Dominio_normalizado"] != dominio_base]
-                    df.drop(columns=["Dominio_normalizado"], inplace=True)
-                    df.to_csv(archivo_csv, index=False, encoding="utf-8-sig")
-                except Exception as e:
-                    with open("log_eliminar_lead.txt", "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now()}] ❌ Error al modificar CSV único: {str(e)}\n")
-        else:
-            if os.path.exists(carpeta_usuario):
-                archivos_csv = [f for f in os.listdir(carpeta_usuario) if f.endswith(".csv")]
-                for archivo in archivos_csv:
-                    archivo_csv = os.path.join(carpeta_usuario, archivo)
-                    try:
-                        df = pd.read_csv(archivo_csv)
-                        df["Dominio_normalizado"] = (
-                            df["Dominio"]
-                            .astype(str)
-                            .str.strip()
-                            .str.lower()
-                            .str.replace("www.", "", regex=False)
-                        )
-                        df = df[df["Dominio_normalizado"] != dominio_base]
-                        df.drop(columns=["Dominio_normalizado"], inplace=True)
-                        df.to_csv(archivo_csv, index=False, encoding="utf-8-sig")
-                    except Exception as e:
-                        with open("log_eliminar_lead.txt", "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now()}] ❌ Error al modificar CSV global: {str(e)}\n")
 
         return {"mensaje": "Lead eliminado correctamente"}
 

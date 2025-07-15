@@ -1,4 +1,4 @@
-import os
+import io
 import pandas as pd
 from fastapi.testclient import TestClient
 from backend.main import app
@@ -18,20 +18,10 @@ def test_exportar_csv_limpeza():
     response = client.post("/exportar_csv", json=payload)
     assert response.status_code == 200
 
-    # Extraer el path del archivo que viene en la respuesta
-    filepath = response.headers.get("content-disposition")
-    assert filepath is not None
-    filename = filepath.split("filename=")[-1].strip('"')
-    full_path = os.path.join("exports", filename)
+    df = pd.read_csv(io.BytesIO(response.content))
 
-    assert os.path.exists(full_path)
-
-    # Leer el CSV generado
-    df = pd.read_csv(full_path)
-
-    # ✅ Verificar que no haya duplicados por URL y Email
-    df_temp = df[["URL", "Emails"]].drop_duplicates()
-    assert len(df) == len(df_temp), "Hay duplicados en el archivo CSV"
+    # ✅ Verificar que no haya duplicados por Dominio
+    assert len(df) == len(df.drop_duplicates(subset="Dominio"))
 
     # ✅ Verificar que no haya filas completamente vacías
     df_empty = df.dropna(how="all")

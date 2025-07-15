@@ -144,16 +144,22 @@ for n in nichos_visibles:
         cols = st.columns([1, 1])
 
         # ── Descargar CSV ───────────────────────────
-        ruta_csv = f"exports/{st.session_state.email}/{n['nicho']}.csv"
-        if os.path.exists(ruta_csv):
-            with open(ruta_csv, "rb") as f:
+        try:
+            resp = requests.get(
+                f"{BACKEND_URL}/exportar_leads_nicho",
+                headers={"Authorization": f"Bearer {st.session_state.token}"},
+                params={"nicho": n["nicho"]},
+            )
+            if resp.status_code == 200:
                 cols[0].download_button(
                     "📥 Descargar CSV",
-                    f.read(),
+                    resp.content,
                     file_name=f"{n['nicho_original']}.csv",
                     mime="text/csv",
                     key=f"csv_{n['nicho']}",
                 )
+        except Exception:
+            pass
 
         # ── Eliminar nicho ──────────────────────────
         if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
