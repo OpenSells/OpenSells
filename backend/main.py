@@ -8,7 +8,10 @@ from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
-from backend.db import buscar_leads_global_postgres as buscar_leads_global
+# Utilidad para buscar leads guardados en la base de datos PostgreSQL
+# Se importa sin alias para usar el mismo nombre en el endpoint y evitar
+# confusiones con la versión SQLite (buscar_leads_global) presente en db.py
+from backend.db import buscar_leads_global_postgres
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
