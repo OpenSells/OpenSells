@@ -17,8 +17,15 @@ BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
+# Verificar que existe un token en la sesión
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para ver esta página.")
+    st.stop()
+
+# Validar el token llamando a un endpoint protegido. Si falla, forzamos logout
+validacion = cached_get("protegido", st.session_state.token, nocache_key=time.time())
+if not validacion or "detail" in validacion:
+    st.error("Token inválido o expirado. Inicia sesión nuevamente.")
     st.stop()
 
 HDR = {"Authorization": f"Bearer {st.session_state.token}"}
@@ -323,7 +330,17 @@ with tabs[3]:
         st.session_state["q_lead"] = q
 
         query = {"query": q} if q else None
-        datos_buscar = cached_get("buscar_leads", st.session_state.token, query=query) if query else None
+        # nocache_key asegura que cada búsqueda se envíe con el token vigente
+        datos_buscar = (
+            cached_get(
+                "buscar_leads",
+                st.session_state.token,
+                query=query,
+                nocache_key=time.time(),
+            )
+            if query
+            else None
+        )
         resultados = datos_buscar.get("resultados", []) if datos_buscar else []
 
         if resultados:
