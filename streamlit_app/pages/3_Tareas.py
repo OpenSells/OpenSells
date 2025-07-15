@@ -391,7 +391,12 @@ with tabs[3]:
 
         # Toggle info extra
         if st.toggle("📝 Información extra del lead", key="toggle_info"):
-            info = cached_get("info_extra", st.session_state.token, dominio=norm, nocache_key=time.time()) or {}
+            info = cached_get(
+                "info_extra",
+                st.session_state.token,
+                query={"dominio": norm},
+                nocache_key=time.time()
+            ) or {}
             with st.form(key="form_info_extra_detalle"):
                 c1, c2 = st.columns(2)
                 email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key="email_info")
@@ -414,12 +419,25 @@ with tabs[3]:
                         st.rerun()
 
         st.markdown("#### 📋 Tareas activas")
-        tareas_datos = cached_get("tareas_lead", st.session_state.token, dominio=norm, nocache_key=time.time())
+        tareas_datos = cached_get(
+            "tareas_lead",
+            st.session_state.token,
+            query={"dominio": norm},
+            nocache_key=time.time()
+        )
         tareas_l = tareas_datos.get("tareas", []) if tareas_datos else []
-        render_list([t for t in tareas_l if not t.get("completado", False)], f"lead_t_{norm}")
+        render_list(
+            [t for t in tareas_l if not t.get("completado", False)],
+            f"lead_t_{norm}"
+        )
 
         st.markdown("#### 📜 Historial")
-        hist_datos = cached_get("historial_lead", st.session_state.token, dominio=norm, nocache_key=time.time())
+        hist_datos = cached_get(
+            "historial_lead",
+            st.session_state.token,
+            query={"dominio": norm},
+            nocache_key=time.time()
+        )
         historial = hist_datos.get("historial", []) if hist_datos else []
         completadas = [
             h for h in historial

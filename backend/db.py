@@ -311,7 +311,10 @@ def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[st
     query = f"%{query.lower()}%"
     resultados = (
         db.query(LeadExtraido.url)
-        .outerjoin(LeadNota, (LeadNota.url == LeadExtraido.url) & (LeadNota.email == LeadExtraido.user_email))
+        .outerjoin(
+            LeadNota,
+            (LeadNota.url == LeadExtraido.url) & (LeadNota.email == LeadExtraido.user_email)
+        )
         .filter(
             LeadExtraido.user_email == email,
             (
@@ -319,7 +322,6 @@ def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[st
                 LeadNota.nota.ilike(query)
             )
         )
-        .order_by(LeadExtraido.timestamp.desc())
         .distinct()
         .all()
     )
