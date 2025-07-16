@@ -5,6 +5,14 @@ from cache_utils import cached_get, get_openai_client
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
 
+_CSS = """
+<style>
+    .block-container{padding-top:2rem;}
+    .stButton>button{padding:0.5rem 1rem;border-radius:6px;font-weight:600;}
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
+
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -32,7 +40,10 @@ for entrada in st.session_state.chat:
     with st.chat_message(entrada["role"]):
         st.markdown(entrada["content"])
 
-pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
+pregunta = st.chat_input(
+    "Haz una pregunta sobre tus nichos, leads o tareas...",
+    help="El asistente responderá usando tu información disponible"
+)
 
 if pregunta:
     st.session_state.chat.append({"role": "user", "content": pregunta})

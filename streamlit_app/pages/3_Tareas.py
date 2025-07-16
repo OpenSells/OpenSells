@@ -17,6 +17,14 @@ BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
+_CSS = """
+<style>
+    .stButton>button{padding:0.5rem 1rem;border-radius:6px;font-weight:600;}
+    .block-container{padding-top:2rem;}
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
+
 # Verificar que existe un token en la sesión
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para ver esta página.")
@@ -239,7 +247,11 @@ with tabs[2]:
         if not st.session_state["nicho_seleccionado"]:
             st.subheader("📂 Nichos")
 
-            filtro_nicho = st.text_input("Buscar por nombre de nicho", placeholder="Ej: restaurantes")
+            filtro_nicho = st.text_input(
+                "Buscar por nombre de nicho",
+                placeholder="Ej: restaurantes",
+                help="Filtra tus nichos por nombre"
+            )
             filtrados = [n for n in ln if filtro_nicho.lower() in n["nicho_original"].lower()] if filtro_nicho else ln
 
             if not filtrados:
@@ -326,7 +338,11 @@ with tabs[3]:
 
     # Modo búsqueda
     if not st.session_state["lead_seleccionado"]:
-        q = st.text_input("Filtrar leads por dominio:", placeholder="Ej. clinicadental.com")
+        q = st.text_input(
+            "Filtrar leads por dominio:",
+            placeholder="Ej. clinicadental.com",
+            help="Busca un lead específico"
+        )
         st.session_state["q_lead"] = q
 
         query = {"query": q} if q else None

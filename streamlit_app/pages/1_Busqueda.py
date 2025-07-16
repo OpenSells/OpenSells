@@ -6,11 +6,20 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
+import pandas as pd
 from cache_utils import cached_get, cached_post, get_openai_client, auth_headers
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
+
+_CSS = """
+<style>
+    .stButton>button {padding:0.5rem 1rem;border-radius:6px;font-weight:600;}
+    .block-container{padding-top:2rem;}
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
 
 # -------------------- Helpers --------------------
 
@@ -33,20 +42,31 @@ def safe_json(resp: requests.Response) -> dict:
 
 def login():
     st.title("🔐 Iniciar sesión")
-    email = st.text_input("Correo electrónico")
-    password = st.text_input("Contraseña", type="password")
+    email = st.text_input("Correo electrónico", help="Usa tu email registrado")
+    password = st.text_input("Contraseña", type="password", help="Tu contraseña de acceso")
     if st.button("Iniciar sesión", key="btn_login"):
-        r = requests.post(f"{BACKEND_URL}/login", data={"username": email, "password": password})
+        with st.spinner("Conectando..."):
+            r = requests.post(
+                f"{BACKEND_URL}/login",
+                data={"username": email, "password": password},
+            )
         if r.status_code == 200:
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
             st.session_state.email = email
+            st.success("Inicio de sesión correcto")
             st.rerun()
         else:
             st.error("Credenciales inválidas")
     if st.button("Registrarse", key="btn_register"):
-        r = requests.post(f"{BACKEND_URL}/register", json={"email": email, "password": password})
-        st.success("Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.")
+        with st.spinner("Creando usuario..."):
+            r = requests.post(
+                f"{BACKEND_URL}/register",
+                json={"email": email, "password": password},
+            )
+        st.success(
+            "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario."
+        )
 
 
 if "token" not in st.session_state:
@@ -72,15 +92,18 @@ try:
 except Exception:
     plan = "free"
 
-st.markdown("### 💼 Tu plan actual:")
-if plan == "free":
-    st.info("Plan gratuito (free). Algunas funciones están limitadas.")
-elif plan == "pro":
-    st.success("Plan PRO activo. Puedes extraer y exportar leads.")
-elif plan == "ilimitado":
-    st.success("Plan Ilimitado activo. Acceso completo.")
-else:
-    st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
+with st.sidebar:
+    st.markdown("### 💼 Tu plan actual:")
+    if plan == "free":
+        st.info("Plan gratuito (free). Algunas funciones están limitadas.")
+    elif plan == "pro":
+        st.success("Plan PRO activo. Puedes extraer y exportar leads.")
+    elif plan == "ilimitado":
+        st.success("Plan Ilimitado activo. Acceso completo.")
+    else:
+        st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
+
+    st.button("🔁 Reiniciar búsqueda", on_click=reiniciar_busqueda)
 
 
 
@@ -90,9 +113,6 @@ def reiniciar_busqueda():
     for key in list(st.session_state.keys()):
         if key not in ["token", "email"]:
             del st.session_state[key]
-
-
-st.sidebar.button("🔁 Reiniciar búsqueda", on_click=reiniciar_busqueda)
 
 # -------------------- Popup --------------------
 
@@ -207,7 +227,12 @@ nichos_data = cached_get("mis_nichos", st.session_state.token)
 nichos_previos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
 
 # -------------------- Input Cliente Ideal --------------------
-cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia")
+cols_top = st.columns(2)
+cliente_ideal = cols_top[0].text_input(
+    "¿Cómo es tu cliente ideal?",
+    placeholder="Ej: clínicas dentales en Valencia",
+    help="Describe brevemente a quién quieres vender"
+)
 
 # -------------------- Sugerencias de nicho --------------------
 with st.expander("💡 Sugerencias de nichos rentables para ti"):
@@ -235,12 +260,15 @@ with st.expander("💡 Sugerencias de nichos rentables para ti"):
 
 # -------------------- Selección de nicho destino --------------------
 options_nicho = ["Elige una opción", "➕ Crear nuevo nicho"] + nichos_previos
-nicho_seleccionado = st.selectbox(
-    "Selecciona un nicho destino:", options_nicho, index=0
+nicho_seleccionado = cols_top[1].selectbox(
+    "Selecciona un nicho destino:",
+    options_nicho,
+    index=0,
+    help="Dónde se guardarán los leads"
 )
 
 if nicho_seleccionado == "➕ Crear nuevo nicho":
-    nuevo_nicho = st.text_input("Nombre del nuevo nicho")
+    nuevo_nicho = cols_top[1].text_input("Nombre del nuevo nicho")
     nicho_actual = nuevo_nicho.strip()
 elif nicho_seleccionado == "Elige una opción":
     nicho_actual = ""
@@ -249,6 +277,8 @@ else:
 
 if nicho_actual:
     st.session_state.nicho_actual = nicho_actual
+
+st.markdown("---")
 
 # -------------------- Generar variantes --------------------
 if st.button("🚀 Buscar variantes"):
@@ -292,6 +322,7 @@ if st.session_state.get("variantes"):
         max_selections=3,
         key="multiselect_variantes",
         placeholder="Selecciona una o más opciones",
+        help="Elige las variantes que mejor definan a tu cliente",
     )
     st.session_state.seleccionadas = seleccionadas
 
@@ -339,6 +370,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
         st.session_state.procesando = "dominios"
         st.rerun()
 
+st.markdown("---")
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
 if st.session_state.get("mostrar_resultado"):
@@ -349,7 +381,8 @@ if st.session_state.get("mostrar_resultado"):
 
     if st.session_state.get("resultados"):
         st.write("✅ Leads extraídos:")
-        st.dataframe(st.session_state.resultados)
+        df = pd.DataFrame(st.session_state.resultados)
+        st.dataframe(df.style.hide(axis="index"), use_container_width=True)
 
     # Limpiar flags para futuras búsquedas
     for flag in [

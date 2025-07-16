@@ -30,6 +30,14 @@ load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
+_CSS = """
+<style>
+    .stButton>button {padding:0.5rem 1rem;border-radius:6px;font-weight:600;}
+    .block-container {padding-top:2rem;}
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
+
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:
     if not url:
@@ -54,11 +62,13 @@ st.title("📁 Gestión de Nichos")
 
 # ── Búsqueda global (solo en vista “todos los nichos”) ─────────────
 if "solo_nicho_visible" not in st.session_state:
-    busqueda = st.text_input(
-        "🔍 Buscar nichos o leads:",
-        value=st.session_state.get("busqueda_global", ""),
-        key="input_busqueda_global",
-    ).lower().strip()
+    with st.sidebar:
+        busqueda = st.text_input(
+            "🔍 Buscar nichos o leads:",
+            value=st.session_state.get("busqueda_global", ""),
+            key="input_busqueda_global",
+            help="Busca en todos tus nichos y leads"
+        ).lower().strip()
 else:
     # Cuando estamos en vista de un solo nicho no usamos el buscador global
     busqueda = ""
@@ -118,10 +128,11 @@ if busqueda:
 
 # ── Botón «Volver a todos los nichos» ───────────────
 if "solo_nicho_visible" in st.session_state:
-    if st.button("🔙 Volver a todos los nichos", key="volver_todos"):
-        st.session_state.pop("solo_nicho_visible")
-        st.session_state.pop("busqueda_global", None)
-        st.rerun()
+    with st.sidebar:
+        if st.button("🔙 Volver a todos los nichos", key="volver_todos"):
+            st.session_state.pop("solo_nicho_visible")
+            st.session_state.pop("busqueda_global", None)
+            st.rerun()
 
 # ── Definir qué nichos se muestran ──────────────────
 if "solo_nicho_visible" in st.session_state:
@@ -183,6 +194,7 @@ for n in nichos_visibles:
             "Filtrar leads por dominio:",
             key=f"filtro_{n['nicho']}",
             placeholder="Ej. clinicadental.com",
+            help="Escribe parte del dominio para filtrar",
         ).lower().strip()
 
         if filtro:
