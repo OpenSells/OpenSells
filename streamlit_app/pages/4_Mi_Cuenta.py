@@ -7,7 +7,7 @@ import pandas as pd
 import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
-from cache_utils import cached_get, cached_post
+from cache_utils import cached_get, cached_post, limpiar_cache
 from sidebar_utils import global_reset_button
 
 load_dotenv()
@@ -78,7 +78,12 @@ nueva_memoria = st.text_area("Tu descripción de negocio", value=memoria, height
 
 if st.button("💾 Guardar memoria"):
     r = cached_post("mi_memoria", st.session_state.token, payload={"descripcion": nueva_memoria.strip()})
-    st.success("Memoria guardada correctamente." if r else "Error al guardar la memoria.")
+    if r:
+        limpiar_cache()
+        st.success("Memoria guardada correctamente.")
+        st.rerun()
+    else:
+        st.error("Error al guardar la memoria.")
 
 # -------------------- Estadísticas --------------------
 st.subheader("📊 Estadísticas de uso")

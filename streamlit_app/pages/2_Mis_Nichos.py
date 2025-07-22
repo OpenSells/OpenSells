@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from backend.utils import normalizar_nicho
-from cache_utils import cached_get, cached_post, cached_delete
+from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
 from sidebar_utils import global_reset_button
 
 # ── Config ───────────────────────────────────────────
@@ -165,11 +165,13 @@ for n in nichos_visibles:
 
         # ── Eliminar nicho ──────────────────────────
         if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
-            cached_post("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
-            if st.session_state.get("solo_nicho_visible") == n["nicho"]:
-                st.session_state.pop("solo_nicho_visible", None)
-            st.session_state["forzar_recarga"] += 1  # 🔄 fuerza recarga de leads y vista
-            st.rerun()
+            res = cached_post("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
+            if res:
+                if st.session_state.get("solo_nicho_visible") == n["nicho"]:
+                    st.session_state.pop("solo_nicho_visible", None)
+                st.session_state["forzar_recarga"] += 1
+                limpiar_cache()
+                st.rerun()
 
         # ── Cargar leads del nicho ───────────────────
         resp_leads = cached_get(
