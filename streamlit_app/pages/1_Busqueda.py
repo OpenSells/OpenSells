@@ -158,6 +158,7 @@ def procesar_extraccion():
             st.session_state.payload_export = data.get("payload_export", {})
             st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
             st.session_state.resultados = data.get("resultados", [])
+            limpiar_cache()
             st.session_state.fase_extraccion = "exportando"
             st.rerun()
         elif r.status_code == 403:
@@ -184,9 +185,6 @@ def procesar_extraccion():
             )
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
-            if r.status_code == 200:
-                limpiar_cache()
-                st.rerun()
 
         # Finalizar --------------------------------------------------------
         st.session_state.loading = False  # cierra popup en el siguiente rerun
