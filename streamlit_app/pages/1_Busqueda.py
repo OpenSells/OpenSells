@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
-from cache_utils import cached_get, cached_post, get_openai_client, auth_headers
+from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -184,6 +184,9 @@ def procesar_extraccion():
             )
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
+            if r.status_code == 200:
+                limpiar_cache()
+                st.rerun()
 
         # Finalizar --------------------------------------------------------
         st.session_state.loading = False  # cierra popup en el siguiente rerun

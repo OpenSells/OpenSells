@@ -67,3 +67,9 @@ def cached_post(endpoint, token, payload=None, params=None):
     except Exception as e:
         print(f"[cached_post] Error: {e}")
     return None
+
+
+def limpiar_cache():
+    """Clear all Streamlit caches."""
+    if "_cache" in session_state:
+        session_state._cache.clear()

@@ -5,12 +5,7 @@ import time
 from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
-from cache_utils import cached_get, cached_post
-
-def limpiar_cache():
-    if "_cache" in st.session_state:
-        st.session_state._cache.clear()
-
+from cache_utils import cached_get, cached_post, limpiar_cache
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
