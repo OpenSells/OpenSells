@@ -8,10 +8,12 @@ import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
 from cache_utils import cached_get, cached_post
+from sidebar_utils import global_reset_button
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
+global_reset_button()
 
 # -------------------- Autenticación --------------------
 if "token" not in st.session_state:

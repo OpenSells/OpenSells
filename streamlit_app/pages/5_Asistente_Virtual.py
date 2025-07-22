@@ -2,8 +2,10 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
+from sidebar_utils import global_reset_button
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
+global_reset_button()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()

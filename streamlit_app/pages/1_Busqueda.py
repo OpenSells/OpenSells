@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
+from sidebar_utils import global_reset_button
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
+global_reset_button()
 
 # -------------------- Helpers --------------------
 
@@ -84,15 +86,7 @@ else:
 
 
 
-# -------------------- Reiniciar búsqueda --------------------
 
-def reiniciar_busqueda():
-    for key in list(st.session_state.keys()):
-        if key not in ["token", "email"]:
-            del st.session_state[key]
-
-
-st.sidebar.button("🔁 Reiniciar búsqueda", on_click=reiniciar_busqueda)
 
 # -------------------- Popup --------------------
 

@@ -24,11 +24,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete
+from sidebar_utils import global_reset_button
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
+global_reset_button()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:
