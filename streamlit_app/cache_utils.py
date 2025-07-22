@@ -73,3 +73,6 @@ def limpiar_cache():
     """Clear all Streamlit caches."""
     if "_cache" in session_state:
         session_state._cache.clear()
+    # Clear Streamlit's global caches as well
+    st.cache_data.clear()
+    st.cache_resource.clear()
