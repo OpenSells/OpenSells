@@ -71,7 +71,7 @@ from backend.db import (
     obtener_historial,
     obtener_nichos_usuario,
     obtener_leads_por_nicho,
-    eliminar_nicho,
+    eliminar_nicho_postgres,
     obtener_urls_extraidas_por_nicho,
 )
 
@@ -449,9 +449,13 @@ def exportar_leads_nicho(nicho: str, usuario=Depends(get_current_user), db: Sess
 
 # 🗑️ Eliminar un nicho
 @app.delete("/eliminar_nicho")
-def eliminar_nicho_usuario(nicho: str, usuario = Depends(get_current_user)):
+def eliminar_nicho_usuario(
+    nicho: str,
+    usuario = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     nicho = normalizar_nicho(nicho)
-    eliminar_nicho(usuario.email, nicho)
+    eliminar_nicho_postgres(usuario.email, nicho, db)
     return {"mensaje": f"Nicho '{nicho}' eliminado correctamente"}
 
 # ✅ Filtrar URLs repetidas por nicho

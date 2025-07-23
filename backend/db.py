@@ -214,6 +214,17 @@ def eliminar_nicho(user_email: str, nicho: str):
         """, (user_email, nicho))
         db.commit()
 
+from backend.models import LeadExtraido
+
+def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
+    """Eliminar todas las filas asociadas a un nicho para un usuario."""
+    (
+        db.query(LeadExtraido)
+        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
 def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
     resultados = (
         db.query(LeadExtraido.url)
