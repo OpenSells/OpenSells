@@ -15,6 +15,13 @@ BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 global_reset_button()
 
+# Planes disponibles y su price_id
+PLANES_STRIPE = {
+    "Básico – 19,99/mes": "price_1RfOhcQYGhXE7WtIbH4hvWzp",
+    "Pro – 49,99€/mes": "price_1RfOhRQYGhXE7WtIoSxrqsG5",
+    "Ilimitado – 60€/mes": "price_1RfOhmQYGhXE7WtI49xFz469",
+}
+
 # -------------------- Autenticación --------------------
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para acceder a esta página.")
@@ -135,14 +142,9 @@ url = None  # inicializamos la URL global para usar fuera del bloque
 
 with col1:
     st.markdown("**Selecciona un plan:**")
-    planes = {
-        "Básico – 19,99/mes": "price_1RfOhcQYGhXE7WtIbH4hvWzp",
-        "Pro – 49,99€/mes": "price_1RfOhRQYGhXE7WtIoSxrqsG5",
-        "Ilimitado – 60€/mes": "price_1RfOhmQYGhXE7WtI49xFz469"
-    }
-    plan_elegido = st.selectbox("Planes disponibles", list(planes.keys()))
+    plan_elegido = st.selectbox("Planes disponibles", list(PLANES_STRIPE.keys()))
     if st.button("💳 Iniciar suscripción"):
-        price_id = planes[plan_elegido]
+        price_id = PLANES_STRIPE[plan_elegido]
         try:
             r = cached_post("crear_checkout", st.session_state.token, params={"plan": price_id})
             if r and r.get("url"):

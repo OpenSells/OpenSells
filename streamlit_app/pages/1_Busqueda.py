@@ -14,6 +14,13 @@ BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 global_reset_button()
 
+# Planes disponibles y su price_id en Stripe
+PLANES_STRIPE = {
+    "Pro – 19,99€/mes": "price_1RfOhcQYGhXE7WtIbH4hvWzp",
+    "Premium – 49,99€/mes": "price_1RfOhRQYGhXE7WtIoSxrqsG5",
+    "Ilimitado – 60€/mes": "price_1RfOhmQYGhXE7WtI49xFz469",
+}
+
 # -------------------- Helpers --------------------
 
 
@@ -77,6 +84,12 @@ except Exception:
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":
     st.info("Plan gratuito (free). Algunas funciones están limitadas.")
+    st.session_state.setdefault("plan_seleccion", list(PLANES_STRIPE.keys())[0])
+    st.session_state.plan_seleccion = st.selectbox(
+        "Selecciona un plan para suscribirte:",
+        list(PLANES_STRIPE.keys()),
+        key="plan_seleccion",
+    )
 elif plan == "pro":
     st.success("Plan PRO activo. Puedes extraer y exportar leads.")
 elif plan == "ilimitado":
@@ -298,8 +311,10 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
 
     if plan == "free":
         try:
-            # Precio por defecto del plan Pro
-            price_id = "price_1RfOhcQYGhXE7WtIbH4hvWzp"  # 👈 usa tu price_id real
+            price_id = PLANES_STRIPE.get(st.session_state.get("plan_seleccion"))
+            if not price_id:
+                st.warning("Selecciona un plan válido para continuar")
+                return
             r_checkout = requests.post(
                 f"{BACKEND_URL}/crear_checkout",
                 headers=headers,

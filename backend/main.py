@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
+# Mapeo dinámico de price_id a nombre de plan
+# Se puede modificar según los planes disponibles en Stripe
+PRICE_ID_TO_PLAN = {
+    "price_1RfOhcQYGhXE7WtIbH4hvWzp": "pro",
+    "price_1RfOhRQYGhXE7WtIoSxrqsG5": "premium",
+    "price_1RfOhmQYGhXE7WtI49xFz469": "ilimitado",
+}
+
 # BD & seguridad
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
@@ -54,6 +62,52 @@ from backend.auth import (
 )
 
 from fastapi import Depends
+from backend.database import SessionLocal
+
+# ---------------------------------------------------------------------------
+# Utilidades para manejar suscripciones con Stripe
+# ---------------------------------------------------------------------------
+
+def actualizar_plan_en_bd(email: str, nuevo_plan: str):
+    """Actualiza el plan del usuario en la base de datos."""
+    db: Session = SessionLocal()
+    try:
+        from sqlalchemy import select
+        result = db.execute(select(Usuario).where(Usuario.email == email))
+        user = result.scalar_one_or_none()
+        if user:
+            user.plan = nuevo_plan
+            db.add(user)
+            db.commit()
+    finally:
+        db.close()
+
+
+def obtener_plan_desde_stripe(email: str) -> str:
+    """Consulta en Stripe el plan actual para un email."""
+    customers = stripe.Customer.list(email=email).data
+    if not customers:
+        return "free"
+    customer_id = customers[0].id
+    subs = stripe.Subscription.list(customer=customer_id, status="all").data
+    if not subs:
+        return "free"
+    subs.sort(key=lambda s: s.get("created", 0), reverse=True)
+    sub = subs[0]
+    if sub.get("status") != "active":
+        return "free"
+    items = sub.get("items", {}).get("data", [])
+    if not items:
+        return "free"
+    price_id = items[0]["price"]["id"]
+    return PRICE_ID_TO_PLAN.get(price_id, "free")
+
+
+def sincronizar_suscripcion(email: str) -> str:
+    """Actualiza en la base de datos el plan real obtenido desde Stripe."""
+    plan_real = obtener_plan_desde_stripe(email)
+    actualizar_plan_en_bd(email, plan_real)
+    return plan_real
 
 def validar_suscripcion(usuario = Depends(get_current_user)):
     if not usuario.plan or usuario.plan == "free":
@@ -937,7 +991,6 @@ def eliminar_lead(
 
 from fastapi import Query, Request  # asegúrate de tener esto al principio
 from sqlalchemy.orm import Session
-from backend.database import SessionLocal
 
 @app.post("/crear_checkout")
 def crear_checkout(
@@ -976,6 +1029,13 @@ def portal_cliente(usuario=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/verificar_suscripcion")
+def verificar_suscripcion(usuario=Depends(get_current_user)):
+    """Endpoint para sincronizar y devolver el plan real del usuario."""
+    plan_actual = sincronizar_suscripcion(usuario.email)
+    return {"plan": plan_actual}
+
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -990,20 +1050,44 @@ async def stripe_webhook(request: Request):
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         customer_email = session.get("customer_email")
-        nuevo_plan = "pro"
 
-        if customer_email:
-            db: Session = SessionLocal()
+        # Obtener price_id desde la suscripción para determinar el plan
+        price_id = None
+        subscription_id = session.get("subscription")
+        if subscription_id:
             try:
-                from sqlalchemy import select
-                result = db.execute(select(Usuario).where(Usuario.email == customer_email))
-                user = result.scalar_one_or_none()
-                if user:
-                    user.plan = nuevo_plan
-                    db.add(user)
-                    db.commit()
-            finally:
-                db.close()
+                sub = stripe.Subscription.retrieve(subscription_id)
+                items = sub.get("items", {}).get("data", [])
+                if items:
+                    price_id = items[0]["price"]["id"]
+            except Exception:
+                pass
+
+        nuevo_plan = PRICE_ID_TO_PLAN.get(price_id, "pro")
+        if customer_email:
+            actualizar_plan_en_bd(customer_email, nuevo_plan)
+
+    elif event["type"] in {"customer.subscription.deleted", "invoice.payment_failed", "customer.subscription.updated"}:
+        subscription = event["data"]["object"]
+        customer_id = subscription.get("customer")
+        email = None
+        try:
+            if customer_id:
+                email = stripe.Customer.retrieve(customer_id).get("email")
+        except Exception:
+            email = None
+
+        status = subscription.get("status")
+        items = subscription.get("items", {}).get("data", [])
+        price_id = items[0]["price"]["id"] if items else None
+
+        if status != "active":
+            nuevo_plan = "free"
+        else:
+            nuevo_plan = PRICE_ID_TO_PLAN.get(price_id, "free")
+
+        if email:
+            actualizar_plan_en_bd(email, nuevo_plan)
 
     return {"status": "ok"}
 
