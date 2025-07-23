@@ -165,13 +165,16 @@ for n in nichos_visibles:
 
         # ── Eliminar nicho ──────────────────────────
         if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
-            res = cached_post("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
+            res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
             if res:
+                st.success("Nicho eliminado correctamente")
                 if st.session_state.get("solo_nicho_visible") == n["nicho"]:
                     st.session_state.pop("solo_nicho_visible", None)
                 st.session_state["forzar_recarga"] += 1
                 limpiar_cache()
                 st.rerun()
+            else:
+                st.error("Error al eliminar el nicho")
 
         # ── Cargar leads del nicho ───────────────────
         resp_leads = cached_get(
