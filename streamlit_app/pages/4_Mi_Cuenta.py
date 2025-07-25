@@ -144,7 +144,7 @@ with col1:
     if st.button("💳 Iniciar suscripción"):
         price_id = planes[plan_elegido]
         try:
-            r = cached_post("crear_checkout", st.session_state.token, params={"plan": price_id})
+            r = cached_post("crear_portal_pago", st.session_state.token, params={"plan": price_id})
             if r and r.get("url"):
                 url = r.get("url", "")
                 st.success("Redirigiendo a Stripe...")

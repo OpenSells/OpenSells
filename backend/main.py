@@ -942,7 +942,7 @@ from backend.database import SessionLocal
 @app.post("/crear_checkout")
 def crear_checkout(
     usuario=Depends(get_current_user),
-    plan: str = Query(..., description="ID del plan (price_id) elegido")
+    plan: str = Query(..., description="ID del plan (price_id) elegido"),
 ):
     try:
         checkout = stripe.checkout.Session.create(
@@ -952,6 +952,35 @@ def crear_checkout(
                 "price": plan,
                 "quantity": 1,
             }],
+            mode="subscription",
+            success_url=os.getenv("STRIPE_SUCCESS_URL"),
+            cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+        )
+        return {"url": checkout.url}
+    except Exception as e:
+        logger.error(f"ERROR STRIPE: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/crear_portal_pago")
+def crear_portal_pago(
+    usuario=Depends(get_current_user),
+    plan: str = Query(None, description="ID del plan (price_id) a contratar"),
+):
+    """Crea una sesión de Checkout o Customer Portal según corresponda."""
+    try:
+        customers = stripe.Customer.list(email=usuario.email).data
+        if customers:
+            session = stripe.billing_portal.Session.create(
+                customer=customers[0].id,
+                return_url=os.getenv("STRIPE_SUCCESS_URL"),
+            )
+            return {"url": session.url}
+        if plan is None:
+            raise HTTPException(status_code=400, detail="Plan requerido")
+        checkout = stripe.checkout.Session.create(
+            customer_email=usuario.email,
+            payment_method_types=["card"],
+            line_items=[{"price": plan, "quantity": 1}],
             mode="subscription",
             success_url=os.getenv("STRIPE_SUCCESS_URL"),
             cancel_url=os.getenv("STRIPE_CANCEL_URL"),
