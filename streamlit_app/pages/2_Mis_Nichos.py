@@ -24,6 +24,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
+from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
 
 # ── Config ───────────────────────────────────────────
@@ -46,6 +47,8 @@ def md5(s: str) -> str:
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para ver esta página.")
     st.stop()
+
+plan = obtener_plan(st.session_state.token)
 
 # ── Forzar Recarga Caché ─────────────────────────────
 if "forzar_recarga" not in st.session_state:
@@ -165,16 +168,19 @@ for n in nichos_visibles:
 
         # ── Eliminar nicho ──────────────────────────
         if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
-            res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
-            if res:
-                st.success("Nicho eliminado correctamente")
-                if st.session_state.get("solo_nicho_visible") == n["nicho"]:
-                    st.session_state.pop("solo_nicho_visible", None)
-                st.session_state["forzar_recarga"] += 1
-                limpiar_cache()
-                st.rerun()
+            if not tiene_suscripcion_activa(plan):
+                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
             else:
-                st.error("Error al eliminar el nicho")
+                res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
+                if res:
+                    st.success("Nicho eliminado correctamente")
+                    if st.session_state.get("solo_nicho_visible") == n["nicho"]:
+                        st.session_state.pop("solo_nicho_visible", None)
+                    st.session_state["forzar_recarga"] += 1
+                    limpiar_cache()
+                    st.rerun()
+                else:
+                    st.error("Error al eliminar el nicho")
 
         # ── Cargar leads del nicho ───────────────────
         resp_leads = cached_get(
@@ -222,25 +228,28 @@ for n in nichos_visibles:
                         if dominio_normalizado in dominios_existentes:
                             st.error("❌ Este dominio ya existe en tus leads.")
                         else:
-                            res = cached_post(
-                                "añadir_lead_manual",
-                                st.session_state.token,
-                                payload={
-                                    "dominio": dominio_manual,
-                                    "email": email_manual,
-                                    "telefono": telefono_manual,
-                                    "nombre": nombre_manual,
-                                    "nicho": n["nicho_original"]
-                                }
-                            )
-                            if res:
-                                st.success("Lead añadido correctamente ✅")
-                                st.session_state["forzar_recarga"] += 1
-                                st.session_state["solo_nicho_visible"] = n["nicho"]
-                                st.session_state[key_exp] = True
-                                st.rerun()
+                            if not tiene_suscripcion_activa(plan):
+                                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                             else:
-                                st.error("Error al guardar el lead")
+                                res = cached_post(
+                                    "añadir_lead_manual",
+                                    st.session_state.token,
+                                    payload={
+                                        "dominio": dominio_manual,
+                                        "email": email_manual,
+                                        "telefono": telefono_manual,
+                                        "nombre": nombre_manual,
+                                        "nicho": n["nicho_original"]
+                                    }
+                                )
+                                if res:
+                                    st.success("Lead añadido correctamente ✅")
+                                    st.session_state["forzar_recarga"] += 1
+                                    st.session_state["solo_nicho_visible"] = n["nicho"]
+                                    st.session_state[key_exp] = True
+                                    st.rerun()
+                                else:
+                                    st.error("Error al guardar el lead")
 
         if "lead_a_mover" not in st.session_state:
             st.session_state["lead_a_mover"] = None
@@ -253,22 +262,25 @@ for n in nichos_visibles:
 
             # Botón eliminar
             if cols_row[1].button("🗑️", key=f"btn_borrar_{clave_base}"):
-                res = cached_delete(
-                    "eliminar_lead",
-                    st.session_state.token,
-                    params={
-                        "nicho": n["nicho"],
-                        "dominio": dominio,
-                        "solo_de_este_nicho": True,
-                    },
-                )
-                if res:
-                    st.session_state["forzar_recarga"] += 1
-                    st.session_state[key_exp] = True
-                    st.session_state["solo_nicho_visible"] = n["nicho"]
-                    st.rerun()
+                if not tiene_suscripcion_activa(plan):
+                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                 else:
-                    st.error("❌ Error al eliminar el lead")
+                    res = cached_delete(
+                        "eliminar_lead",
+                        st.session_state.token,
+                        params={
+                            "nicho": n["nicho"],
+                            "dominio": dominio,
+                            "solo_de_este_nicho": True,
+                        },
+                    )
+                    if res:
+                        st.session_state["forzar_recarga"] += 1
+                        st.session_state[key_exp] = True
+                        st.session_state["solo_nicho_visible"] = n["nicho"]
+                        st.rerun()
+                    else:
+                        st.error("❌ Error al eliminar el lead")
 
                         # Botón Mover compacto
             if cols_row[2].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
@@ -280,23 +292,26 @@ for n in nichos_visibles:
                 nuevo_nicho = st.selectbox("Mover a:", nichos_destino, key=f"select_nuevo_nicho_{clave_base}")
 
                 if st.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
-                    res = cached_post(
-                        "mover_lead",
-                        st.session_state.token,
-                        payload={
-                            "dominio": dominio,
-                            "origen": n["nicho_original"],
-                            "destino": nuevo_nicho
-                        }
-                    )
-                    if res:
-                        st.success("Lead movido correctamente ✅")
-                        st.session_state["forzar_recarga"] += 1
-                        st.session_state["lead_a_mover"] = None
-                        st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
-                        st.rerun()
+                    if not tiene_suscripcion_activa(plan):
+                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                     else:
-                        st.error("Error al mover lead")
+                        res = cached_post(
+                            "mover_lead",
+                            st.session_state.token,
+                            payload={
+                                "dominio": dominio,
+                                "origen": n["nicho_original"],
+                                "destino": nuevo_nicho
+                            }
+                        )
+                        if res:
+                            st.success("Lead movido correctamente ✅")
+                            st.session_state["forzar_recarga"] += 1
+                            st.session_state["lead_a_mover"] = None
+                            st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
+                            st.rerun()
+                        else:
+                            st.error("Error al mover lead")
 
             # Botón Información extra
             if cols_row[3].button("📝", key=f"btn_info_{clave_base}"):
@@ -313,17 +328,20 @@ for n in nichos_visibles:
                     info_nueva = st.text_area("📝 Información libre", value=info.get("informacion", ""), key=f"info_{clave_base}")
 
                     if st.form_submit_button("💾 Guardar información"):
-                        res = cached_post(
-                            "guardar_info_extra",
-                            st.session_state.token,
-                            payload={
-                                "dominio": dominio,
-                                "email": email_nuevo,
-                                "telefono": tel_nuevo,
-                                "informacion": info_nueva
-                            }
-                        )
-                        if res:
-                            st.success("Información guardada correctamente ✅")
-                            st.session_state["forzar_recarga"] += 1
-                            st.rerun()
+                        if not tiene_suscripcion_activa(plan):
+                            st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        else:
+                            res = cached_post(
+                                "guardar_info_extra",
+                                st.session_state.token,
+                                payload={
+                                    "dominio": dominio,
+                                    "email": email_nuevo,
+                                    "telefono": tel_nuevo,
+                                    "informacion": info_nueva
+                                }
+                            )
+                            if res:
+                                st.success("Información guardada correctamente ✅")
+                                st.session_state["forzar_recarga"] += 1
+                                st.rerun()

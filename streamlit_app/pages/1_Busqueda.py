@@ -68,11 +68,9 @@ for flag, valor in {
 headers = auth_headers(st.session_state.token)
 
 # -------------------- Mostrar plan activo --------------------
-try:
-    r_plan = cached_get("protegido", st.session_state.token)
-    plan = (r_plan.get("plan") or "").strip().lower() if r_plan else "free"
-except Exception:
-    plan = "free"
+from plan_utils import obtener_plan
+
+plan = obtener_plan(st.session_state.token)
 
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":

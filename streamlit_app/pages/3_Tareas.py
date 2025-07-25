@@ -6,6 +6,7 @@ from datetime import date
 import streamlit as st
 from dotenv import load_dotenv
 from cache_utils import cached_get, cached_post, limpiar_cache
+from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
 # ────────────────── Config ──────────────────────────
 load_dotenv()
@@ -18,6 +19,8 @@ global_reset_button()
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para ver esta página.")
     st.stop()
+
+plan = obtener_plan(st.session_state.token)
 
 # Validar el token llamando a un endpoint protegido. Si falla, forzamos logout
 validacion = cached_get("protegido", st.session_state.token, nocache_key=time.time())
@@ -105,10 +108,13 @@ def render_list(items: list[dict], key_pref: str):
         cols[4].markdown(prioridad)
 
         if cols[5].button("✔️", key=f"done_{unique_key}"):
-            cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
-            limpiar_cache()  # ✅ Añadir esto
-            st.success(f"Tarea {t['id']} marcada como completada ✅")
-            st.rerun()
+            if not tiene_suscripcion_activa(plan):
+                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+            else:
+                cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
+                limpiar_cache()  # ✅ Añadir esto
+                st.success(f"Tarea {t['id']} marcada como completada ✅")
+                st.rerun()
 
         if f"editando_{unique_key}" not in st.session_state:
             st.session_state[f"editando_{unique_key}"] = False
@@ -133,23 +139,26 @@ def render_list(items: list[dict], key_pref: str):
             )
 
             if c4.button("💾", key=f"guardar_edit_{unique_key}"):
-                cached_post(
-                    "editar_tarea",
-                    st.session_state.token,
-                    payload={
-                        "texto": nuevo_texto.strip(),
-                        "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
-                        "prioridad": nueva_prioridad,
-                        "tipo": t.get("tipo"),
-                        "nicho": t.get("nicho"),
-                        "dominio": t.get("dominio")
-                    },
-                    params={"tarea_id": t["id"]}
-                )
-                st.session_state[f"editando_{unique_key}"] = False
-                limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
-                st.success("Tarea actualizada ✅")
-                st.rerun()
+                if not tiene_suscripcion_activa(plan):
+                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                else:
+                    cached_post(
+                        "editar_tarea",
+                        st.session_state.token,
+                        payload={
+                            "texto": nuevo_texto.strip(),
+                            "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
+                            "prioridad": nueva_prioridad,
+                            "tipo": t.get("tipo"),
+                            "nicho": t.get("nicho"),
+                            "dominio": t.get("dominio")
+                        },
+                        params={"tarea_id": t["id"]}
+                    )
+                    st.session_state[f"editando_{unique_key}"] = False
+                    limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
+                    st.success("Tarea actualizada ✅")
+                    st.rerun()
 
             if c5.button("❌", key=f"cerrar_edit_{unique_key}"):
                 st.session_state[f"editando_{unique_key}"] = False
@@ -180,19 +189,22 @@ with tabs[1]:
 
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
-                    cached_post(
-                        "tarea_lead",
-                        st.session_state.token,
-                        payload={
-                            "texto": texto.strip(),
-                            "tipo": "general",
-                            "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                            "prioridad": prioridad
-                        }
-                    )
-                    limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
-                    st.success("Tarea creada ✅")
-                    st.rerun()
+                    if not tiene_suscripcion_activa(plan):
+                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    else:
+                        cached_post(
+                            "tarea_lead",
+                            st.session_state.token,
+                            payload={
+                                "texto": texto.strip(),
+                                "tipo": "general",
+                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                "prioridad": prioridad
+                            }
+                        )
+                        limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
+                        st.success("Tarea creada ✅")
+                        st.rerun()
                 else:
                     st.warning("La descripción es obligatoria.")
 
@@ -274,20 +286,23 @@ with tabs[2]:
                     prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho")
                     if st.form_submit_button("💾 Crear tarea"):
                         if texto.strip():
-                            cached_post(
-                                "tarea_lead",
-                                st.session_state.token,
-                                payload={
-                                    "texto": texto.strip(),
-                                    "tipo": "nicho",
-                                    "nicho": nk["nicho"],
-                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                    "prioridad": prioridad
-                                }
-                            )
-                            limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
-                            st.success("Tarea creada ✅")
-                            st.rerun()
+                            if not tiene_suscripcion_activa(plan):
+                                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                            else:
+                                cached_post(
+                                    "tarea_lead",
+                                    st.session_state.token,
+                                    payload={
+                                        "texto": texto.strip(),
+                                        "tipo": "nicho",
+                                        "nicho": nk["nicho"],
+                                        "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                        "prioridad": prioridad
+                                    }
+                                )
+                                limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
+                                st.success("Tarea creada ✅")
+                                st.rerun()
                         else:
                             st.warning("La descripción es obligatoria.")
 
@@ -370,19 +385,22 @@ with tabs[3]:
                 prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle")
                 if st.form_submit_button("💾 Crear tarea"):
                     if texto.strip():
-                        cached_post(
-                            "tarea_lead",
-                            st.session_state.token,
-                            payload={
-                                "texto": texto.strip(),
-                                "tipo": "lead",
-                                "dominio": norm,
-                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                "prioridad": prioridad
-                            }
-                        )
-                        st.success("Tarea creada ✅")
-                        st.rerun()
+                        if not tiene_suscripcion_activa(plan):
+                            st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        else:
+                            cached_post(
+                                "tarea_lead",
+                                st.session_state.token,
+                                payload={
+                                    "texto": texto.strip(),
+                                    "tipo": "lead",
+                                    "dominio": norm,
+                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                    "prioridad": prioridad
+                                }
+                            )
+                            st.success("Tarea creada ✅")
+                            st.rerun()
                     else:
                         st.warning("La descripción es obligatoria.")
 
@@ -400,20 +418,23 @@ with tabs[3]:
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
                 info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
-                    respuesta = cached_post(
-                        "guardar_info_extra",
-                        st.session_state.token,
-                        payload={
-                            "dominio": norm,
-                            "email": email_nuevo,
-                            "telefono": tel_nuevo,
-                            "informacion": info_nueva
-                        }
-                    )
-                    if respuesta and respuesta.get("mensaje"):
-                        limpiar_cache()  # ✅ Limpia la caché para que se vea la información actualizada
-                        st.success("Información guardada correctamente ✅")
-                        st.rerun()
+                    if not tiene_suscripcion_activa(plan):
+                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    else:
+                        respuesta = cached_post(
+                            "guardar_info_extra",
+                            st.session_state.token,
+                            payload={
+                                "dominio": norm,
+                                "email": email_nuevo,
+                                "telefono": tel_nuevo,
+                                "informacion": info_nueva
+                            }
+                        )
+                        if respuesta and respuesta.get("mensaje"):
+                            limpiar_cache()  # ✅ Limpia la caché para que se vea la información actualizada
+                            st.success("Información guardada correctamente ✅")
+                            st.rerun()
 
         st.markdown("#### 📋 Tareas activas")
         tareas_datos = cached_get(

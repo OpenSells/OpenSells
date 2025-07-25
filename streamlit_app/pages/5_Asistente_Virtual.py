@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
+from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
@@ -17,6 +18,8 @@ st.title("🤖 Tu Asistente Virtual")
 if "token" not in st.session_state:
     st.error("Debes iniciar sesión para usar el asistente.")
     st.stop()
+
+plan = obtener_plan(st.session_state.token)
 
 
 # ────────────────── Datos base ──────────────────────
@@ -37,11 +40,14 @@ for entrada in st.session_state.chat:
 pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 
 if pregunta:
-    st.session_state.chat.append({"role": "user", "content": pregunta})
-    with st.chat_message("user"):
-        st.markdown(pregunta)
+    if not tiene_suscripcion_activa(plan):
+        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+    else:
+        st.session_state.chat.append({"role": "user", "content": pregunta})
+        with st.chat_message("user"):
+            st.markdown(pregunta)
 
-    contexto = f"""
+        contexto = f"""
 Eres un asistente que ayuda a un usuario a consultar su base de datos de leads.
 El usuario tiene estos nichos: {resumen_nichos}.
 Resumen de tareas: {resumen_tareas}.
@@ -49,21 +55,21 @@ Resumen de tareas: {resumen_tareas}.
 Responde de forma clara, breve y específica. Si no puedes responder con la información dada, pide más detalles.
 """
 
-    messages = [
-        {"role": "system", "content": contexto},
-        *st.session_state.chat[-5:]  # última parte del historial
-    ]
+        messages = [
+            {"role": "system", "content": contexto},
+            *st.session_state.chat[-5:]
+        ]
 
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.4
-        )
-        content = response.choices[0].message.content
-    except Exception as e:
-        content = f"Lo siento, ha ocurrido un error: {e}"
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                temperature=0.4
+            )
+            content = response.choices[0].message.content
+        except Exception as e:
+            content = f"Lo siento, ha ocurrido un error: {e}"
 
-    st.session_state.chat.append({"role": "assistant", "content": content})
-    with st.chat_message("assistant"):
-        st.markdown(content)
+        st.session_state.chat.append({"role": "assistant", "content": content})
+        with st.chat_message("assistant"):
+            st.markdown(content)
