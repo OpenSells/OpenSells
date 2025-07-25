@@ -5,6 +5,7 @@ import os
 import requests
 import pandas as pd
 import io
+import webbrowser
 from dotenv import load_dotenv
 from json import JSONDecodeError
 from cache_utils import cached_get, cached_post, limpiar_cache
@@ -131,8 +132,6 @@ st.subheader("💳 Suscripción")
 
 col1, col2 = st.columns(2)
 
-url = None  # inicializamos la URL global para usar fuera del bloque
-
 with col1:
     st.markdown("**Selecciona un plan:**")
     planes = {
@@ -144,23 +143,31 @@ with col1:
     if st.button("💳 Iniciar suscripción"):
         price_id = planes[plan_elegido]
         try:
-            r = cached_post("crear_portal_pago", st.session_state.token, params={"plan": price_id})
-            if r and r.get("url"):
-                url = r.get("url", "")
-                st.success("Redirigiendo a Stripe...")
+            r = requests.post(
+                f"{BACKEND_URL}/crear_portal_pago",
+                headers=headers,
+                params={"plan": price_id},
+            )
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                except JSONDecodeError:
+                    st.error("Respuesta inválida del servidor.")
+                else:
+                    if "url" in data:
+                        url = data["url"]
+                        st.markdown(
+                            f"[👉 Abrir portal de pago]({url})",
+                            unsafe_allow_html=True,
+                        )
+                        if "localhost" in BACKEND_URL:
+                            webbrowser.open(url)
+                    else:
+                        st.error("La respuesta no contiene URL de Stripe.")
             else:
                 st.error("No se pudo iniciar el pago.")
         except Exception as e:
             st.error(f"Error: {e}")
-
-# Redirección fuera del bloque para evitar conflictos con scripts
-if url:
-    st.markdown(f"[👉 Pagar suscripción]({url})", unsafe_allow_html=True)
-    st.markdown(f"""
-<script>
-window.open("{url}", "_self");
-</script>
-""", unsafe_allow_html=True)
 
 with col2:
     if st.button("🧾 Gestionar suscripción"):
