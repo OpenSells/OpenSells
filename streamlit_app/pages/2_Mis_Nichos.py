@@ -199,10 +199,15 @@ for n in nichos_visibles:
         ).lower().strip()
 
         if filtro:
-            leads = [
-                l for l in leads
-                if filtro in normalizar_dominio(l["url"]).lower()
-            ]
+            if not tiene_suscripcion_activa(plan):
+                st.warning(
+                    "La búsqueda de leads está disponible solo para usuarios con suscripción activa."
+                )
+            else:
+                leads = [
+                    l for l in leads
+                    if filtro in normalizar_dominio(l["url"]).lower()
+                ]
 
         st.markdown(f"### Total mostrados: {len(leads)}")
 
