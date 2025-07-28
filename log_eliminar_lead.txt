@@ -50,3 +50,4 @@
 [2025-07-14 11:25:48.243570] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: centrodentallavapies.com — Solo este nicho: True — Nicho: madrik
 [2025-07-14 15:49:47.114106] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: windental.es — Solo este nicho: True — Nicho: murkia
 [2025-07-15 22:20:54.810385] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: facebook.com — Solo este nicho: True — Nicho: madrik
+[2025-07-23 19:47:40.575821] Inicio eliminación — Email: ayrton.av@gmail.com — Dominio: mascotas-tenerife.com — Solo este nicho: True — Nicho: animales_tenerife

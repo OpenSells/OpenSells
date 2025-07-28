@@ -1,53 +1,66 @@
 # Wrapper Leads SaaS
 
-## 📦 Actualización README Wrapper Leads SaaS (versión 22/07/2025)
+## 📦 Actualización README Wrapper Leads SaaS (versión 28/07/2025)
 
-Este documento refleja el estado actual del proyecto tras todas las modificaciones y depuraciones realizadas hasta esta sesión.
+Este documento refleja el estado actual del proyecto tras todas las mejoras e integraciones realizadas hasta esta sesión.
 
 ### ✅ Cambios clave recientes
 
+- ✅ **Integración con Stripe (portal de pago):**
+  - Se añadió un botón en la página **Mi Cuenta** llamado **"Iniciar suscripción"** que abre directamente el portal de pago de Stripe para gestionar la suscripción del usuario.
+  - Se creó el endpoint `/crear_portal_pago` en el backend con FastAPI que genera una sesión de Stripe (ya sea Checkout o Billing Portal).
+  - En el frontend se redirige automáticamente al enlace de Stripe o se muestra un botón clickable para usuarios en Streamlit Cloud.
+
+- ✅ **Control de acceso según plan de suscripción:**
+  - Se añadió lógica unificada para controlar las funcionalidades permitidas según el plan del usuario (`free`, `pro`, etc.).
+  - Se centralizó esta comprobación en un nuevo archivo `plan_utils.py`.
+  - Esta lógica ahora se aplica a las siguientes páginas:
+    - **Búsqueda de leads:** los usuarios con plan `free` no pueden lanzar nuevas búsquedas y se muestra advertencia clara.
+    - **Mis Nichos:** usuarios `free` pueden ver sus nichos, pero no pueden eliminar, editar ni lanzar nuevas búsquedas desde nichos. Se muestra advertencia adecuada.
+    - **Tareas:** los usuarios `free` no pueden marcar tareas como completadas ni agregar nuevas.
+    - **Asistente Virtual:** bloqueado completamente para usuarios sin plan activo, con aviso explicativo.
+
 - ✅ **Botón global de reinicio de caché:**
-  - Se añadió un botón global en la barra lateral llamado **"Reiniciar cache"** que está disponible en todas las páginas. Este botón limpia al 100% la caché de Streamlit (incluyendo `st.cache_data` y `st.cache_resource`) y luego ejecuta `st.rerun()` para refrescar toda la interfaz.
-  - Este botón reemplaza al antiguo botón de reinicio que estaba solo en la página de búsqueda.
+  - Disponible en todas las páginas desde la barra lateral.
+  - Limpia `st.cache_data` y `st.cache_resource`, y ejecuta `st.rerun()` para refrescar toda la interfaz.
 
 - ✅ **Reinicio de caché automático tras ciertas acciones:**
-  - Tras **extraer nuevos leads**, ahora se ejecuta automáticamente `limpiar_cache()` seguido de `st.rerun()` para refrescar todos los datos (nichos, tareas, leads, etc.).
-  - Tras **eliminar un nicho**, además de la eliminación, se limpia la caché y se refresca la interfaz.
-  - Tras **actualizar la memoria de usuario** (en Mi Cuenta o cualquier otra página que modifique datos del usuario), también se limpia la caché y se refresca la interfaz.
+  - Se ejecuta automáticamente tras extraer leads, eliminar nichos o actualizar memoria de usuario.
 
 - ✅ **Corrección del borrado de nichos:**
-  - Se detectó que el frontend estaba enviando un `POST` al endpoint `/eliminar_nicho`, mientras que el backend esperaba un `DELETE`. Ahora se envía correctamente un `DELETE`.
-  - Se implementó una función `eliminar_nicho_postgres` en el backend para eliminar tanto el nicho como todos los leads asociados en la base de datos.
-  - El backend (`main.py`) fue actualizado para usar esta nueva función, garantizando que la eliminación sea completa.
-  - Ahora al eliminar un nicho se muestra feedback al usuario (`st.success()` o `st.error()` según corresponda).
+  - Se armonizó la lógica entre frontend y backend, enviando correctamente `DELETE` y eliminando también los leads relacionados desde PostgreSQL.
+  - Se proporciona feedback visual con `st.success()` o `st.error()` según resultado.
 
 ### 📊 Estado actual
 
 - **Backend:**
-  - FastAPI + SQLAlchemy con PostgreSQL.
-  - Endpoints funcionales para búsqueda, exportación y eliminación de nichos y leads.
-  - `eliminar_nicho` elimina también los leads asociados.
+  - FastAPI + SQLAlchemy + PostgreSQL.
+  - Endpoints funcionales para gestión de usuarios, nichos, leads, suscripciones y exportaciones.
+  - Stripe API operativa desde backend para creación de sesiones de pago.
 
 - **Frontend:**
-  - Streamlit multipágina actualizado.
-  - Botón global "Reiniciar cache" en la barra lateral.
-  - Reinicio automático de caché tras acciones clave (extraer leads, eliminar nichos, actualizar memoria de usuario).
-  - Feedback visual al usuario en las operaciones críticas.
+  - Streamlit multipágina con integración completa al backend.
+  - Gestión de leads por nicho, tareas, notas, asistente y exportaciones.
+  - Capación por plan de suscripción aplicada en las funciones clave.
+  - Portal de pago funcional desde la sección **Mi Cuenta**.
 
 - **Pruebas:**
-  - Se ha verificado manualmente que las acciones de extracción, eliminación de nichos, actualización de memoria y reinicio de caché funcionan correctamente.
-  - Pendiente corregir la configuración de `pytest` (actualmente falla al importar el backend) para implementar tests automáticos.
+  - El backend está operativo y se testea manualmente.
+  - Pendiente corregir la configuración de `pytest` (falla por errores de base de datos en entorno de test).
+  - `pip install -r requirements.txt` funcional.
 
 ### 🚀 Próximos pasos sugeridos
 
-- Revisar y actualizar los tests unitarios (`pytest`) para cubrir las nuevas funcionalidades de eliminación y reinicio de caché.
-- Continuar reforzando la documentación interna y comentarios en el código para reflejar los cambios recientes.
-- Evaluar si es conveniente implementar funcionalidades adicionales de gestión de leads (como envío de emails o etiquetado avanzado) en versiones futuras.
+- Configurar entorno de test separado (SQLite en memoria o base de datos temporal) para hacer funcionar `pytest`.
+- Implementar validación de plan también desde backend si se quiere evitar bypass.
+- Agregar más acciones con lógica condicional según el plan (por ejemplo, límites de tareas o leads por día).
+- Añadir log visual de historial de cambios por lead (acciones, tareas, estado).
+- Continuar reforzando documentación técnica y modularizando funciones en carpetas `utils`.
 
 ---
 
-Wrapper Leads SaaS sigue evolucionando con una arquitectura más estable, sin dependencias de CSV permanentes, con una gestión de nichos/leads más completa y un sistema de reinicio de caché global que mejora la experiencia del usuario.
+Wrapper Leads SaaS avanza hacia un sistema estable y escalable, combinando extracción de leads, gestión inteligente, lógica de suscripción y preparación para un modelo freemium real.
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 22/07/2025 según la conversación y cambios aplicados.)*
+*(Generado automáticamente el 28/07/2025 según la conversación y cambios aplicados.)*
