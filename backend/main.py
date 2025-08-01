@@ -78,10 +78,12 @@ from backend.db import (
 from backend.db import guardar_estado_lead, obtener_estado_lead
 from sqlalchemy.orm import Session
 from backend.db import obtener_nichos_para_url
+from backend.webhook import router as webhook_router
 
 load_dotenv()
 
 app = FastAPI()
+app.include_router(webhook_router)
 
 @app.on_event("startup")
 async def startup():
