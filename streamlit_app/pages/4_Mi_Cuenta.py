@@ -7,6 +7,7 @@ import pandas as pd
 import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
+import streamlit.components.v1 as components
 from cache_utils import cached_get, cached_post, limpiar_cache
 from sidebar_utils import global_reset_button
 
@@ -155,9 +156,10 @@ with col1:
                 else:
                     url = data.get("url")
                     if url:
-                        st.markdown(
-                            f"<meta http-equiv='refresh' content='0; url={url}' />",
-                            unsafe_allow_html=True,
+                        st.info("Redirigiendo al portal de pago...")
+                        components.html(
+                            f"<script>window.location.href = '{url}';</script>",
+                            height=0,
                         )
                     else:
                         st.error("La respuesta no contiene URL de Stripe.")
