@@ -5,7 +5,6 @@ import os
 import requests
 import pandas as pd
 import io
-import webbrowser
 from dotenv import load_dotenv
 from json import JSONDecodeError
 from cache_utils import cached_get, cached_post, limpiar_cache
@@ -154,14 +153,12 @@ with col1:
                 except JSONDecodeError:
                     st.error("Respuesta inválida del servidor.")
                 else:
-                    if "url" in data:
-                        url = data["url"]
+                    url = data.get("url")
+                    if url:
                         st.markdown(
-                            f"[👉 Abrir portal de pago]({url})",
+                            f"<meta http-equiv='refresh' content='0; url={url}' />",
                             unsafe_allow_html=True,
                         )
-                        if "localhost" in BACKEND_URL:
-                            webbrowser.open(url)
                     else:
                         st.error("La respuesta no contiene URL de Stripe.")
             else:
