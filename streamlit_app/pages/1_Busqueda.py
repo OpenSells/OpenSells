@@ -296,8 +296,11 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
 
     if plan == "free":
         try:
-            # Precio por defecto del plan Pro
-            price_id = "price_1RfOhcQYGhXE7WtIbH4hvWzp"  # 👈 usa tu price_id real
+            # Precio por defecto del plan Básico
+            price_id = os.getenv("STRIPE_PRICE_BASIC", "")
+            if not price_id:
+                st.error("Falta configurar el price_id del plan Básico.")
+                st.stop()
             r_checkout = requests.post(
                 f"{BACKEND_URL}/crear_checkout",
                 headers=headers,
@@ -324,7 +327,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
                 """, unsafe_allow_html=True)
             else:
                 st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-        except:
+        except Exception:
             st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
     else:
         st.session_state.fase_extraccion = "buscando"
