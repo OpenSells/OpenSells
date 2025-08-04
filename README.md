@@ -9,7 +9,7 @@ Este documento refleja el estado actual del proyecto tras todas las mejoras e in
 - ✅ **Integración con Stripe (portal de pago):**
   - Se añadió un botón en la página **Mi Cuenta** llamado **"Iniciar suscripción"** que abre directamente el portal de pago de Stripe para gestionar la suscripción del usuario.
   - Se creó el endpoint `/crear_portal_pago` en el backend con FastAPI que genera una sesión de Stripe (ya sea Checkout o Billing Portal).
-  - En el frontend se redirige automáticamente al enlace de Stripe o se muestra un botón clickable para usuarios en Streamlit Cloud.
+  - En el frontend se redirige automáticamente al portal de pago de Stripe al crear la sesión.
 
 - ✅ **Control de acceso según plan de suscripción:**
   - Se añadió lógica unificada para controlar las funcionalidades permitidas según el plan del usuario (`free`, `pro`, etc.).
