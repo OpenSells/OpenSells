@@ -149,35 +149,38 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("**Selecciona un plan:**")
     planes = {
-        "Básico – 19,99/mes": "price_1RfOhcQYGhXE7WtIbH4hvWzp",
-        "Pro – 49,99€/mes": "price_1RfOhRQYGhXE7WtIoSxrqsG5",
-        "Ilimitado – 60€/mes": "price_1RfOhmQYGhXE7WtI49xFz469"
+        "Básico – 19,99/mes": os.getenv("STRIPE_PRICE_BASIC", ""),
+        "Pro – 49,99€/mes": os.getenv("STRIPE_PRICE_PRO", ""),
+        "Ilimitado – 60€/mes": os.getenv("STRIPE_PRICE_ILIMITADO", ""),
     }
     plan_elegido = st.selectbox("Planes disponibles", list(planes.keys()))
     if st.button("💳 Iniciar suscripción"):
-        price_id = planes[plan_elegido]
-        try:
-            r = requests.post(
-                f"{BACKEND_URL}/crear_portal_pago",
-                headers=headers,
-                params={"plan": price_id},
-            )
-            if r.status_code == 200:
-                try:
-                    data = r.json()
-                except JSONDecodeError:
-                    st.error("Respuesta inválida del servidor.")
-                else:
-                    url = data.get("url")
-                    if url:
-                        st.session_state["session_url"] = url
-                        st.rerun()
+        price_id = planes.get(plan_elegido)
+        if not price_id:
+            st.error("Precio no configurado. Contacta con soporte.")
+        else:
+            try:
+                r = requests.post(
+                    f"{BACKEND_URL}/crear_portal_pago",
+                    headers=headers,
+                    params={"plan": price_id},
+                )
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                    except JSONDecodeError:
+                        st.error("Respuesta inválida del servidor.")
                     else:
-                        st.error("La respuesta no contiene URL de Stripe.")
-            else:
-                st.error("No se pudo iniciar el pago.")
-        except Exception as e:
-            st.error(f"Error: {e}")
+                        url = data.get("url")
+                        if url:
+                            st.session_state["session_url"] = url
+                            st.rerun()
+                        else:
+                            st.error("La respuesta no contiene URL de Stripe.")
+                else:
+                    st.error("No se pudo iniciar el pago.")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 with col2:
     if st.button("🧾 Gestionar suscripción"):
