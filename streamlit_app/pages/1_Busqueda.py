@@ -296,36 +296,38 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
 
     if plan == "free":
         try:
-            # Precio por defecto del plan Pro
-            price_id = "price_1RfOhcQYGhXE7WtIbH4hvWzp"  # 👈 usa tu price_id real
-            r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
-                headers=headers,
-                params={"plan": price_id}
-            )
-            if r_checkout.ok:
-                checkout_url = safe_json(r_checkout).get("url", "")
-                st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                st.markdown(f"""
-                <div style='text-align:center; margin-top: 1rem;'>
-                    <a href="{checkout_url}" target="_blank" style='
-                        background-color: #0d6efd;
-                        color: white;
-                        padding: 0.6rem 1.4rem;
-                        border-radius: 6px;
-                        text-decoration: none;
-                        font-weight: 600;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        display: inline-block;
-                        transition: background-color 0.3s ease;'>
-                        💳 Suscribirme ahora
-                    </a>
-                </div>
-                """, unsafe_allow_html=True)
+            price_id = os.getenv("STRIPE_PRICE_PRO")
+            if not price_id:
+                st.error("Precio del plan PRO no configurado.")
             else:
-                st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-        except:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+                r_checkout = requests.post(
+                    f"{BACKEND_URL}/crear_checkout",
+                    headers=headers,
+                    params={"plan": price_id}
+                )
+                if r_checkout.ok:
+                    checkout_url = safe_json(r_checkout).get("url", "")
+                    st.warning("🚫 Tu suscripción actual no permite extraer leads.")
+                    st.markdown(f"""
+                    <div style='text-align:center; margin-top: 1rem;'>
+                        <a href="{checkout_url}" target="_blank" style='
+                            background-color: #0d6efd;
+                            color: white;
+                            padding: 0.6rem 1.4rem;
+                            border-radius: 6px;
+                            text-decoration: none;
+                            font-weight: 600;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            display: inline-block;
+                            transition: background-color 0.3s ease;'>
+                            💳 Suscribirme ahora
+                        </a>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+        except Exception as e:
+            st.error(f"Error al crear checkout: {e}")
     else:
         st.session_state.fase_extraccion = "buscando"
         st.session_state.loading = True
