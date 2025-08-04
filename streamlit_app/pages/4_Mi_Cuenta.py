@@ -7,7 +7,6 @@ import pandas as pd
 import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
-import streamlit.components.v1 as components
 from cache_utils import cached_get, cached_post, limpiar_cache
 from sidebar_utils import global_reset_button
 
@@ -15,6 +14,19 @@ load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 global_reset_button()
+
+# Redirección automática al portal de Stripe si hay una URL almacenada
+if st.session_state.get("session_url"):
+    session_url = st.session_state.pop("session_url")
+    st.info("Redirigiendo al portal de pago...")
+    st.markdown(
+        f"""
+        <script>
+        window.location.href = '{session_url}';
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # -------------------- Autenticación --------------------
 if "token" not in st.session_state:
@@ -156,11 +168,8 @@ with col1:
                 else:
                     url = data.get("url")
                     if url:
-                        st.info("Redirigiendo al portal de pago...")
-                        components.html(
-                            f"<script>window.location.href = '{url}';</script>",
-                            height=0,
-                        )
+                        st.session_state["session_url"] = url
+                        st.rerun()
                     else:
                         st.error("La respuesta no contiene URL de Stripe.")
             else:
