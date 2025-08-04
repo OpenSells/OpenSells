@@ -1,6 +1,7 @@
 # 4_Mi_Cuenta.py – Página de cuenta de usuario
 
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import requests
 import pandas as pd
@@ -19,13 +20,14 @@ global_reset_button()
 if st.session_state.get("session_url"):
     session_url = st.session_state.pop("session_url")
     st.info("Redirigiendo al portal de pago...")
-    st.markdown(
+    components.html(
         f"""
         <script>
-        window.location.href = '{session_url}';
+            window.location.href = '{session_url}';
         </script>
         """,
-        unsafe_allow_html=True,
+        height=0,
+        width=0,
     )
 
 # -------------------- Autenticación --------------------
