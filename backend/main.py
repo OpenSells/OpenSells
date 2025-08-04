@@ -992,12 +992,17 @@ def crear_portal_pago(
         logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/portal_cliente")
-def portal_cliente(usuario=Depends(get_current_user)):
+@app.post("/crear_portal_cliente")
+def crear_portal_cliente(usuario=Depends(get_current_user)):
+    """Genera una sesión del portal de facturación de Stripe para que el
+    usuario pueda gestionar su suscripción."""
     try:
         customers = stripe.Customer.list(email=usuario.email).data
         if not customers:
-            raise HTTPException(status_code=404, detail="Usuario no tiene cuenta Stripe.")
+            raise HTTPException(
+                status_code=404,
+                detail="Usuario no tiene cuenta Stripe.",
+            )
 
         session = stripe.billing_portal.Session.create(
             customer=customers[0].id,
@@ -1005,6 +1010,7 @@ def portal_cliente(usuario=Depends(get_current_user)):
         )
         return {"url": session.url}
     except Exception as e:
+        logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/webhook")
