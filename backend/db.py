@@ -159,20 +159,40 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from backend.models import LeadExtraido
 
-def guardar_leads_extraidos(user_email: str, dominios: list[str], nicho: str, nicho_original: str, db: Session):
-    timestamp = datetime.utcnow().isoformat()
+def guardar_leads_extraidos(
+    user_email: str, dominios: list[str], nicho: str, nicho_original: str, db: Session
+):
+    """Guardar una lista de dominios como leads extraídos.
+
+    Lanza una excepción si ocurre algún error o si no se inserta ningún registro
+    nuevo aun cuando se proporcionaron dominios.
+    """
+
+    nuevos = []
     for dominio in dominios:
-        existe = db.query(LeadExtraido).filter_by(user_email=user_email, url=dominio, nicho=nicho).first()
+        existe = (
+            db.query(LeadExtraido)
+            .filter_by(user_email=user_email, url=dominio, nicho=nicho)
+            .first()
+        )
         if not existe:
             nuevo = LeadExtraido(
                 user_email=user_email,
                 url=dominio,
-                timestamp=timestamp,
                 nicho=nicho,
-                nicho_original=nicho_original
+                nicho_original=nicho_original,
             )
             db.add(nuevo)
-    db.commit()
+            nuevos.append(nuevo)
+
+    if dominios and not nuevos:
+        raise ValueError("No se guardaron leads nuevos")
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 def obtener_historial(user_email: str):
     with sqlite3.connect(DB_PATH) as db:
