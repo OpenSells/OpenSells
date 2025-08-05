@@ -190,28 +190,35 @@ with col1:
                 st.error(f"Error: {e}")
 
 with col2:
-    if st.button("🧾 Gestionar suscripción"):
-        try:
-            r = requests.post(
-                f"{BACKEND_URL}/crear_portal_cliente",
-                headers=headers,
-            )
-            if r.status_code == 200:
-                data = r.json()
-                url_portal = data.get("url")
-                if url_portal:
-                    st.success("Abriendo portal de cliente...")
-                    st.markdown(
-                        f"[👉 Abrir portal de Stripe]({url_portal})",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f"<meta http-equiv='refresh' content='0; url={url_portal}'>",
-                        unsafe_allow_html=True,
-                    )
+    if plan not in ["pro", "ilimitado"]:
+        st.button("🧾 Gestionar suscripción", disabled=True)
+    else:
+        if st.button("🧾 Gestionar suscripción"):
+            try:
+                r = requests.post(
+                    f"{BACKEND_URL}/crear_portal_cliente",
+                    headers=headers,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    url_portal = data.get("url")
+                    if url_portal:
+                        st.success("Abriendo portal de cliente...")
+                        st.markdown(
+                            f"[👉 Abrir portal de Stripe]({url_portal})",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<meta http-equiv='refresh' content='0; url={url_portal}'>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.error("La respuesta no contiene URL del portal.")
                 else:
-                    st.error("La respuesta no contiene URL del portal.")
-            else:
-                st.error("No se pudo abrir el portal del cliente.")
-        except Exception as e:
-            st.error(f"Error: {e}")
+                    try:
+                        detalle = r.json().get("detail", "No se pudo abrir el portal del cliente.")
+                    except Exception:
+                        detalle = "No se pudo abrir el portal del cliente."
+                    st.error(detalle)
+            except Exception as e:
+                st.error(f"Error: {e}")

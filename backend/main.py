@@ -1005,10 +1005,10 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
     usuario pueda gestionar su suscripción."""
     try:
         customers = stripe.Customer.list(email=usuario.email).data
-        if not customers:
+        if not customers or not customers[0].id:
             raise HTTPException(
-                status_code=404,
-                detail="Usuario no tiene cuenta Stripe.",
+                status_code=400,
+                detail="Primero debes iniciar una suscripción antes de poder gestionar tu cuenta.",
             )
 
         session = stripe.billing_portal.Session.create(
@@ -1016,6 +1016,8 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
             return_url=os.getenv("STRIPE_SUCCESS_URL"),
         )
         return {"url": session.url}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
