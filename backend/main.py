@@ -44,7 +44,14 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 from backend.database import engine, Base, get_db
-from backend.models import Usuario
+from backend.models import (
+    Usuario,
+    LeadTarea,
+    LeadHistorial,
+    LeadNota,
+    LeadInfoExtra,
+    LeadExtraido,
+)
 from backend.auth import (
     hashear_password,
     verificar_password,
