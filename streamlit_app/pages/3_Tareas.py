@@ -38,13 +38,16 @@ params = st.query_params
 
 if "lead" in params:
     st.session_state["lead_seleccionado"] = params["lead"]
-    st.session_state["tab_index"] = 3
+    st.session_state["tarea_seccion_activa"] = "🌐 Leads"
     st.query_params.clear()
 
 elif "nicho" in params:
     st.session_state["nicho_seleccionado"] = params["nicho"]
-    st.session_state["tab_index"] = 2
+    st.session_state["tarea_seccion_activa"] = "📂 Nichos"
     st.query_params.clear()
+
+if "tarea_seccion_activa" not in st.session_state:
+    st.session_state["tarea_seccion_activa"] = "⏳ Pendientes"
 
 # ────────────────── Helpers ─────────────────────────
 def _hash(v):
@@ -168,15 +171,21 @@ def render_list(items: list[dict], key_pref: str):
 
 st.title("📋 Tareas")
 titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
-tabs = st.tabs(titles)
 
-# Pendientes (pestaña 0)
-with tabs[0]:
+seccion = st.segmented_control(
+    "Secciones",
+    titles,
+    key="tarea_seccion_activa",
+    default=st.session_state["tarea_seccion_activa"],
+    label_visibility="collapsed",
+)
+
+if seccion == titles[0]:
     st.subheader("⏳ Todas las pendientes")
     render_list(todos, "all")
 
 # Generales
-with tabs[1]:
+elif seccion == titles[1]:
     st.subheader("🧠 Tareas generales")
 
     # Toggle para añadir tarea
@@ -234,7 +243,7 @@ with tabs[1]:
             st.info("No hay tareas completadas.")
 
 # Nichos
-with tabs[2]:
+elif seccion == titles[2]:
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
@@ -331,7 +340,7 @@ with tabs[2]:
                     st.info("No hay tareas completadas para este nicho.")
 
 # Leads
-with tabs[3]:
+elif seccion == titles[3]:
 
     if "lead_seleccionado" not in st.session_state:
         st.session_state["lead_seleccionado"] = None
