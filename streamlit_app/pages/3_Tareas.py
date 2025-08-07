@@ -175,11 +175,11 @@ def render_list(items: list[dict], key_pref: str):
 st.title("📋 Tareas")
 titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
 
-seccion = st.segmented_control(
+seccion = st.radio(
     "Secciones",
     titles,
     key="tarea_seccion_activa",
-    default=st.session_state["tarea_seccion_activa"],
+    index=titles.index(st.session_state["tarea_seccion_activa"]),
     label_visibility="collapsed",
 )
 
