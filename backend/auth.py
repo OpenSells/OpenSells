@@ -23,7 +23,7 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=False)
 
 
 def hashear_password(password: str):
@@ -42,7 +42,20 @@ def crear_token(data: dict):
 def obtener_usuario_por_email(email: str, db: Session):
     return db.query(Usuario).filter(Usuario.email == email).first()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Obtiene el usuario actual a partir de un token JWT.
+
+    Si la variable de entorno ``ALLOW_ANON_USER`` está establecida, permite el
+    acceso sin token retornando un usuario básico temporal. Esto se usa
+    principalmente para ejecutar pruebas automatizadas sin depender de un flujo
+    de autenticación completo.
+    """
+
+    if token is None:
+        if os.getenv("ALLOW_ANON_USER") == "1":
+            return Usuario(email="anon@example.com", hashed_password="", plan="basico")
+        raise HTTPException(status_code=401, detail="Token inválido")
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")

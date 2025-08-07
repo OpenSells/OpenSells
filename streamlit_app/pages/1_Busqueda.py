@@ -8,11 +8,14 @@ from urllib.parse import urlparse
 from json import JSONDecodeError
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from sidebar_utils import global_reset_button
+from auth_utils import ensure_token_and_user, set_token_cookie, logout_button
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 global_reset_button()
+logout_button()
+ensure_token_and_user()
 
 # -------------------- Helpers --------------------
 
@@ -43,6 +46,7 @@ def login():
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
             st.session_state.email = email
+            set_token_cookie(st.session_state.token)
             st.rerun()
         else:
             st.error("Credenciales inválidas")
@@ -75,10 +79,10 @@ plan = obtener_plan(st.session_state.token)
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":
     st.info("Plan gratuito (free). Algunas funciones están limitadas.")
-elif plan == "pro":
-    st.success("Plan PRO activo. Puedes extraer y exportar leads.")
-elif plan == "ilimitado":
-    st.success("Plan Ilimitado activo. Acceso completo.")
+elif plan == "basico":
+    st.success("Plan Básico activo. Puedes extraer y exportar leads.")
+elif plan == "premium":
+    st.success("Plan Premium activo. Acceso completo.")
 else:
     st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
 
@@ -297,7 +301,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
     if plan == "free":
         try:
             # Precio por defecto del plan Básico
-            price_id = os.getenv("STRIPE_PRICE_BASIC", "")
+            price_id = os.getenv("STRIPE_PRICE_BASICO", "")
             if not price_id:
                 st.error("Falta configurar el price_id del plan Básico.")
                 st.stop()

@@ -30,6 +30,7 @@ from io import BytesIO
 import asyncio
 from time import perf_counter
 import csv
+from scraper.extractor import extraer_datos_desde_url
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://app.wrapperleads.com")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
@@ -161,6 +163,16 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = crear_token({"sub": user.email})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@app.get("/usuario_actual")
+def usuario_actual(usuario=Depends(get_current_user)):
+    """Devuelve los datos básicos del usuario autenticado."""
+    return {
+        "id": usuario.id,
+        "email": usuario.email,
+        "plan": usuario.plan or "free",
+    }
 
 @app.get("/protegido")
 async def protegido(usuario = Depends(get_current_user)):
@@ -954,6 +966,11 @@ def crear_checkout(
     plan: str = Query(..., description="ID del plan (price_id) elegido"),
 ):
     try:
+        discounts = None
+        if plan == os.getenv("STRIPE_PRICE_BASICO"):
+            coupon_id = os.getenv("STRIPE_COUPON_BASICO")
+            if coupon_id:
+                discounts = [{"coupon": coupon_id}]
         checkout = stripe.checkout.Session.create(
             customer_email=usuario.email,
             payment_method_types=["card"],
@@ -962,8 +979,9 @@ def crear_checkout(
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url=os.getenv("STRIPE_SUCCESS_URL"),
-            cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            success_url=FRONTEND_URL,
+            cancel_url=FRONTEND_URL,
+            discounts=discounts,
         )
         return {"url": checkout.url}
     except Exception as e:
@@ -981,18 +999,28 @@ def crear_portal_pago(
         if customers:
             session = stripe.billing_portal.Session.create(
                 customer=customers[0].id,
-                return_url=os.getenv("STRIPE_SUCCESS_URL"),
+                return_url=FRONTEND_URL,
             )
             return {"url": session.url}
+
         if plan is None:
             raise HTTPException(status_code=400, detail="Plan requerido")
+
+        # Aplicar cupón para el primer mes del plan Básico si procede
+        discounts = None
+        if plan == os.getenv("STRIPE_PRICE_BASICO"):
+            coupon_id = os.getenv("STRIPE_COUPON_BASICO")
+            if coupon_id:
+                discounts = [{"coupon": coupon_id}]
+
         checkout = stripe.checkout.Session.create(
             customer_email=usuario.email,
             payment_method_types=["card"],
             line_items=[{"price": plan, "quantity": 1}],
             mode="subscription",
-            success_url=os.getenv("STRIPE_SUCCESS_URL"),
-            cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            success_url=FRONTEND_URL,
+            cancel_url=FRONTEND_URL,
+            discounts=discounts,
         )
         return {"url": checkout.url}
     except Exception as e:
@@ -1013,7 +1041,7 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
 
         session = stripe.billing_portal.Session.create(
             customer=customers[0].id,
-            return_url=os.getenv("STRIPE_SUCCESS_URL"),
+            return_url=FRONTEND_URL,
         )
         return {"url": session.url}
     except HTTPException:

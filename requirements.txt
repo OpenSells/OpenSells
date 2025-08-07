@@ -22,6 +22,7 @@ stripe
 
 # Frontend
 streamlit
+streamlit_js_eval
 
 # Data
 pandas

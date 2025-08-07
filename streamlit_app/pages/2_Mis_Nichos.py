@@ -26,12 +26,15 @@ from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
+from auth_utils import ensure_token_and_user, logout_button
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 global_reset_button()
+logout_button()
+ensure_token_and_user()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:
