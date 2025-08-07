@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://app.wrapperleads.com")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
@@ -162,6 +163,16 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = crear_token({"sub": user.email})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@app.get("/usuario_actual")
+def usuario_actual(usuario=Depends(get_current_user)):
+    """Devuelve los datos básicos del usuario autenticado."""
+    return {
+        "id": usuario.id,
+        "email": usuario.email,
+        "plan": usuario.plan or "free",
+    }
 
 @app.get("/protegido")
 async def protegido(usuario = Depends(get_current_user)):
@@ -968,8 +979,8 @@ def crear_checkout(
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url=os.getenv("STRIPE_SUCCESS_URL"),
-            cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            success_url=FRONTEND_URL,
+            cancel_url=FRONTEND_URL,
             discounts=discounts,
         )
         return {"url": checkout.url}
@@ -988,7 +999,7 @@ def crear_portal_pago(
         if customers:
             session = stripe.billing_portal.Session.create(
                 customer=customers[0].id,
-                return_url=os.getenv("STRIPE_SUCCESS_URL"),
+                return_url=FRONTEND_URL,
             )
             return {"url": session.url}
 
@@ -1007,8 +1018,8 @@ def crear_portal_pago(
             payment_method_types=["card"],
             line_items=[{"price": plan, "quantity": 1}],
             mode="subscription",
-            success_url=os.getenv("STRIPE_SUCCESS_URL"),
-            cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            success_url=FRONTEND_URL,
+            cancel_url=FRONTEND_URL,
             discounts=discounts,
         )
         return {"url": checkout.url}
@@ -1030,7 +1041,7 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
 
         session = stripe.billing_portal.Session.create(
             customer=customers[0].id,
-            return_url=os.getenv("STRIPE_SUCCESS_URL"),
+            return_url=FRONTEND_URL,
         )
         return {"url": session.url}
     except HTTPException:
