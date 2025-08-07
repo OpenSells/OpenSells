@@ -4,4 +4,4 @@ st.set_page_config(page_title="❌ Suscripción cancelada", layout="centered", i
 
 st.title("❌ Suscripción cancelada")
 st.warning("El proceso de pago no se ha completado. Puedes volver a intentarlo desde tu cuenta.")
-st.page_link("4_Mi_Cuenta", label="👤 Volver a Mi Cuenta")
+st.page_link("Mi Cuenta", label="👤 Volver a Mi Cuenta")
