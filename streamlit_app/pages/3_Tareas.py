@@ -181,6 +181,7 @@ seccion = st.radio(
     key="tarea_seccion_activa",
     index=titles.index(st.session_state["tarea_seccion_activa"]),
     label_visibility="collapsed",
+    horizontal=True,
 )
 
 if seccion == titles[0]:
