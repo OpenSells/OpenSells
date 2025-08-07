@@ -954,6 +954,11 @@ def crear_checkout(
     plan: str = Query(..., description="ID del plan (price_id) elegido"),
 ):
     try:
+        discounts = None
+        if plan == os.getenv("STRIPE_PRICE_BASICO"):
+            coupon_id = os.getenv("STRIPE_COUPON_BASICO")
+            if coupon_id:
+                discounts = [{"coupon": coupon_id}]
         checkout = stripe.checkout.Session.create(
             customer_email=usuario.email,
             payment_method_types=["card"],
@@ -964,6 +969,7 @@ def crear_checkout(
             mode="subscription",
             success_url=os.getenv("STRIPE_SUCCESS_URL"),
             cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            discounts=discounts,
         )
         return {"url": checkout.url}
     except Exception as e:
@@ -984,8 +990,17 @@ def crear_portal_pago(
                 return_url=os.getenv("STRIPE_SUCCESS_URL"),
             )
             return {"url": session.url}
+
         if plan is None:
             raise HTTPException(status_code=400, detail="Plan requerido")
+
+        # Aplicar cupón para el primer mes del plan Básico si procede
+        discounts = None
+        if plan == os.getenv("STRIPE_PRICE_BASICO"):
+            coupon_id = os.getenv("STRIPE_COUPON_BASICO")
+            if coupon_id:
+                discounts = [{"coupon": coupon_id}]
+
         checkout = stripe.checkout.Session.create(
             customer_email=usuario.email,
             payment_method_types=["card"],
@@ -993,6 +1008,7 @@ def crear_portal_pago(
             mode="subscription",
             success_url=os.getenv("STRIPE_SUCCESS_URL"),
             cancel_url=os.getenv("STRIPE_CANCEL_URL"),
+            discounts=discounts,
         )
         return {"url": checkout.url}
     except Exception as e:

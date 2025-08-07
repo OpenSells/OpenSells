@@ -64,10 +64,10 @@ if plan == "free":
     st.warning(
         "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
     )
-elif plan == "pro":
-    st.success("Tu plan actual es: pro")
-elif plan == "ilimitado":
-    st.success("Tu plan actual es: ilimitado")
+elif plan == "basico":
+    st.success("Tu plan actual es: basico")
+elif plan == "premium":
+    st.success("Tu plan actual es: premium")
 else:
     st.warning("Tu plan actual es: desconocido")
 
@@ -149,9 +149,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("**Selecciona un plan:**")
     planes = {
-        "Básico – 19,99/mes": os.getenv("STRIPE_PRICE_BASIC", ""),
-        "Pro – 49,99€/mes": os.getenv("STRIPE_PRICE_PRO", ""),
-        "Ilimitado – 60€/mes": os.getenv("STRIPE_PRICE_ILIMITADO", ""),
+        "Básico – 14,99€/mes": os.getenv("STRIPE_PRICE_BASICO", ""),
+        "Premium – 49,99€/mes": os.getenv("STRIPE_PRICE_PREMIUM", ""),
     }
     if not all(planes.values()):
         st.error("Faltan configuraciones de precios de Stripe.")
@@ -190,7 +189,7 @@ with col1:
                 st.error(f"Error: {e}")
 
 with col2:
-    if plan not in ["pro", "ilimitado"]:
+    if plan not in ["basico", "premium"]:
         st.button("🧾 Gestionar suscripción", disabled=True)
     else:
         if st.button("🧾 Gestionar suscripción"):

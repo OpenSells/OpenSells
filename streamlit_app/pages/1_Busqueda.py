@@ -75,10 +75,10 @@ plan = obtener_plan(st.session_state.token)
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":
     st.info("Plan gratuito (free). Algunas funciones están limitadas.")
-elif plan == "pro":
-    st.success("Plan PRO activo. Puedes extraer y exportar leads.")
-elif plan == "ilimitado":
-    st.success("Plan Ilimitado activo. Acceso completo.")
+elif plan == "basico":
+    st.success("Plan Básico activo. Puedes extraer y exportar leads.")
+elif plan == "premium":
+    st.success("Plan Premium activo. Acceso completo.")
 else:
     st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
 
@@ -297,7 +297,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
     if plan == "free":
         try:
             # Precio por defecto del plan Básico
-            price_id = os.getenv("STRIPE_PRICE_BASIC", "")
+            price_id = os.getenv("STRIPE_PRICE_BASICO", "")
             if not price_id:
                 st.error("Falta configurar el price_id del plan Básico.")
                 st.stop()
