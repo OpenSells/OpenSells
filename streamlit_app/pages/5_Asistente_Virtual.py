@@ -4,9 +4,12 @@ from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
 from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
+from auth_utils import ensure_token_and_user, logout_button
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
 global_reset_button()
+logout_button()
+ensure_token_and_user()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()

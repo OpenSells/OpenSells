@@ -8,12 +8,15 @@ from dotenv import load_dotenv
 from cache_utils import cached_get, cached_post, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa
 from sidebar_utils import global_reset_button
+from auth_utils import ensure_token_and_user, logout_button
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 global_reset_button()
+logout_button()
+ensure_token_and_user()
 
 # Verificar que existe un token en la sesión
 if "token" not in st.session_state:

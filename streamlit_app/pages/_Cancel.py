@@ -1,10 +1,13 @@
 import streamlit as st
+from auth_utils import ensure_token_and_user
 
 st.set_page_config(
     page_title="❌ Suscripción cancelada",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+ensure_token_and_user()
 
 st.title("❌ Suscripción cancelada")
 st.warning(
