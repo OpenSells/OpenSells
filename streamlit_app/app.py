@@ -1,6 +1,16 @@
 """Main entry point for the Streamlit app."""
 
+import importlib
 import streamlit as st
+
+query_params = st.experimental_get_query_params()
+page = query_params.get("page", [None])[0]
+if page == "success":
+    importlib.import_module("utils.success_page")
+    st.stop()
+elif page == "cancel":
+    importlib.import_module("utils.cancel_page")
+    st.stop()
 
 from sidebar_utils import global_reset_button
 
