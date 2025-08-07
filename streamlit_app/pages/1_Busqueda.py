@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from json import JSONDecodeError
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from sidebar_utils import global_reset_button
-from auth_utils import ensure_token_and_user, set_token_cookie, logout_button
+from auth_utils import ensure_token_and_user, logout_button
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -46,7 +46,6 @@ def login():
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
             st.session_state.email = email
-            set_token_cookie(st.session_state.token)
             st.rerun()
         else:
             st.error("Credenciales inválidas")
