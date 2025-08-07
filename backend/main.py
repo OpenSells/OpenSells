@@ -30,6 +30,7 @@ from io import BytesIO
 import asyncio
 from time import perf_counter
 import csv
+from scraper.extractor import extraer_datos_desde_url
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()

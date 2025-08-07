@@ -1,0 +1,7 @@
+import streamlit as st
+
+st.set_page_config(page_title="❌ Suscripción cancelada", layout="centered", initial_sidebar_state="collapsed")
+
+st.title("❌ Suscripción cancelada")
+st.warning("El proceso de pago no se ha completado. Puedes volver a intentarlo desde tu cuenta.")
+st.page_link("4_Mi_Cuenta", label="👤 Volver a Mi Cuenta")

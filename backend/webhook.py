@@ -72,19 +72,19 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         print("Email no encontrado en payload")
         return {"status": "ok"}
 
-    if event_type in {"checkout.session.completed", "customer.subscription.updated"}:
+    if event_type in {"checkout.session.completed", "customer.subscription.updated", "invoice.paid"}:
         price_id = _extraer_price_id(data_object)
         plan = PRICE_TO_PLAN.get(price_id)
         if plan:
             actualizar_plan_usuario(db, email, plan)
         else:
             print(f"price_id desconocido: {price_id}")
+        if event_type == "invoice.paid":
+            print(f"Pago recibido para {email}")
     elif event_type == "customer.subscription.deleted":
         actualizar_plan_usuario(db, email, "free")
     elif event_type == "invoice.payment_failed":
         actualizar_plan_usuario(db, email, "suspendido")
-    elif event_type == "invoice.paid":
-        print(f"Pago recibido para {email}")
     else:
         print(f"Evento no procesado: {event_type}")
 
