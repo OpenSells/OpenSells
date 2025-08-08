@@ -1,26 +1,15 @@
 import os
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
-from streamlit_js_eval import get_cookie, set_cookie
+from cache_utils import limpiar_cache
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
 
 
-def set_token_cookie(token: str) -> None:
-    set_cookie("wrapper_token", token, 7)
-
-
 def ensure_token_and_user() -> None:
-    if "token" not in st.session_state and not st.session_state.get("logout_flag"):
-        token = get_cookie("wrapper_token")
-        if token:
-            st.session_state.token = token
-
     if "token" in st.session_state:
-        set_token_cookie(st.session_state.token)
         if st.session_state.get("logout_flag"):
             del st.session_state["logout_flag"]
 
@@ -38,16 +27,10 @@ def ensure_token_and_user() -> None:
             except Exception:
                 pass
 
+
 def logout_button() -> None:
     if st.sidebar.button("Cerrar sesión"):
-        components.html(
-            """
-            <script>
-            document.cookie = 'wrapper_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            </script>
-            """,
-            height=0,
-        )
+        limpiar_cache()
         st.session_state.clear()
         st.session_state.logout_flag = True
         st.rerun()
