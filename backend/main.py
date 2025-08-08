@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 import stripe
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://app.wrapperleads.com")
+# Dominio al que Stripe debe redirigir tras finalizar o cancelar el proceso
+# de pago.  Por defecto apuntamos al despliegue actual en Streamlit.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
@@ -979,8 +981,10 @@ def crear_checkout(
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url=FRONTEND_URL,
-            cancel_url=FRONTEND_URL,
+            # Tras completar o cancelar el checkout volvemos a la página
+            # "Mi Cuenta" para que el usuario continúe en la aplicación.
+            success_url=f"{FRONTEND_URL}/mi-cuenta",
+            cancel_url=f"{FRONTEND_URL}/mi-cuenta",
             discounts=discounts,
         )
         return {"url": checkout.url}
@@ -999,7 +1003,9 @@ def crear_portal_pago(
         if customers:
             session = stripe.billing_portal.Session.create(
                 customer=customers[0].id,
-                return_url=FRONTEND_URL,
+                # Al cerrar el portal, Stripe debe regresarnos a la página
+                # "Mi Cuenta" del frontend.
+                return_url=f"{FRONTEND_URL}/mi-cuenta",
             )
             return {"url": session.url}
 
@@ -1018,8 +1024,10 @@ def crear_portal_pago(
             payment_method_types=["card"],
             line_items=[{"price": plan, "quantity": 1}],
             mode="subscription",
-            success_url=FRONTEND_URL,
-            cancel_url=FRONTEND_URL,
+            # Redirigimos siempre a la página "Mi Cuenta" tanto si el pago
+            # se completa como si se cancela para evitar dominios incorrectos.
+            success_url=f"{FRONTEND_URL}/mi-cuenta",
+            cancel_url=f"{FRONTEND_URL}/mi-cuenta",
             discounts=discounts,
         )
         return {"url": checkout.url}
@@ -1041,7 +1049,9 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
 
         session = stripe.billing_portal.Session.create(
             customer=customers[0].id,
-            return_url=FRONTEND_URL,
+            # Una vez que el usuario cierre el portal, lo devolvemos a la
+            # sección "Mi Cuenta" del frontend.
+            return_url=f"{FRONTEND_URL}/mi-cuenta",
         )
         return {"url": session.url}
     except HTTPException:
