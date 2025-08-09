@@ -4,12 +4,14 @@ from urllib.parse import urlparse
 import time
 from datetime import date
 from dotenv import load_dotenv
+
+from session_bootstrap import bootstrap
+bootstrap()
+
 from cache_utils import cached_get, cached_post, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
-from cookies_utils import init_cookie_manager_mount
 # ────────────────── Config ──────────────────────────
-init_cookie_manager_mount()
 load_dotenv()
 BACKEND_URL = (
     st.secrets.get("BACKEND_URL")

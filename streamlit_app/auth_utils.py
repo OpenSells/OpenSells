@@ -14,6 +14,7 @@ BACKEND_URL = (
     or os.getenv("BACKEND_URL")
     or "https://opensells.onrender.com"
 )
+ENV = st.secrets.get("ENV") or os.getenv("ENV")
 
 
 def ensure_token_and_user() -> None:
@@ -38,6 +39,10 @@ def ensure_token_and_user() -> None:
                     st.session_state.clear()
             except Exception:
                 pass
+
+    if ENV == "dev":
+        st.write("DEBUG token in session:", "token" in st.session_state)
+        st.write("DEBUG token from cookies:", get_auth_token())
 
 
 def logout_button() -> None:

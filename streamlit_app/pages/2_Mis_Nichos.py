@@ -17,6 +17,9 @@ import hashlib
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
+from session_bootstrap import bootstrap
+bootstrap()
+
 # Añadir raíz del proyecto al path para importar correctamente desde backend/
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
@@ -24,10 +27,8 @@ from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
-from cookies_utils import init_cookie_manager_mount
 
 # ── Config ───────────────────────────────────────────
-init_cookie_manager_mount()
 load_dotenv()
 BACKEND_URL = (
     st.secrets.get("BACKEND_URL")

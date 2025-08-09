@@ -3,11 +3,11 @@
 import os, streamlit as st
 import requests
 
+from session_bootstrap import bootstrap
+bootstrap()
+
 from auth_utils import ensure_token_and_user, logout_button
 from plan_utils import obtener_plan, force_redirect
-from cookies_utils import init_cookie_manager_mount
-
-init_cookie_manager_mount()
 
 BACKEND_URL = (
     st.secrets.get("BACKEND_URL")

@@ -5,12 +5,14 @@ import requests
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
+
+from session_bootstrap import bootstrap
+bootstrap()
+
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from auth_utils import ensure_token_and_user, logout_button
-from cookies_utils import init_cookie_manager_mount, set_auth_cookies
+from cookies_utils import set_auth_cookies
 from plan_utils import obtener_plan, subscription_cta
-
-init_cookie_manager_mount()
 
 load_dotenv()
 BACKEND_URL = (
@@ -55,7 +57,14 @@ def login():
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
             st.session_state.email = email
-            set_auth_cookies(st.session_state.token, st.session_state.get("email"), days=7)
+            try:
+                set_auth_cookies(
+                    st.session_state.token,
+                    st.session_state.get("email"),
+                    days=7,
+                )
+            except Exception:
+                st.warning("No se pudieron guardar las cookies de sesión")
             st.rerun()
         else:
             st.error("Credenciales inválidas")

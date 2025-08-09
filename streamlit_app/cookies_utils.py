@@ -21,9 +21,23 @@ def set_auth_cookies(token: str, email: Optional[str], days: int = 7) -> None:
     cm = _get_cookie_manager()
     max_age = days * 24 * 3600
     try:
-        cm.set("wrapper_token", str(token), max_age=max_age, path="/")
+        cm.set(
+            "wrapper_token",
+            str(token),
+            max_age=max_age,
+            path="/",
+            secure=True,
+            same_site="Lax",
+        )
         if email:
-            cm.set("wrapper_email", str(email), max_age=max_age, path="/")
+            cm.set(
+                "wrapper_email",
+                str(email),
+                max_age=max_age,
+                path="/",
+                secure=True,
+                same_site="Lax",
+            )
     except Exception:
         # No romper la app si el navegador bloquea cookies
         pass
@@ -32,7 +46,7 @@ def set_auth_cookies(token: str, email: Optional[str], days: int = 7) -> None:
 def get_auth_token() -> Optional[str]:
     cm = _get_cookie_manager()
     try:
-        return cm.get("wrapper_token")
+        return cm.get("wrapper_token") or None
     except Exception:
         return None
 
@@ -40,7 +54,7 @@ def get_auth_token() -> Optional[str]:
 def get_auth_email() -> Optional[str]:
     cm = _get_cookie_manager()
     try:
-        return cm.get("wrapper_email")
+        return cm.get("wrapper_email") or None
     except Exception:
         return None
 
