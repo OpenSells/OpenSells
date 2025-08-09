@@ -1,9 +1,8 @@
-import os
+import os, streamlit as st
 from hashlib import md5
 from urllib.parse import urlparse
 import time
 from datetime import date
-import streamlit as st
 from dotenv import load_dotenv
 from cache_utils import cached_get, cached_post, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa
@@ -11,7 +10,11 @@ from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 global_reset_button()

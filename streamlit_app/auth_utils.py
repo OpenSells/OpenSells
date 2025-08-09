@@ -1,11 +1,14 @@
-import os
+import os, streamlit as st
 import requests
-import streamlit as st
 from dotenv import load_dotenv
 from cache_utils import limpiar_cache
 
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 
 
 def ensure_token_and_user() -> None:

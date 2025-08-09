@@ -11,12 +11,10 @@
 #      reruns innecesarios.
 #   4. Limpieza y tipado ligero.
 
-import os
+import os, streamlit as st
 import sys
 import hashlib
 from urllib.parse import urlparse
-
-import streamlit as st
 from dotenv import load_dotenv
 
 # Añadir raíz del proyecto al path para importar correctamente desde backend/
@@ -30,7 +28,11 @@ from auth_utils import ensure_token_and_user, logout_button
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 global_reset_button()
 logout_button()

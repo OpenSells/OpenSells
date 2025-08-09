@@ -1,7 +1,6 @@
 # 4_Mi_Cuenta.py – Página de cuenta de usuario
 
-import streamlit as st
-import os
+import os, streamlit as st
 import requests
 import pandas as pd
 import io
@@ -13,7 +12,11 @@ from auth_utils import ensure_token_and_user, logout_button
 from streamlit_js_eval import streamlit_js_eval
 
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 global_reset_button()
 logout_button()

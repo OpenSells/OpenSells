@@ -1,5 +1,4 @@
-import streamlit as st
-import os
+import os, streamlit as st
 from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
 from plan_utils import obtener_plan, tiene_suscripcion_activa
@@ -13,7 +12,11 @@ ensure_token_and_user()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 client = get_openai_client()
 
 st.title("🤖 Tu Asistente Virtual")
