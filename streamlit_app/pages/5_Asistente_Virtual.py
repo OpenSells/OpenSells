@@ -1,12 +1,10 @@
 import os, streamlit as st
 from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
-from plan_utils import obtener_plan, tiene_suscripcion_activa
-from sidebar_utils import global_reset_button
+from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -48,6 +46,7 @@ pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 if pregunta:
     if not tiene_suscripcion_activa(plan):
         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+        subscription_cta()
     else:
         st.session_state.chat.append({"role": "user", "content": pregunta})
         with st.chat_message("user"):

@@ -7,49 +7,34 @@ import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
 from cache_utils import cached_get, cached_post, limpiar_cache
-from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
 from streamlit_js_eval import streamlit_js_eval
 import streamlit.components.v1 as components
+from plan_utils import subscription_cta
 
 
 def _force_redirect(url: str):
     st.success("Redirigiendo a Stripe...")
-    # Opción manual por si todo falla
-    st.link_button(
-        "👉 Abrir enlace si no se abre automáticamente", url, use_container_width=True
-    )
-
-    # Nonce para forzar ejecución en el cliente en el nuevo render
-    nonce_key = "_redir_nonce"
-    st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
-
-    # 1) Intento principal: JS Eval en la ventana superior
+    st.link_button("👉 Abrir enlace si no se abre automáticamente", url, use_container_width=True)
+    st.session_state['_redir_nonce'] = st.session_state.get('_redir_nonce', 0) + 1
     try:
         streamlit_js_eval(
             js_expressions=f'window.top.location.href="{url}"',
-            key=f"jsredir_{st.session_state[nonce_key]}"
+            key=f"jsredir_{st.session_state.get('_redir_nonce', 0)}",
         )
     except Exception:
         pass
-
-    # 2) Fallback sólido con components.html y pequeño delay
     components.html(
         f'''
         <script>
         (function() {{
-            // Un primer intento inmediato
             try {{ window.top.location.href = "{url}"; }} catch(e) {{}}
-            // Un segundo intento tras un breve delay por si el primer render llega antes
-            setTimeout(function() {{
-                try {{ window.top.location.href = "{url}"; }} catch(e) {{}}
-            }}, 50);
+            setTimeout(function() {{ try {{ window.top.location.href = "{url}"; }} catch(e) {{}} }}, 50);
         }})();
         </script>
         ''',
         height=0,
     )
-
     st.stop()
 
 load_dotenv()
@@ -59,7 +44,6 @@ BACKEND_URL = (
     or "https://opensells.onrender.com"
 )
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -86,12 +70,6 @@ st.title("⚙️ Mi Cuenta")
 
 # -------------------- Plan actual --------------------
 # Validar token antes de hacer la petición
-if "token" not in st.session_state:
-    st.error("⚠️ Debes iniciar sesión para ver tu plan.")
-    st.stop()
-
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
-
 # Obtener plan del usuario
 try:
     data_plan = cached_get("protegido", st.session_state.token)
@@ -112,6 +90,7 @@ if plan == "free":
     st.warning(
         "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
     )
+    subscription_cta()
 elif plan == "basico":
     st.success("Tu plan actual es: basico")
 elif plan == "premium":
@@ -211,6 +190,7 @@ with col1:
                     f"{BACKEND_URL}/crear_portal_pago",
                     headers=headers,
                     params={"plan": price_id},
+                    timeout=30,
                 )
                 if r.status_code == 200:
                     try:
@@ -224,9 +204,8 @@ with col1:
                         else:
                             st.error("La respuesta no contiene URL de Stripe.")
                 else:
-                    st.error(
-                        f"No se pudo iniciar el pago (status {r.status_code}): {r.text}"
-                    )
+                    st.error("No se pudo iniciar el pago.")
+                    st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -239,6 +218,7 @@ with col2:
                 r = requests.post(
                     f"{BACKEND_URL}/crear_portal_cliente",
                     headers=headers,
+                    timeout=30,
                 )
                 if r.status_code == 200:
                     data = r.json()
@@ -248,8 +228,7 @@ with col2:
                     else:
                         st.error("La respuesta no contiene URL del portal.")
                 else:
-                    st.error(
-                        f"No se pudo abrir el portal del cliente (status {r.status_code}): {r.text}"
-                    )
+                    st.error("No se pudo abrir el portal del cliente.")
+                    st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")

@@ -2,11 +2,9 @@
 
 import streamlit as st
 
-from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
 
 st.set_page_config(page_title="Wrapper Leads SaaS", page_icon="🕵️‍♂️")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 st.title("🧠 Wrapper Leads SaaS")

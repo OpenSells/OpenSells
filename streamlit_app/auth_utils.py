@@ -2,6 +2,7 @@ import os, streamlit as st
 import requests
 from dotenv import load_dotenv
 from cache_utils import limpiar_cache
+from cookies_utils import get_cm, clear_auth_cookies
 
 load_dotenv()
 BACKEND_URL = (
@@ -12,6 +13,15 @@ BACKEND_URL = (
 
 
 def ensure_token_and_user() -> None:
+    if "token" not in st.session_state:
+        cm = get_cm()
+        token = cm.get("wrapper_token")
+        if token:
+            st.session_state.token = token
+            email = cm.get("wrapper_email")
+            if email:
+                st.session_state.email = email
+
     if "token" in st.session_state:
         if st.session_state.get("logout_flag"):
             del st.session_state["logout_flag"]
@@ -34,6 +44,7 @@ def ensure_token_and_user() -> None:
 def logout_button() -> None:
     if st.sidebar.button("Cerrar sesión"):
         limpiar_cache()
+        clear_auth_cookies()
         st.session_state.clear()
         st.session_state.logout_flag = True
         st.rerun()

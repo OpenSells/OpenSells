@@ -97,11 +97,19 @@ def permite_recurso(plan: str, clave: str) -> bool:
     return bool(valor)
 
 
+def subscription_cta():
+    if hasattr(st, "page_link"):
+        st.page_link("pages/05_Suscripcion.py", label="💳 Ver planes y suscribirme")
+    else:
+        st.markdown("💳 [Ver planes y suscribirme](./05_Suscripcion)")
+
+
 __all__ = [
     "PLANES",
     "obtener_plan",
     "tiene_suscripcion_activa",
     "obtener_limite",
     "permite_recurso",
+    "subscription_cta",
 ]
 
