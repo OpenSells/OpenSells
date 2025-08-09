@@ -1,20 +1,25 @@
-import os
+import os, streamlit as st
 from hashlib import md5
 from urllib.parse import urlparse
 import time
 from datetime import date
-import streamlit as st
 from dotenv import load_dotenv
+
+from session_bootstrap import bootstrap
+bootstrap()
+
 from cache_utils import cached_get, cached_post, limpiar_cache
-from plan_utils import obtener_plan, tiene_suscripcion_activa
-from sidebar_utils import global_reset_button
+from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -116,6 +121,7 @@ def render_list(items: list[dict], key_pref: str):
         if cols[5].button("✔️", key=f"done_{unique_key}"):
             if not tiene_suscripcion_activa(plan):
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                subscription_cta()
             else:
                 cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
                 limpiar_cache()  # ✅ Añadir esto
@@ -147,6 +153,7 @@ def render_list(items: list[dict], key_pref: str):
             if c4.button("💾", key=f"guardar_edit_{unique_key}"):
                 if not tiene_suscripcion_activa(plan):
                     st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    subscription_cta()
                 else:
                     cached_post(
                         "editar_tarea",
@@ -204,6 +211,7 @@ elif seccion == titles[1]:
                 if texto.strip():
                     if not tiene_suscripcion_activa(plan):
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        subscription_cta()
                     else:
                         cached_post(
                             "tarea_lead",
@@ -301,6 +309,7 @@ elif seccion == titles[2]:
                         if texto.strip():
                             if not tiene_suscripcion_activa(plan):
                                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                                subscription_cta()
                             else:
                                 cached_post(
                                     "tarea_lead",
@@ -400,6 +409,7 @@ elif seccion == titles[3]:
                     if texto.strip():
                         if not tiene_suscripcion_activa(plan):
                             st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                            subscription_cta()
                         else:
                             cached_post(
                                 "tarea_lead",
@@ -433,6 +443,7 @@ elif seccion == titles[3]:
                 if st.form_submit_button("💾 Guardar información"):
                     if not tiene_suscripcion_activa(plan):
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        subscription_cta()
                     else:
                         respuesta = cached_post(
                             "guardar_info_extra",

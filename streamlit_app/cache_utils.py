@@ -1,12 +1,15 @@
-import os
+import os, streamlit as st
 import requests
-import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 from urllib.parse import urlencode
 
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 
 @st.cache_resource
 def get_openai_client() -> OpenAI | None:

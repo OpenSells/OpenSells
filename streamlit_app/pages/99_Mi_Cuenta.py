@@ -1,20 +1,26 @@
-# 4_Mi_Cuenta.py – Página de cuenta de usuario
+# 99_Mi_Cuenta.py – Página de cuenta de usuario
 
-import streamlit as st
-import os
+import os, streamlit as st
 import requests
 import pandas as pd
 import io
 from dotenv import load_dotenv
 from json import JSONDecodeError
+
+from session_bootstrap import bootstrap
+bootstrap()
+
 from cache_utils import cached_get, cached_post, limpiar_cache
-from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
+from plan_utils import subscription_cta, force_redirect
 
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -41,12 +47,6 @@ st.title("⚙️ Mi Cuenta")
 
 # -------------------- Plan actual --------------------
 # Validar token antes de hacer la petición
-if "token" not in st.session_state:
-    st.error("⚠️ Debes iniciar sesión para ver tu plan.")
-    st.stop()
-
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
-
 # Obtener plan del usuario
 try:
     data_plan = cached_get("protegido", st.session_state.token)
@@ -67,6 +67,7 @@ if plan == "free":
     st.warning(
         "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
     )
+    subscription_cta()
 elif plan == "basico":
     st.success("Tu plan actual es: basico")
 elif plan == "premium":
@@ -166,6 +167,7 @@ with col1:
                     f"{BACKEND_URL}/crear_portal_pago",
                     headers=headers,
                     params={"plan": price_id},
+                    timeout=30,
                 )
                 if r.status_code == 200:
                     try:
@@ -175,19 +177,12 @@ with col1:
                     else:
                         url = data.get("url")
                         if url:
-                            st.success("Redirigiendo a Stripe...")
-                            st.markdown(
-                                f"[Haz clic aquí si no se abre automáticamente]({url})",
-                                unsafe_allow_html=True,
-                            )
-                            st.markdown(
-                                f"<meta http-equiv='refresh' content='0; url={url}'>",
-                                unsafe_allow_html=True,
-                            )
+                            force_redirect(url)
                         else:
                             st.error("La respuesta no contiene URL de Stripe.")
                 else:
                     st.error("No se pudo iniciar el pago.")
+                    st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -200,27 +195,17 @@ with col2:
                 r = requests.post(
                     f"{BACKEND_URL}/crear_portal_cliente",
                     headers=headers,
+                    timeout=30,
                 )
                 if r.status_code == 200:
                     data = r.json()
                     url_portal = data.get("url")
                     if url_portal:
-                        st.success("Abriendo portal de cliente...")
-                        st.markdown(
-                            f"[👉 Abrir portal de Stripe]({url_portal})",
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown(
-                            f"<meta http-equiv='refresh' content='0; url={url_portal}'>",
-                            unsafe_allow_html=True,
-                        )
+                        force_redirect(url_portal)
                     else:
                         st.error("La respuesta no contiene URL del portal.")
                 else:
-                    try:
-                        detalle = r.json().get("detail", "No se pudo abrir el portal del cliente.")
-                    except Exception:
-                        detalle = "No se pudo abrir el portal del cliente."
-                    st.error(detalle)
+                    st.error("No se pudo abrir el portal del cliente.")
+                    st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")

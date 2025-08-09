@@ -11,28 +11,31 @@
 #      reruns innecesarios.
 #   4. Limpieza y tipado ligero.
 
-import os
+import os, streamlit as st
 import sys
 import hashlib
 from urllib.parse import urlparse
-
-import streamlit as st
 from dotenv import load_dotenv
+
+from session_bootstrap import bootstrap
+bootstrap()
 
 # Añadir raíz del proyecto al path para importar correctamente desde backend/
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
-from plan_utils import obtener_plan, tiene_suscripcion_activa
-from sidebar_utils import global_reset_button
+from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -173,6 +176,7 @@ for n in nichos_visibles:
         if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
             if not tiene_suscripcion_activa(plan):
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                subscription_cta()
             else:
                 res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
                 if res:
@@ -206,6 +210,7 @@ for n in nichos_visibles:
                 st.warning(
                     "La búsqueda de leads está disponible solo para usuarios con suscripción activa."
                 )
+                subscription_cta()
             else:
                 leads = [
                     l for l in leads
@@ -238,6 +243,7 @@ for n in nichos_visibles:
                         else:
                             if not tiene_suscripcion_activa(plan):
                                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                                subscription_cta()
                             else:
                                 res = cached_post(
                                     "añadir_lead_manual",
@@ -272,6 +278,7 @@ for n in nichos_visibles:
             if cols_row[1].button("🗑️", key=f"btn_borrar_{clave_base}"):
                 if not tiene_suscripcion_activa(plan):
                     st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    subscription_cta()
                 else:
                     res = cached_delete(
                         "eliminar_lead",
@@ -302,6 +309,7 @@ for n in nichos_visibles:
                 if st.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
                     if not tiene_suscripcion_activa(plan):
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        subscription_cta()
                     else:
                         res = cached_post(
                             "mover_lead",
@@ -338,6 +346,7 @@ for n in nichos_visibles:
                     if st.form_submit_button("💾 Guardar información"):
                         if not tiene_suscripcion_activa(plan):
                             st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                            subscription_cta()
                         else:
                             res = cached_post(
                                 "guardar_info_extra",

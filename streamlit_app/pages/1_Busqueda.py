@@ -1,19 +1,26 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
-import streamlit as st
+import os, streamlit as st
 import requests
-import os
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
+
+from session_bootstrap import bootstrap
+bootstrap()
+
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
+from cookies_utils import set_auth_cookies
+from plan_utils import obtener_plan, subscription_cta
 
 load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = (
+    st.secrets.get("BACKEND_URL")
+    or os.getenv("BACKEND_URL")
+    or "https://opensells.onrender.com"
+)
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
-global_reset_button()
 logout_button()
 ensure_token_and_user()
 
@@ -41,16 +48,32 @@ def login():
     email = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     if st.button("Iniciar sesión", key="btn_login"):
-        r = requests.post(f"{BACKEND_URL}/login", data={"username": email, "password": password})
+        r = requests.post(
+            f"{BACKEND_URL}/login",
+            data={"username": email, "password": password},
+            timeout=30,
+        )
         if r.status_code == 200:
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
             st.session_state.email = email
+            try:
+                set_auth_cookies(
+                    st.session_state.token,
+                    st.session_state.get("email"),
+                    days=7,
+                )
+            except Exception:
+                st.warning("No se pudieron guardar las cookies de sesión")
             st.rerun()
         else:
             st.error("Credenciales inválidas")
     if st.button("Registrarse", key="btn_register"):
-        r = requests.post(f"{BACKEND_URL}/register", json={"email": email, "password": password})
+        r = requests.post(
+            f"{BACKEND_URL}/register",
+            json={"email": email, "password": password},
+            timeout=30,
+        )
         st.success("Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.")
 
 
@@ -78,6 +101,7 @@ plan = obtener_plan(st.session_state.token)
 st.markdown("### 💼 Tu plan actual:")
 if plan == "free":
     st.info("Plan gratuito (free). Algunas funciones están limitadas.")
+    subscription_cta()
 elif plan == "basico":
     st.success("Plan Básico activo. Puedes extraer y exportar leads.")
 elif plan == "premium":
@@ -158,6 +182,7 @@ def procesar_extraccion():
             st.rerun()
         elif r.status_code == 403:
             st.warning("🚫 Tu suscripción no permite extraer leads. Actualiza tu plan para continuar.")
+            subscription_cta()
             st.session_state.loading = False
             return
         else:
@@ -312,6 +337,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
             if r_checkout.ok:
                 checkout_url = safe_json(r_checkout).get("url", "")
                 st.warning("🚫 Tu suscripción actual no permite extraer leads.")
+                subscription_cta()
                 st.markdown(f"""
                 <div style='text-align:center; margin-top: 1rem;'>
                     <a href="{checkout_url}" target="_blank" style='
@@ -330,8 +356,10 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
                 """, unsafe_allow_html=True)
             else:
                 st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+                subscription_cta()
         except Exception:
             st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+            subscription_cta()
     else:
         st.session_state.fase_extraccion = "buscando"
         st.session_state.loading = True
