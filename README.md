@@ -72,6 +72,16 @@ Este documento refleja el estado actual del proyecto tras todas las mejoras e in
 
 Esto levantará la API en `http://localhost:8000` y la interfaz de Streamlit en `http://localhost:8501`.
 
+### 🔑 Configuración de variables de entorno
+
+Antes de ejecutar los servicios asegúrate de definir tus variables de entorno. El repositorio incluye un archivo de ejemplo que puedes copiar:
+
+```bash
+cp .env.example .env
+```
+
+Completa el archivo `.env` con las credenciales necesarias (PostgreSQL, claves de Stripe, etc.) para que el backend y el frontend funcionen correctamente.
+
 ### 🚀 Próximos pasos sugeridos
 
 - Configurar entorno de test separado (SQLite en memoria o base de datos temporal) para hacer funcionar `pytest`.
