@@ -48,7 +48,29 @@ Este documento refleja el estado actual del proyecto tras todas las mejoras e in
 - **Pruebas:**
   - El backend está operativo y se testea manualmente.
   - Pendiente corregir la configuración de `pytest` (falla por errores de base de datos en entorno de test).
-  - `pip install -r requirements.txt` funcional.
+- `pip install -r requirements.txt` funcional.
+
+### 🛠️ Ejecución local
+
+1. Clona el repositorio e instala las dependencias:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Inicia el backend:
+
+   ```bash
+   uvicorn backend.main:app --reload
+   ```
+
+3. Inicia el frontend:
+
+   ```bash
+   streamlit run streamlit_app/Main.py
+   ```
+
+Esto levantará la API en `http://localhost:8000` y la interfaz de Streamlit en `http://localhost:8501`.
 
 ### 🚀 Próximos pasos sugeridos
 
