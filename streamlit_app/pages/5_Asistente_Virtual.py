@@ -3,7 +3,9 @@ from dotenv import load_dotenv
 from cache_utils import cached_get, get_openai_client
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
+from cookies_utils import init_cookie_manager_mount
 
+init_cookie_manager_mount()
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")  # ✅ PRIMERO
 logout_button()
 ensure_token_and_user()

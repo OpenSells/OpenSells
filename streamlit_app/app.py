@@ -3,6 +3,9 @@
 import streamlit as st
 
 from auth_utils import ensure_token_and_user, logout_button
+from cookies_utils import init_cookie_manager_mount
+
+init_cookie_manager_mount()
 
 st.set_page_config(page_title="Wrapper Leads SaaS", page_icon="🕵️‍♂️")
 logout_button()

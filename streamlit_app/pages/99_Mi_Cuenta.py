@@ -1,4 +1,4 @@
-# 4_Mi_Cuenta.py – Página de cuenta de usuario
+# 99_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os, streamlit as st
 import requests
@@ -8,35 +8,10 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 from cache_utils import cached_get, cached_post, limpiar_cache
 from auth_utils import ensure_token_and_user, logout_button
-from streamlit_js_eval import streamlit_js_eval
-import streamlit.components.v1 as components
-from plan_utils import subscription_cta
+from plan_utils import subscription_cta, force_redirect
+from cookies_utils import init_cookie_manager_mount
 
-
-def _force_redirect(url: str):
-    st.success("Redirigiendo a Stripe...")
-    st.link_button("👉 Abrir enlace si no se abre automáticamente", url, use_container_width=True)
-    st.session_state['_redir_nonce'] = st.session_state.get('_redir_nonce', 0) + 1
-    try:
-        streamlit_js_eval(
-            js_expressions=f'window.top.location.href="{url}"',
-            key=f"jsredir_{st.session_state.get('_redir_nonce', 0)}",
-        )
-    except Exception:
-        pass
-    components.html(
-        f'''
-        <script>
-        (function() {{
-            try {{ window.top.location.href = "{url}"; }} catch(e) {{}}
-            setTimeout(function() {{ try {{ window.top.location.href = "{url}"; }} catch(e) {{}} }}, 50);
-        }})();
-        </script>
-        ''',
-        height=0,
-    )
-    st.stop()
-
+init_cookie_manager_mount()
 load_dotenv()
 BACKEND_URL = (
     st.secrets.get("BACKEND_URL")
@@ -200,7 +175,7 @@ with col1:
                     else:
                         url = data.get("url")
                         if url:
-                            _force_redirect(url)
+                            force_redirect(url)
                         else:
                             st.error("La respuesta no contiene URL de Stripe.")
                 else:
@@ -224,7 +199,7 @@ with col2:
                     data = r.json()
                     url_portal = data.get("url")
                     if url_portal:
-                        _force_redirect(url_portal)
+                        force_redirect(url_portal)
                     else:
                         st.error("La respuesta no contiene URL del portal.")
                 else:
