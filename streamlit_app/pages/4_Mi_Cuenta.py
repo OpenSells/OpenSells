@@ -10,6 +10,7 @@ from json import JSONDecodeError
 from cache_utils import cached_get, cached_post, limpiar_cache
 from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
+from streamlit_js_eval import streamlit_js_eval
 
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com")
@@ -176,18 +177,19 @@ with col1:
                         url = data.get("url")
                         if url:
                             st.success("Redirigiendo a Stripe...")
-                            st.markdown(
-                                f"[Haz clic aquí si no se abre automáticamente]({url})",
-                                unsafe_allow_html=True,
+                            st.link_button(
+                                "👉 Abrir enlace si no se abre automáticamente",
+                                url,
                             )
-                            st.markdown(
-                                f"<meta http-equiv='refresh' content='0; url={url}'>",
-                                unsafe_allow_html=True,
+                            streamlit_js_eval(
+                                js_expressions=f'window.top.location.href="{url}"'
                             )
                         else:
                             st.error("La respuesta no contiene URL de Stripe.")
                 else:
-                    st.error("No se pudo iniciar el pago.")
+                    st.error(
+                        f"No se pudo iniciar el pago (status {r.status_code}): {r.text}"
+                    )
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -206,21 +208,15 @@ with col2:
                     url_portal = data.get("url")
                     if url_portal:
                         st.success("Abriendo portal de cliente...")
-                        st.markdown(
-                            f"[👉 Abrir portal de Stripe]({url_portal})",
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown(
-                            f"<meta http-equiv='refresh' content='0; url={url_portal}'>",
-                            unsafe_allow_html=True,
+                        st.link_button("👉 Abrir portal de Stripe", url_portal)
+                        streamlit_js_eval(
+                            js_expressions=f'window.top.location.href="{url_portal}"'
                         )
                     else:
                         st.error("La respuesta no contiene URL del portal.")
                 else:
-                    try:
-                        detalle = r.json().get("detail", "No se pudo abrir el portal del cliente.")
-                    except Exception:
-                        detalle = "No se pudo abrir el portal del cliente."
-                    st.error(detalle)
+                    st.error(
+                        f"No se pudo abrir el portal del cliente (status {r.status_code}): {r.text}"
+                    )
             except Exception as e:
                 st.error(f"Error: {e}")
