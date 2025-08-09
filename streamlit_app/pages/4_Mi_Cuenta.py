@@ -10,6 +10,47 @@ from cache_utils import cached_get, cached_post, limpiar_cache
 from sidebar_utils import global_reset_button
 from auth_utils import ensure_token_and_user, logout_button
 from streamlit_js_eval import streamlit_js_eval
+import streamlit.components.v1 as components
+
+
+def _force_redirect(url: str):
+    st.success("Redirigiendo a Stripe...")
+    # Opción manual por si todo falla
+    st.link_button(
+        "👉 Abrir enlace si no se abre automáticamente", url, use_container_width=True
+    )
+
+    # Nonce para forzar ejecución en el cliente en el nuevo render
+    nonce_key = "_redir_nonce"
+    st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
+
+    # 1) Intento principal: JS Eval en la ventana superior
+    try:
+        streamlit_js_eval(
+            js_expressions=f'window.top.location.href="{url}"',
+            key=f"jsredir_{st.session_state[nonce_key]}"
+        )
+    except Exception:
+        pass
+
+    # 2) Fallback sólido con components.html y pequeño delay
+    components.html(
+        f'''
+        <script>
+        (function() {{
+            // Un primer intento inmediato
+            try {{ window.top.location.href = "{url}"; }} catch(e) {{}}
+            // Un segundo intento tras un breve delay por si el primer render llega antes
+            setTimeout(function() {{
+                try {{ window.top.location.href = "{url}"; }} catch(e) {{}}
+            }}, 50);
+        }})();
+        </script>
+        ''',
+        height=0,
+    )
+
+    st.stop()
 
 load_dotenv()
 BACKEND_URL = (
@@ -179,14 +220,7 @@ with col1:
                     else:
                         url = data.get("url")
                         if url:
-                            st.success("Redirigiendo a Stripe...")
-                            st.link_button(
-                                "👉 Abrir enlace si no se abre automáticamente",
-                                url,
-                            )
-                            streamlit_js_eval(
-                                js_expressions=f'window.top.location.href="{url}"'
-                            )
+                            _force_redirect(url)
                         else:
                             st.error("La respuesta no contiene URL de Stripe.")
                 else:
@@ -210,11 +244,7 @@ with col2:
                     data = r.json()
                     url_portal = data.get("url")
                     if url_portal:
-                        st.success("Abriendo portal de cliente...")
-                        st.link_button("👉 Abrir portal de Stripe", url_portal)
-                        streamlit_js_eval(
-                            js_expressions=f'window.top.location.href="{url_portal}"'
-                        )
+                        _force_redirect(url_portal)
                     else:
                         st.error("La respuesta no contiene URL del portal.")
                 else:
