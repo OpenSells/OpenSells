@@ -3,9 +3,11 @@
 import os
 import streamlit as st
 import requests
+from requests.exceptions import ReadTimeout, ConnectTimeout, ConnectionError
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
+from utils import http_client
 
 from session_bootstrap import bootstrap
 bootstrap()
@@ -17,19 +19,7 @@ from plan_utils import obtener_plan, subscription_cta
 
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = http_client.BACKEND_URL
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 logout_button()
 ensure_token_and_user()
@@ -52,17 +42,50 @@ def safe_json(resp: requests.Response) -> dict:
         return {}
 
 # -------------------- Login --------------------
+def wait_for_backend(max_attempts: int = 5):
+    with st.spinner("Conectando con el servidor..."):
+        for i in range(1, max_attempts + 1):
+            if http_client.health_ok():
+                return True
+            st.info(f"Esperando al backend (intento {i}/{max_attempts})...")
+            st.sleep(1.5 * i)
+    return False
+
 
 def login():
-    st.title("🔐 Iniciar sesión")
+    st.subheader("Iniciar sesión")
     email = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
-    if st.button("Iniciar sesión", key="btn_login"):
-        r = requests.post(
-            f"{BACKEND_URL}/login",
-            data={"username": email, "password": password},
-            timeout=30,
-        )
+
+    if st.button("Entrar", use_container_width=True):
+        if not wait_for_backend():
+            st.error(
+                "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos."
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+
+        try:
+            r = http_client.post(
+                "/login",
+                data={"username": email, "password": password},
+            )
+        except (ReadTimeout, ConnectTimeout):
+            st.error(
+                "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'."
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+        except ConnectionError:
+            st.error(
+                "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor."
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+
         if r.status_code == 200:
             data = safe_json(r)
             st.session_state.token = data.get("access_token")
@@ -75,16 +98,24 @@ def login():
                 )
             except Exception:
                 st.warning("No se pudieron guardar las cookies de sesión")
+            st.success("Sesión iniciada.")
             st.rerun()
         else:
-            st.error("Credenciales inválidas")
+            st.error(
+                "Credenciales inválidas o servicio no disponible. Intenta de nuevo."
+            )
+
     if st.button("Registrarse", key="btn_register"):
-        r = requests.post(
-            f"{BACKEND_URL}/register",
-            json={"email": email, "password": password},
-            timeout=30,
-        )
-        st.success("Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.")
+        try:
+            r = http_client.post(
+                "/register",
+                json={"email": email, "password": password},
+            )
+            st.success(
+                "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario."
+            )
+        except Exception:
+            st.error("Error al registrar usuario.")
 
 
 if "token" not in st.session_state:
