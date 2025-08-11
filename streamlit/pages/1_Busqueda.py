@@ -286,14 +286,14 @@ with st.expander("💡 Sugerencias de nichos rentables para ti"):
     )
     if hasattr(st, "page_link"):
         st.page_link(
-            "pages/99_Mi_Cuenta.py",
+            "pages/6_Mi_Cuenta.py",
             label="✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)",
         )
     else:
         if st.button(
             "✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)"
         ):
-            st.switch_page("pages/99_Mi_Cuenta.py")
+            st.switch_page("pages/6_Mi_Cuenta.py")
 
     if memoria or nichos_previos:
         try:

@@ -39,7 +39,7 @@ st.markdown(
 suscription_page = "pages/05_Suscripcion.py"
 suscription_icon = "💳"
 if not os.path.exists(suscription_page):
-    suscription_page = "pages/99_Mi_Cuenta.py"
+    suscription_page = "pages/6_Mi_Cuenta.py"
     suscription_icon = "⚙️"
 
 try:
