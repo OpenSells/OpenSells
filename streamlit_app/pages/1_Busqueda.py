@@ -1,6 +1,7 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
-import os, streamlit as st
+import os
+import streamlit as st
 import requests
 from dotenv import load_dotenv
 from urllib.parse import urlparse
@@ -15,11 +16,20 @@ from cookies_utils import set_auth_cookies
 from plan_utils import obtener_plan, subscription_cta
 
 load_dotenv()
-BACKEND_URL = (
-    st.secrets.get("BACKEND_URL")
-    or os.getenv("BACKEND_URL")
-    or "https://opensells.onrender.com"
-)
+
+
+def _safe_secret(name: str, default=None):
+    """Safely retrieve configuration from env or Streamlit secrets."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 logout_button()
 ensure_token_and_user()
