@@ -37,13 +37,15 @@ st.markdown(
 )
 
 suscription_page = "pages/05_Suscripcion.py"
+suscription_icon = "💳"
 if not os.path.exists(suscription_page):
     suscription_page = "pages/99_Mi_Cuenta.py"
+    suscription_icon = "⚙️"
 
 try:
-    st.page_link("pages/1_Busqueda.py", label="🔎 Buscar leads ahora", icon="")
-    st.page_link("pages/2_Mis_Nichos.py", label="📁 Ver mis nichos", icon="")
-    st.page_link(suscription_page, label="💳 Activar suscripción", icon="")
+    st.page_link("pages/1_Busqueda.py", label="Buscar leads ahora", icon="🔎")
+    st.page_link("pages/2_Mis_Nichos.py", label="Ver mis nichos", icon="📂")
+    st.page_link(suscription_page, label="Activar suscripción", icon=suscription_icon)
 except AttributeError:
     try:
         st.link_button("🔎 Buscar leads ahora", "pages/1_Busqueda.py")
