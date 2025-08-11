@@ -262,6 +262,14 @@ if st.session_state.loading:
 
 st.title("🎯 Encuentra tus próximos clientes")
 
+# Aviso de no-duplicados (siempre visible)
+st.info(
+    "🔁 **Aviso:** Nunca se guardarán leads duplicados en tu cuenta. "
+    "Puedes repetir la misma búsqueda para ampliar tu base de datos: "
+    "solo se añadirán los **leads nuevos** que no existan todavía.",
+    icon="ℹ️",
+)
+
 memoria_data = cached_get("mi_memoria", st.session_state.token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
