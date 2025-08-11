@@ -1,4 +1,4 @@
-# 6_Mi_Cuenta.py – Página de cuenta de usuario
+# 7_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os
 import streamlit as st

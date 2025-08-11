@@ -1,4 +1,4 @@
-# 2_Mis_Nichos.py – Página de gestión de nichos y leads
+# 3_Mis_Nichos.py – Página de gestión de nichos y leads
 #
 # ✔️  Correcciones principales
 #   1. El buscador global solo está visible cuando se muestran **todos** los nichos,

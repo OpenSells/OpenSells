@@ -1,4 +1,4 @@
-# 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
+# 2_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
 import os
 import streamlit as st
@@ -262,13 +262,35 @@ if st.session_state.loading:
 
 st.title("🎯 Encuentra tus próximos clientes")
 
-# Aviso de no-duplicados (siempre visible)
-st.info(
-    "🔁 **Aviso:** Nunca se guardarán leads duplicados en tu cuenta. "
-    "Puedes repetir la misma búsqueda para ampliar tu base de datos: "
-    "solo se añadirán los **leads nuevos** que no existan todavía.",
-    icon="ℹ️",
-)
+
+def aviso_no_duplicados():
+    with st.container():
+        st.markdown(
+            """
+<style>
+.callout{
+  border:1px solid #E6F0FF;
+  background:linear-gradient(180deg,#F5FAFF 0%, #F2F7FF 100%);
+  border-radius:14px; padding:16px 18px; margin:8px 0 18px 0;
+  box-shadow:0 1px 2px rgba(20,35,80,0.06);
+}
+.callout h4{margin:0 0 6px 0; font-size:1.02rem}
+.callout p{margin:0; line-height:1.45rem; color:#1f2937}
+.badge{
+  display:inline-block; padding:2px 8px; border-radius:999px;
+  background:#EAF4FF; color:#1D4ED8; font-weight:600; font-size:0.78rem; margin-left:8px;
+}
+</style>
+<div class="callout">
+  <h4>ℹ️ Buenas prácticas <span class="badge">Sin duplicados</span></h4>
+  <p>Nunca se guardarán <strong>leads duplicados</strong> en tu cuenta. Puedes repetir la misma búsqueda para ampliar tu base de datos: solo se añadirán los <strong>leads nuevos</strong> que no existan todavía.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+
+aviso_no_duplicados()
 
 memoria_data = cached_get("mi_memoria", st.session_state.token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
@@ -286,14 +308,14 @@ with st.expander("💡 Sugerencias de nichos rentables para ti"):
     )
     if hasattr(st, "page_link"):
         st.page_link(
-            "pages/6_Mi_Cuenta.py",
+            "pages/7_Mi_Cuenta.py",
             label="✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)",
         )
     else:
         if st.button(
             "✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)"
         ):
-            st.switch_page("pages/6_Mi_Cuenta.py")
+            st.switch_page("pages/7_Mi_Cuenta.py")
 
     if memoria or nichos_previos:
         try:

@@ -67,7 +67,7 @@ Este documento refleja el estado actual del proyecto tras todas las mejoras e in
 3. Inicia el frontend:
 
    ```bash
-   streamlit run streamlit/Main.py
+   streamlit run streamlit/Home.py
    ```
 
 Esto levantará la API en `http://localhost:8000` y la interfaz de Streamlit en `http://localhost:8501`.

@@ -8,7 +8,7 @@ from auth_utils import ensure_token_and_user, logout_button
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from cache_utils import cached_get
 
-st.set_page_config(page_title="Wrapper Leads SaaS", page_icon="🧩", layout="wide")
+st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 logout_button()
 ensure_token_and_user()
 
@@ -35,12 +35,13 @@ def go(page_file: str):
 
 
 PAGES = {
-    "assistant": "5_Asistente_Virtual.py",
-    "busqueda": "1_Busqueda.py",
-    "nichos": "2_Mis_Nichos.py",
-    "tareas": "3_Tareas.py",
-    "export": "4_Exportaciones.py",
-    "cuenta": "6_Mi_Cuenta.py",
+    "assistant": "1_Asistente_Virtual.py",
+    "busqueda": "2_Busqueda.py",
+    "nichos": "3_Mis_Nichos.py",
+    "tareas": "4_Tareas.py",
+    "export": "5_Exportaciones.py",
+    "suscripcion": "6_Suscripcion.py",
+    "cuenta": "7_Mi_Cuenta.py",
 }
 
 plan = obtener_plan(st.session_state.token)
@@ -52,25 +53,29 @@ num_nichos = len(nichos.get("nichos", []))
 _tareas = cached_get("tareas_pendientes", st.session_state.token) or {}
 num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado")])
 
-st.title("Wrapper Leads SaaS")
+st.title("OpenSells")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
     st.subheader("🗨️ Modo Asistente Virtual")
     st.write("Chat interactivo que permite buscar leads, gestionar tareas, notas y estados.")
-    abrir = st.button("Abrir Asistente", use_container_width=True, disabled=not suscripcion_activa)
-    if abrir and suscripcion_activa:
-        st.session_state["modo_seleccionado"] = "assistant"
-        go(PAGES["assistant"])
+    st.button(
+        "🗨️ Asistente Virtual",
+        use_container_width=True,
+        disabled=not suscripcion_activa,
+        on_click=lambda: go(PAGES["assistant"]),
+    )
     if not suscripcion_activa:
         subscription_cta()
 
 with col2:
     st.subheader("📊 Modo Clásico")
     st.write("Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones.")
-    if st.button("Ir a Búsqueda de Leads", use_container_width=True):
-        st.session_state["modo_seleccionado"] = "classic"
-        go(PAGES["busqueda"])
+    st.button(
+        "🔎 Búsqueda de Leads",
+        use_container_width=True,
+        on_click=lambda: go(PAGES["busqueda"]),
+    )
 
 st.markdown("---")
 
