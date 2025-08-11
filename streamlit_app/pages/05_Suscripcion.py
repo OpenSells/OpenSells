@@ -1,7 +1,9 @@
 # 05_Suscripcion.py – Página de planes y suscripción
 
-import os, streamlit as st
+import os
+import streamlit as st
 import requests
+from dotenv import load_dotenv
 
 from session_bootstrap import bootstrap
 bootstrap()
@@ -9,19 +11,29 @@ bootstrap()
 from auth_utils import ensure_token_and_user, logout_button
 from plan_utils import obtener_plan, force_redirect
 
-BACKEND_URL = (
-    st.secrets.get("BACKEND_URL")
-    or os.getenv("BACKEND_URL")
-    or "https://opensells.onrender.com"
-)
+load_dotenv()
+
+
+def _safe_secret(name: str, default=None):
+    """Safely retrieve configuration from env or Streamlit secrets."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 logout_button()
 ensure_token_and_user()
 
-price_free = st.secrets.get("STRIPE_PRICE_GRATIS") or os.getenv("STRIPE_PRICE_GRATIS")
-price_basico = st.secrets.get("STRIPE_PRICE_BASICO") or os.getenv("STRIPE_PRICE_BASICO")
-price_premium = st.secrets.get("STRIPE_PRICE_PREMIUM") or os.getenv("STRIPE_PRICE_PREMIUM")
+price_free = _safe_secret("STRIPE_PRICE_GRATIS")
+price_basico = _safe_secret("STRIPE_PRICE_BASICO")
+price_premium = _safe_secret("STRIPE_PRICE_PREMIUM")
 
 plan = obtener_plan(st.session_state.get("token", ""))
 

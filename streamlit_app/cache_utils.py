@@ -1,15 +1,25 @@
-import os, streamlit as st
+import os
+import streamlit as st
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 from urllib.parse import urlencode
 
 load_dotenv()
-BACKEND_URL = (
-    st.secrets.get("BACKEND_URL")
-    or os.getenv("BACKEND_URL")
-    or "https://opensells.onrender.com"
-)
+
+
+def _safe_secret(name: str, default=None):
+    """Safely retrieve configuration from env or Streamlit secrets."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 @st.cache_resource
 def get_openai_client() -> OpenAI | None:

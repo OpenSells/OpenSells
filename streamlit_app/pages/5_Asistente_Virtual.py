@@ -1,4 +1,5 @@
-import os, streamlit as st
+import os
+import streamlit as st
 from dotenv import load_dotenv
 
 from session_bootstrap import bootstrap
@@ -14,11 +15,20 @@ ensure_token_and_user()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-BACKEND_URL = (
-    st.secrets.get("BACKEND_URL")
-    or os.getenv("BACKEND_URL")
-    or "https://opensells.onrender.com"
-)
+
+
+def _safe_secret(name: str, default=None):
+    """Safely retrieve configuration from env or Streamlit secrets."""
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 client = get_openai_client()
 
 st.title("🤖 Tu Asistente Virtual")
