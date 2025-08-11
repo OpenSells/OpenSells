@@ -96,6 +96,10 @@ load_dotenv()
 app = FastAPI()
 app.include_router(webhook_router)
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 @app.on_event("startup")
 async def startup():
     Base.metadata.create_all(bind=engine)
