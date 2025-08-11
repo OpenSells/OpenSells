@@ -242,27 +242,61 @@ cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: c
 
 # -------------------- Sugerencias de nicho --------------------
 with st.expander("💡 Sugerencias de nichos rentables para ti"):
+    st.caption(
+        "La memoria se utiliza para entender mejor tus intereses y personalizar las sugerencias de nichos y resultados."
+    )
+    if hasattr(st, "page_link"):
+        st.page_link(
+            "pages/99_Mi_Cuenta.py",
+            label="✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)",
+        )
+    else:
+        if st.button(
+            "✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)"
+        ):
+            st.switch_page("pages/99_Mi_Cuenta.py")
+
     if memoria or nichos_previos:
         try:
             client = get_openai_client()
-            prompt = (
-                "Eres un experto en crecimiento de negocios online. Sugiere 5 nichos de mercado distintos, con potencial de alta rentabilidad, "
-                "adaptados a la siguiente información del usuario. Memoria (sobre su negocio): '" + memoria + "'. "
-                "Historial de nichos creados: " + ", ".join(nichos_previos[:10]) + ". "
-                "Devuelve solo la lista en viñetas, un nicho por línea, sin numerar."
-            )
-            chat = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
-            )
-            sugerencias = [s.strip("- ") for s in chat.choices[0].message.content.split("\n") if s.strip()]
-            for s in sugerencias:
-                st.markdown(f"👉 **{s}**")
-        except Exception as e:
-            st.warning(f"No se pudieron generar sugerencias: {e}")
+            if client and hasattr(client, "chat"):
+                partes_prompt = [
+                    "Eres un experto en crecimiento de negocios online. Sugiere 5 nichos de mercado distintos, con potencial de alta rentabilidad, adaptados a la siguiente información del usuario.",
+                ]
+                if memoria:
+                    partes_prompt.append(f"Memoria del usuario: '{memoria}'.")
+                if nichos_previos:
+                    partes_prompt.append(
+                        "Historial de nichos creados: " + ", ".join(nichos_previos[:10]) + "."
+                    )
+                partes_prompt.append(
+                    "Devuelve solo la lista en viñetas, un nicho por línea, sin numerar."
+                )
+                prompt = " ".join(partes_prompt)
+                chat = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4,
+                )
+                sugerencias = [
+                    s.strip("- ").strip()
+                    for s in chat.choices[0].message.content.split("\n")
+                    if s.strip()
+                ]
+                if sugerencias:
+                    st.markdown("\n".join(f"- {s}" for s in sugerencias))
+                else:
+                    st.info(
+                        "⚠️ Aún no hay suficiente información para generar sugerencias personalizadas."
+                    )
+            else:
+                st.warning("No se pudo inicializar el cliente de IA para generar sugerencias.")
+        except Exception:
+            st.warning("Ocurrió un error al generar las sugerencias. Inténtalo más tarde.")
     else:
-        st.info("Completa tu memoria o crea al menos un nicho para recibir sugerencias personalizadas.")
+        st.info(
+            "⚠️ Aún no hay suficiente información para generar sugerencias personalizadas."
+        )
 
 # -------------------- Selección de nicho destino --------------------
 options_nicho = ["Elige una opción", "➕ Crear nuevo nicho"] + nichos_previos
