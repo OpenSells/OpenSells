@@ -62,7 +62,7 @@ def logout_button() -> None:
         st.session_state.clear()
         st.experimental_set_query_params()
         try:
-            st.switch_page("pages/1_Busqueda.py")
+            st.switch_page("pages/2_Busqueda.py")
         except Exception:
             pass
         st.rerun()

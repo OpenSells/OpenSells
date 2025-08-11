@@ -33,6 +33,10 @@ def _safe_secret(name: str, default=None):
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 client = get_openai_client()
 
+if client is None:
+    st.error("El asistente no está disponible: falta OPENAI_API_KEY en el entorno.")
+    st.stop()
+
 st.title("🤖 Tu Asistente Virtual")
 
 if "token" not in st.session_state:
@@ -354,8 +358,11 @@ def build_system_prompt() -> str:
 
 
 # ────────────────── Conversación ────────────────────
+MAX_TURNS = 20
 if "chat" not in st.session_state:
     st.session_state.chat = []
+elif len(st.session_state.chat) > MAX_TURNS * 2:
+    st.session_state.chat = st.session_state.chat[-MAX_TURNS * 2:]
 
 for entrada in st.session_state.chat:
     if entrada["role"] in ("user", "assistant"):
@@ -377,14 +384,18 @@ if pregunta:
         messages = [{"role": "system", "content": contexto}] + st.session_state.chat
 
         with st.spinner("Pensando..."):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                tools=tool_defs,
-            )
-            msg = response.choices[0].message
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    tools=tool_defs,
+                )
+                msg = response.choices[0].message
+            except Exception:
+                st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
+                st.stop()
 
-            while msg.tool_calls:
+            if msg.tool_calls:
                 st.session_state.chat.append({"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls})
                 for tc in msg.tool_calls:
                     func = TOOLS.get(tc.function.name)
@@ -392,12 +403,15 @@ if pregunta:
                     resultado = func(**args) if func else {"error": f"Tool {tc.function.name} no disponible"}
                     st.session_state.chat.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(resultado, ensure_ascii=False)})
                 messages = [{"role": "system", "content": contexto}] + st.session_state.chat
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages,
-                    tools=tool_defs,
-                )
-                msg = response.choices[0].message
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                    )
+                    msg = response.choices[0].message
+                except Exception:
+                    st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
+                    st.stop()
 
         content = msg.content or ""
         st.session_state.chat.append({"role": "assistant", "content": content})

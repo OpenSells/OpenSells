@@ -1,4 +1,4 @@
-# 05_Suscripcion.py – Página de planes y suscripción
+# 6_Suscripcion.py – Página de planes y suscripción
 
 import os
 import streamlit as st
