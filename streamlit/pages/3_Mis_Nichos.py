@@ -28,6 +28,7 @@ from backend.utils import normalizar_nicho
 from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from auth_utils import ensure_token_and_user, logout_button
+from utils import http_client
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -47,7 +48,13 @@ def _safe_secret(name: str, default=None):
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 logout_button()
-ensure_token_and_user()
+
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+ensure_token_and_user(api_me)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:

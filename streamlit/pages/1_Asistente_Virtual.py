@@ -13,7 +13,13 @@ from utils.http_client import get as http_get, post as http_post, health_ok
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 logout_button()
-ensure_token_and_user()
+
+
+def api_me(token: str):
+    return http_get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+ensure_token_and_user(api_me)
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()

@@ -9,6 +9,7 @@ from session_bootstrap import bootstrap
 bootstrap()
 
 from auth_utils import ensure_token_and_user, logout_button
+from utils import http_client
 from plan_utils import obtener_plan, force_redirect
 
 load_dotenv()
@@ -29,7 +30,13 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 logout_button()
-ensure_token_and_user()
+
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+ensure_token_and_user(api_me)
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")

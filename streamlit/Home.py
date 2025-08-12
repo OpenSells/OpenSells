@@ -4,21 +4,24 @@ from session_bootstrap import bootstrap
 
 bootstrap()
 
-from auth_utils import ensure_token_and_user, logout_button
+from auth_utils import ensure_token_and_user, logout_button, save_token
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from cache_utils import cached_get
 from cookies_utils import set_auth_cookies
 from utils import full_width_button, http_client
-from streamlit_js_eval import streamlit_js_eval
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
-ensure_token_and_user()
 
-if "token" not in st.session_state:
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+user, token = ensure_token_and_user(api_me)
+
+if not user:
     st.title("OpenSells")
-    modo = st.radio(
-        "", ["Iniciar sesión", "Registrarse"], horizontal=True, key="auth_mode"
-    )
+    modo = st.radio("", ["Iniciar sesión", "Registrarse"], horizontal=True, key="auth_mode")
     email = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
     if modo == "Registrarse":
@@ -27,30 +30,18 @@ if "token" not in st.session_state:
     if modo == "Iniciar sesión":
         if full_width_button("Iniciar sesión", key="btn_login"):
             try:
-                r = http_client.post(
-                    "/login", data={"username": email, "password": password}
-                )
+                r = http_client.post("/login", data={"username": email, "password": password})
             except Exception:
                 st.error("No se pudo conectar con el servidor")
                 st.stop()
             if r.status_code == 200:
-                data = r.json()
-                token = data.get("access_token")
-                st.session_state.token = token
+                token = r.json().get("access_token")
                 st.session_state.email = email
                 try:
                     set_auth_cookies(token, email, days=7)
                 except Exception:
                     pass
-                streamlit_js_eval(
-                    js_expressions=(
-                        f"localStorage.setItem('wrapper_token','{token}');"
-                        f"localStorage.setItem('wrapper_email','{email}');"
-                        "localStorage.setItem('lastActivity', Date.now());"
-                    ),
-                    key="js_login",
-                )
-                ensure_token_and_user()
+                save_token(token)
                 st.rerun()
             else:
                 detalle = (
@@ -65,9 +56,7 @@ if "token" not in st.session_state:
                 st.error("Las contraseñas no coinciden")
             else:
                 try:
-                    r = http_client.post(
-                        "/register", json={"email": email, "password": password}
-                    )
+                    r = http_client.post("/register", json={"email": email, "password": password})
                 except Exception:
                     st.error("No se pudo conectar con el servidor")
                     st.stop()
@@ -76,23 +65,13 @@ if "token" not in st.session_state:
                         "/login", data={"username": email, "password": password}
                     )
                     if login_resp.status_code == 200:
-                        data = login_resp.json()
-                        token = data.get("access_token")
-                        st.session_state.token = token
+                        token = login_resp.json().get("access_token")
                         st.session_state.email = email
                         try:
                             set_auth_cookies(token, email, days=7)
                         except Exception:
                             pass
-                        streamlit_js_eval(
-                            js_expressions=(
-                                f"localStorage.setItem('wrapper_token','{token}');"
-                                f"localStorage.setItem('wrapper_email','{email}');"
-                                "localStorage.setItem('lastActivity', Date.now());"
-                            ),
-                            key="js_register",
-                        )
-                        ensure_token_and_user()
+                        save_token(token)
                         st.rerun()
                     else:
                         st.info("Usuario registrado. Ahora puedes iniciar sesión.")

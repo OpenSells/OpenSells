@@ -1,136 +1,113 @@
-import os
 import time
 import streamlit as st
-import requests
-from streamlit import st_autorefresh
 from streamlit_js_eval import streamlit_js_eval
-from dotenv import load_dotenv
 
 from cache_utils import limpiar_cache
-from cookies_utils import (
-    get_auth_token,
-    get_auth_email,
-    clear_auth_cookies,
-)
+from cookies_utils import clear_auth_cookies
 
-load_dotenv()
+TIMEOUT_MINUTES = 20  # Tiempo de inactividad permitido
 
 
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
+def _ls_get(key: str):
+    """Leer un valor de localStorage."""
     try:
-        return st.secrets.get(name, default)
+        return streamlit_js_eval(
+            js_expressions=f"window.localStorage.getItem('{key}')",
+            key=f"get_{key}",
+        )
     except Exception:
-        return default
+        return None
 
 
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
-ENV = _safe_secret("ENV")
-
-INACTIVITY_MINUTES = 30  # tiempo de inactividad permitido
-
-
-def _clear_auth_state(rerun: bool = False) -> None:
-    """Borra credenciales de sesión, cookies y localStorage."""
-
-    limpiar_cache()
-    clear_auth_cookies()
+def _ls_set(key: str, value: str) -> None:
+    """Guardar un valor en localStorage."""
     try:
         streamlit_js_eval(
-            js_expressions="""
-            localStorage.removeItem('wrapper_token');
-            localStorage.removeItem('wrapper_email');
-            localStorage.removeItem('lastActivity');
-            """,
-            key="js_clear_auth",
+            js_expressions=f"window.localStorage.setItem('{key}', '{value}')",
+            key=f"set_{key}",
         )
     except Exception:
         pass
+
+
+def _ls_remove(key: str) -> None:
+    """Eliminar una clave de localStorage."""
+    try:
+        streamlit_js_eval(
+            js_expressions=f"window.localStorage.removeItem('{key}')",
+            key=f"rm_{key}",
+        )
+    except Exception:
+        pass
+
+
+def record_activity_js() -> None:
+    """Registra actividad del usuario en localStorage.lastActivity."""
+    try:
+        streamlit_js_eval(
+            js_expressions="""
+            (() => {
+                const key = 'lastActivity';
+                const update = () => localStorage.setItem(key, Date.now());
+                ['mousemove','keydown','click','scroll','touchstart'].forEach(
+                    e => document.addEventListener(e, update)
+                );
+                if (!localStorage.getItem(key)) update();
+            })();
+            """,
+            key="rec_activity",
+        )
+    except Exception:
+        pass
+
+
+def save_token(token: str) -> None:
+    """Persistir token en sesión y localStorage."""
+    st.session_state.token = token
+    _ls_set("wrapper_token", token)
+    _ls_set("lastActivity", str(int(time.time() * 1000)))
+    # TODO(Ayrton): mover a refresh tokens con cookies HttpOnly
+
+
+def logout(silent: bool = False) -> None:
+    """Eliminar toda la información de autenticación."""
+    limpiar_cache()
+    clear_auth_cookies()
+    _ls_remove("wrapper_token")
+    _ls_remove("lastActivity")
     st.session_state.clear()
-    if rerun:
+    if not silent:
         st.experimental_set_query_params()
         st.rerun()
 
 
-def _check_inactividad() -> None:
-    """Comprueba si el usuario ha estado inactivo demasiado tiempo."""
-
-    if "token" not in st.session_state:
-        return
-    try:
-        last_ts = streamlit_js_eval(
-            js_expressions="""
-            (function(){
-                const key='lastActivity';
-                const now = Date.now();
-                if(!window._activityListenersAdded){
-                    window._activityListenersAdded = true;
-                    const update = () => localStorage.setItem(key, Date.now());
-                    ['click','mousemove','keydown','scroll'].forEach(e=>document.addEventListener(e, update));
-                    if(!localStorage.getItem(key)) update();
-                }
-                return localStorage.getItem(key);
-            })();
-            """,
-            key="activity_ts",
-        )
-        if last_ts:
+def ensure_token_and_user(fetch_me_fn):
+    """Asegura token y usuario en sesión."""
+    record_activity_js()
+    token = st.session_state.get("token") or _ls_get("wrapper_token")
+    if token:
+        st.session_state.token = token
+        last = _ls_get("lastActivity")
+        if last:
             now_ms = int(time.time() * 1000)
-            if now_ms - int(last_ts) > INACTIVITY_MINUTES * 60 * 1000:
-                _clear_auth_state(rerun=True)
-    except Exception:
-        pass
-
-
-def ensure_token_and_user() -> None:
-    if "token" not in st.session_state:
-        token = None
-        email = None
-        try:
-            token = streamlit_js_eval(
-                js_expressions="window.localStorage.getItem('wrapper_token')",
-                key="ls_token",
-            )
-            email = streamlit_js_eval(
-                js_expressions="window.localStorage.getItem('wrapper_email')",
-                key="ls_email",
-            )
-        except Exception:
-            token = None
-        if not token:
-            token = get_auth_token()
-            email = get_auth_email()
-        if token:
-            st.session_state.token = token
-            if email:
-                st.session_state.email = email
-
-    if "token" in st.session_state:
-        # Chequeo periódico de inactividad
-        st_autorefresh(interval=60_000, key="auth_refresh")
-        _check_inactividad()
-        if "usuario" not in st.session_state:
+            if now_ms - int(last) > TIMEOUT_MINUTES * 60 * 1000:
+                logout(silent=True)
+                st.rerun()
+        if "user" not in st.session_state:
             try:
-                r = requests.get(
-                    f"{BACKEND_URL}/usuario_actual",
-                    headers={"Authorization": f"Bearer {st.session_state.token}"},
-                    timeout=10,
-                )
-                if r.status_code == 200:
-                    st.session_state.usuario = r.json()
+                resp = fetch_me_fn(token)
+                if resp.status_code == 200:
+                    st.session_state.user = resp.json()
                 else:
-                    _clear_auth_state()
+                    logout(silent=True)
+                    st.rerun()
             except Exception:
                 pass
-
-    if ENV == "dev":
-        st.write("DEBUG token in session:", "token" in st.session_state)
-        st.write("DEBUG token from cookies:", get_auth_token())
+        return st.session_state.get("user"), token
+    return None, None
 
 
-def logout_button() -> None:
-    if st.session_state.get("token") and st.sidebar.button("Cerrar sesión"):
-        _clear_auth_state(rerun=True)
+def logout_button(label: str = "Cerrar sesión") -> None:
+    """Renderiza un botón de cierre de sesión en el sidebar."""
+    if st.session_state.get("token") and st.sidebar.button(label):
+        logout()

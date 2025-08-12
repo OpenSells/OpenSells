@@ -22,7 +22,13 @@ load_dotenv()
 BACKEND_URL = http_client.BACKEND_URL
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 logout_button()
-ensure_token_and_user()
+
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+ensure_token_and_user(api_me)
 
 # -------------------- Helpers --------------------
 
