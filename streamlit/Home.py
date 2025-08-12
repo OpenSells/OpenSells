@@ -1,20 +1,114 @@
 import pathlib
 import streamlit as st
+from requests import ReadTimeout, ConnectTimeout
+from requests.exceptions import ConnectionError
 from session_bootstrap import bootstrap
 
 bootstrap()
 
-from auth_utils import ensure_token_and_user, logout_button
+from auth_utils import ensure_token_and_user, logout_button, save_token
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from cache_utils import cached_get
+from cookies_utils import set_auth_cookies
+from utils import http_client
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
-logout_button()
-ensure_token_and_user()
 
-if "token" not in st.session_state:
-    st.error("Debes iniciar sesión para ver esta página.")
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+user, token = ensure_token_and_user(api_me)
+
+st.markdown("### ✨ Opensells")
+st.markdown(
+    '<div class="home-subtitle">IA de generación y gestión de leads para multiplicar x1000 tus ventas.</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+<style>
+.home-subtitle { font-size:1.05rem; opacity:.9; margin:-0.25rem 0 0.75rem 0; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+if not user:
+    from json import JSONDecodeError
+
+    def wait_for_backend(max_attempts: int = 5):
+        with st.spinner("Conectando con el servidor..."):
+            for i in range(1, max_attempts + 1):
+                if http_client.health_ok():
+                    return True
+                st.info(f"Esperando al backend (intento {i}/{max_attempts})...")
+                st.sleep(1.5 * i)
+        return False
+
+    def safe_json(resp):
+        try:
+            return resp.json()
+        except JSONDecodeError:
+            st.error(f"Respuesta no válida: {resp.text}")
+            return {}
+
+    st.subheader("Iniciar sesión")
+    email = st.text_input("Correo electrónico")
+    password = st.text_input("Contraseña", type="password")
+
+    if st.button("Entrar", use_container_width=True):
+        if not wait_for_backend():
+            st.error(
+                "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos.",
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+
+        try:
+            r = http_client.post("/login", data={"username": email, "password": password})
+        except (ReadTimeout, ConnectTimeout):
+            st.error(
+                "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'.",
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+        except ConnectionError:
+            st.error(
+                "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor.",
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+
+        if r.status_code == 200:
+            data = safe_json(r)
+            token = data.get("access_token")
+            st.session_state.email = email
+            try:
+                set_auth_cookies(token, email, days=7)
+            except Exception:
+                st.warning("No se pudieron guardar las cookies de sesión")
+            save_token(token)
+            st.success("Sesión iniciada.")
+            st.rerun()
+        else:
+            st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
+
+    if st.button("Registrarse", key="btn_register", use_container_width=True):
+        try:
+            r = http_client.post("/register", json={"email": email, "password": password})
+            st.success(
+                "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.",
+            )
+        except Exception:
+            st.error("Error al registrar usuario.")
     st.stop()
+
+logout_button()
 
 APP_DIR = pathlib.Path(__file__).parent
 PAGES_DIR = APP_DIR / "pages"
@@ -40,8 +134,9 @@ PAGES = {
     "nichos": "3_Mis_Nichos.py",
     "tareas": "4_Tareas.py",
     "export": "5_Exportaciones.py",
-    "suscripcion": "6_Suscripcion.py",
-    "cuenta": "7_Mi_Cuenta.py",
+    "emails": "6_Emails.py",
+    "suscripcion": "7_Suscripcion.py",
+    "cuenta": "8_Mi_Cuenta.py",
 }
 
 plan = obtener_plan(st.session_state.token)
@@ -52,8 +147,6 @@ num_nichos = len(nichos.get("nichos", []))
 
 _tareas = cached_get("tareas_pendientes", st.session_state.token) or {}
 num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado")])
-
-st.title("OpenSells")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
@@ -77,7 +170,7 @@ with col2:
         on_click=lambda: go(PAGES["busqueda"]),
     )
 
-st.markdown("---")
+st.divider()
 
 accesos = st.columns(4)
 items = [
@@ -93,7 +186,6 @@ for col, (label, key) in zip(accesos, items):
             go(page_file)
 
 with st.expander("Resumen de tu actividad"):
-    st.write(f"**Plan actual:** {plan}")
     st.write(f"**Número de nichos:** {num_nichos}")
     st.write(f"**Número de tareas pendientes:** {num_tareas}")
     if not suscripcion_activa:

@@ -12,8 +12,26 @@ from auth_utils import ensure_token_and_user, logout_button
 from utils.http_client import get as http_get, post as http_post, health_ok
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
+
+
+def api_me(token: str):
+    return http_get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+user, token = ensure_token_and_user(api_me)
+if not user:
+    st.info("Es necesario iniciar sesión para usar esta sección.")
+    try:
+        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
+    except Exception:
+        if st.button("Ir a Home"):
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.info("Navega a la página Home desde el menú de la izquierda.")
+    st.stop()
+
 logout_button()
-ensure_token_and_user()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
@@ -38,10 +56,11 @@ if client is None:
     st.stop()
 
 st.title("🤖 Tu Asistente Virtual")
-
-if "token" not in st.session_state:
-    st.error("Debes iniciar sesión para usar el asistente.")
-    st.stop()
+st.write(
+    "Desde este asistente puedes **extraer leads**, **crear tareas**, **gestionar nichos** y consultar información. "
+    "Usa el chat para pedir acciones concretas (p. ej., “busca dentistas en Madrid y crea un nicho”)."
+)
+st.divider()
 
 plan = obtener_plan(st.session_state.token)
 

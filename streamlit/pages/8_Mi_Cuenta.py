@@ -1,4 +1,4 @@
-# 7_Mi_Cuenta.py – Página de cuenta de usuario
+# 8_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os
 import streamlit as st
@@ -13,6 +13,7 @@ bootstrap()
 
 from cache_utils import cached_get, cached_post, limpiar_cache
 from auth_utils import ensure_token_and_user, logout_button
+from utils import http_client
 from plan_utils import subscription_cta, force_redirect
 
 load_dotenv()
@@ -31,14 +32,26 @@ def _safe_secret(name: str, default=None):
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
-logout_button()
-ensure_token_and_user()
 
 
-# -------------------- Autenticación --------------------
-if "token" not in st.session_state:
-    st.error("Debes iniciar sesión para acceder a esta página.")
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+user, token = ensure_token_and_user(api_me)
+if not user:
+    st.info("Es necesario iniciar sesión para usar esta sección.")
+    try:
+        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
+    except Exception:
+        if st.button("Ir a Home"):
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+logout_button()
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 

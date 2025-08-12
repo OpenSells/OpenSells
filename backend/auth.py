@@ -51,19 +51,25 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
     de autenticación completo.
     """
 
+    credentials_exc = HTTPException(
+        status_code=401,
+        detail="Token inválido",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     if token is None:
         if os.getenv("ALLOW_ANON_USER") == "1":
             return Usuario(email="anon@example.com", hashed_password="", plan="basico")
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise credentials_exc
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if email is None:
-            raise HTTPException(status_code=401, detail="Token inválido")
+            raise credentials_exc
         user = obtener_usuario_por_email(email, db)
         if user is None:
-            raise HTTPException(status_code=401, detail="Usuario no encontrado")
+            raise credentials_exc
         return user
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise credentials_exc

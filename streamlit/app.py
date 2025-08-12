@@ -6,10 +6,29 @@ from session_bootstrap import bootstrap
 
 bootstrap()
 from auth_utils import ensure_token_and_user, logout_button
+from utils import http_client
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
+
+
+def api_me(token: str):
+    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+
+user, token = ensure_token_and_user(api_me)
+if not user:
+    st.info("Es necesario iniciar sesión para usar esta sección.")
+    try:
+        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
+    except Exception:
+        if st.button("Ir a Home"):
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.info("Navega a la página Home desde el menú de la izquierda.")
+    st.stop()
+
 logout_button()
-ensure_token_and_user()
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(
@@ -36,10 +55,10 @@ st.markdown(
 """
 )
 
-suscription_page = "pages/6_Suscripcion.py"
+suscription_page = "pages/7_Suscripcion.py"
 suscription_icon = "💳"
 if not os.path.exists(suscription_page):
-    suscription_page = "pages/7_Mi_Cuenta.py"
+    suscription_page = "pages/8_Mi_Cuenta.py"
     suscription_icon = "⚙️"
 
 try:
