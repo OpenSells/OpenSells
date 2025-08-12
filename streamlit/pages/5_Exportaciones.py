@@ -6,7 +6,6 @@ from utils import http_client
 bootstrap()
 
 st.set_page_config(page_title="Exportaciones", page_icon="📤")
-logout_button()
 
 
 def api_me(token: str):
@@ -25,6 +24,8 @@ if not user:
             except Exception:
                 st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+logout_button()
 
 st.title("📤 Exportaciones")
 st.info("Esta sección estará disponible pronto.")

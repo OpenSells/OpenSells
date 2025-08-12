@@ -8,7 +8,6 @@ from auth_utils import ensure_token_and_user, logout_button
 from utils import http_client
 
 st.set_page_config(page_title="Emails", page_icon="✉️")
-logout_button()
 
 
 def api_me(token: str):
@@ -27,6 +26,8 @@ if not user:
             except Exception:
                 st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+logout_button()
 
 plan = obtener_plan(st.session_state.token)
 

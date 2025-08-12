@@ -12,7 +12,6 @@ from auth_utils import ensure_token_and_user, logout_button
 from utils.http_client import get as http_get, post as http_post, health_ok
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
-logout_button()
 
 
 def api_me(token: str):
@@ -31,6 +30,8 @@ if not user:
             except Exception:
                 st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+logout_button()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()

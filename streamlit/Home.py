@@ -195,7 +195,6 @@ for col, (label, key) in zip(accesos, items):
             go(page_file)
 
 with st.expander("Resumen de tu actividad"):
-    st.write(f"**Plan actual:** {plan}")
     st.write(f"**Número de nichos:** {num_nichos}")
     st.write(f"**Número de tareas pendientes:** {num_tareas}")
     if not suscripcion_activa:

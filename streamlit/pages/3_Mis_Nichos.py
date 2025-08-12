@@ -47,7 +47,6 @@ def _safe_secret(name: str, default=None):
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
-logout_button()
 
 
 def api_me(token: str):
@@ -66,6 +65,8 @@ if not user:
             except Exception:
                 st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+logout_button()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:

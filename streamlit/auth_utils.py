@@ -109,5 +109,8 @@ def ensure_token_and_user(fetch_me_fn):
 
 def logout_button(label: str = "Cerrar sesión") -> None:
     """Renderiza un botón de cierre de sesión en el sidebar."""
-    if st.session_state.get("token") and st.sidebar.button(label):
-        logout()
+    if st.session_state.get("token"):
+        if st.sidebar.button(label):
+            logout()
+        plan = (st.session_state.get("user") or {}).get("plan", "free")
+        st.sidebar.caption(f"Plan actual: **{plan}**")

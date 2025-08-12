@@ -13,13 +13,12 @@ bootstrap()
 
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from auth_utils import ensure_token_and_user, logout_button
-from plan_utils import obtener_plan, subscription_cta
+from plan_utils import subscription_cta
 
 load_dotenv()
 
 BACKEND_URL = http_client.BACKEND_URL
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
-logout_button()
 
 
 def api_me(token: str):
@@ -38,6 +37,10 @@ if not user:
             except Exception:
                 st.info("Navega a la página Home desde el menú de la izquierda.")
     st.stop()
+
+plan = (user or {}).get("plan", "free")
+
+logout_button()
 
 # -------------------- Helpers --------------------
 
@@ -67,25 +70,6 @@ for flag, valor in {
     st.session_state.setdefault(flag, valor)
 
 headers = auth_headers(st.session_state.token)
-
-# -------------------- Mostrar plan activo --------------------
-from plan_utils import obtener_plan
-
-plan = obtener_plan(st.session_state.token)
-
-st.markdown("### 💼 Tu plan actual:")
-if plan == "free":
-    st.info("Plan gratuito (free). Algunas funciones están limitadas.")
-    subscription_cta()
-elif plan == "basico":
-    st.success("Plan Básico activo. Puedes extraer y exportar leads.")
-elif plan == "premium":
-    st.success("Plan Premium activo. Acceso completo.")
-else:
-    st.warning("Plan desconocido. Vuelve a iniciar sesión si el problema persiste.")
-
-
-
 
 
 # -------------------- Popup --------------------
@@ -214,7 +198,31 @@ lista_nichos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if n
 lista_nichos = lista_nichos or []
 
 cliente_ideal = st.text_input(
-    "¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia"
+    "¿Cómo es tu cliente ideal?",
+    placeholder="Ej: clínicas dentales en Valencia",
+    key="cliente_ideal",
+)
+
+
+def _sugerencias(cliente_txt: str):
+    # TODO(Ayrton): si existe una función real, usarla. Esto es fallback:
+    base = [
+        "Dentistas en Madrid",
+        "Fisioterapeutas Barcelona",
+        "Abogados Valencia",
+        "Clínicas Estéticas Sevilla",
+    ]
+    if cliente_txt and len(cliente_txt.strip()) >= 3:
+        return [s for s in base if cliente_txt.lower() in s.lower()] or base
+    return base
+
+
+sugerencias = _sugerencias(cliente_ideal)
+nicho_sugerido = st.selectbox(
+    "Sugerir nichos rentables",
+    options=sugerencias,
+    index=0,
+    key="nicho_sugerido",
 )
 
 OPCION_CREAR = "➕ Crear nuevo nicho"
