@@ -1,6 +1,8 @@
 # Wrapper Leads SaaS
 
-## 📦 Actualización README Wrapper Leads SaaS (versión 09/08/2025)
+*Actualizado el 12/08/2025*
+
+## 📦 Actualización README Wrapper Leads SaaS (versión 12/08/2025)
 
 Este documento refleja el estado actual del proyecto tras todas las mejoras e integraciones realizadas hasta esta sesión.
 
@@ -96,4 +98,4 @@ Wrapper Leads SaaS avanza hacia un sistema estable y escalable, combinando extra
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 28/07/2025 según la conversación y cambios aplicados.)*
+*(Generado automáticamente el 12/08/2025 según la conversación y cambios aplicados.)*
