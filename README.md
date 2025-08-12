@@ -1,10 +1,31 @@
-# Wrapper Leads SaaS
+# OpenSells
 
-## 📦 Actualización README Wrapper Leads SaaS (versión 09/08/2025)
+*Actualizado el 12/08/2025*
+
+## 📦 Actualización README OpenSells (versión 12/08/2025)
 
 Este documento refleja el estado actual del proyecto tras todas las mejoras e integraciones realizadas hasta esta sesión.
 
 ### ✅ Cambios clave recientes
+
+- ✅ **Rebranding y reorganización de páginas:**
+  - La aplicación pasó a llamarse **OpenSells** y la página principal se renombró de `main` a **Home**.
+  - Se añadieron iconos y enlaces consistentes en la navegación.
+
+- ✅ **Selector de modo en Home:**
+  - Posibilidad de elegir entre modo **Virtual** y **Clásico** para probar funcionalidades.
+
+- ✅ **Asistente tipo ChatGPT con backend:**
+  - Conversación estilo chat integrada con herramientas internas y soporte del backend.
+
+- ✅ **Sugerencias de nichos mejoradas:**
+  - Se aprovecha memoria de usuario y nichos previos para proponer mejores ideas.
+
+- ✅ **Cliente HTTP con reintentos y health check:**
+  - Comunicación más resiliente con el backend.
+
+- ✅ **Aviso de leads duplicados:**
+  - Notificación clara cuando un lead ya existe en el sistema.
 
 - ✅ **Integración con Stripe (portal de pago):**
   - Se añadió un botón en la página **Mi Cuenta** llamado **"Iniciar suscripción"** que abre directamente el portal de pago de Stripe para gestionar la suscripción del usuario.
@@ -42,7 +63,7 @@ Este documento refleja el estado actual del proyecto tras todas las mejoras e in
 - **Frontend:**
   - Streamlit multipágina con integración completa al backend.
   - Gestión de leads por nicho, tareas, notas, asistente y exportaciones.
-  - Capación por plan de suscripción aplicada en las funciones clave.
+  - Limitación por plan de suscripción aplicada en las funciones clave.
   - Portal de pago funcional desde la sección **Mi Cuenta**.
 
 - **Pruebas:**
@@ -92,8 +113,8 @@ Completa el archivo `.env` con las credenciales necesarias (PostgreSQL, claves d
 
 ---
 
-Wrapper Leads SaaS avanza hacia un sistema estable y escalable, combinando extracción de leads, gestión inteligente, lógica de suscripción y preparación para un modelo freemium real.
+OpenSells avanza hacia un sistema estable y escalable, combinando extracción de leads, gestión inteligente, lógica de suscripción y preparación para un modelo freemium real.
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 28/07/2025 según la conversación y cambios aplicados.)*
+*(Generado automáticamente el 12/08/2025 según la conversación y cambios aplicados.)*
