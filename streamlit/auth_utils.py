@@ -113,4 +113,24 @@ def logout_button(label: str = "Cerrar sesión") -> None:
         if st.sidebar.button(label):
             logout()
         plan = (st.session_state.get("user") or {}).get("plan", "free")
-        st.sidebar.caption(f"Plan actual: **{plan}**")
+        st.sidebar.markdown(
+            """
+<style>
+.plan-badge {
+  background: #fff4e6;
+  border: 1px solid #f1b37e;
+  color: #7a3e06;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 700;
+  display: inline-block;
+  margin-top: .25rem;
+}
+</style>
+""",
+            unsafe_allow_html=True,
+        )
+        st.sidebar.markdown(
+            f'<span class="plan-badge">Plan: {plan}</span>',
+            unsafe_allow_html=True,
+        )

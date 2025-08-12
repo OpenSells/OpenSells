@@ -180,8 +180,16 @@ if st.session_state.loading:
 
 st.title("🎯 Encuentra tus próximos clientes")
 
+st.markdown(
+    """
+<style>
+.red-help { color: #d00000 !important; font-weight: 700; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
-with st.expander("Consejos para obtener mejores leads"):
+with st.expander("❓ Consejos para obtener mejores leads", expanded=False):
     st.markdown(
         "- Usa palabras clave específicas + ciudad.\n"
         "- Evita términos genéricos (ej. \"mejor\", \"barato\") sin contexto.\n"
@@ -216,35 +224,45 @@ def _sugerencias(cliente_txt: str):
         return [s for s in base if cliente_txt.lower() in s.lower()] or base
     return base
 
-
-sugerencias = _sugerencias(cliente_ideal)
-nicho_sugerido = st.selectbox(
-    "Sugerir nichos rentables",
-    options=sugerencias,
-    index=0,
-    key="nicho_sugerido",
-)
-
+OPCION_PLACEHOLDER = "— Selecciona un nicho —"
 OPCION_CREAR = "➕ Crear nuevo nicho"
-if "nicho_seleccionado" not in st.session_state:
-    st.session_state["nicho_seleccionado"] = OPCION_CREAR
 
-opciones = [OPCION_CREAR] + lista_nichos
-nicho_seleccionado = st.selectbox(
+with st.expander("💡 Sugerencias de nichos rentables", expanded=False):
+    for i, sug in enumerate(_sugerencias(cliente_ideal)):
+        cols = st.columns([1, 6, 2])
+        with cols[0]:
+            st.write("•")
+        with cols[1]:
+            st.write(sug)
+        with cols[2]:
+            if st.button("Usar", key=f"usar_sug_{i}"):
+                st.session_state["nuevo_nicho_nombre"] = sug
+                st.session_state["nicho_select_val"] = OPCION_CREAR
+                st.rerun()
+
+lista_nichos = lista_nichos or []
+opciones = [OPCION_PLACEHOLDER, OPCION_CREAR] + lista_nichos
+
+if "nicho_select_val" not in st.session_state:
+    st.session_state["nicho_select_val"] = OPCION_PLACEHOLDER
+
+nicho_select_val = st.selectbox(
     "Selecciona un nicho",
     options=opciones,
-    index=opciones.index(st.session_state["nicho_seleccionado"]) if st.session_state["nicho_seleccionado"] in opciones else 0,
-    key="nicho_seleccionado",
+    index=opciones.index(st.session_state["nicho_select_val"]) if st.session_state["nicho_select_val"] in opciones else 0,
+    key="nicho_select_val",
 )
-nicho_seleccionado = st.session_state["nicho_seleccionado"]
 
-if nicho_seleccionado == OPCION_CREAR:
-    nuevo_nicho = st.text_input("Nombre del nuevo nicho")
-    nicho_actual = nuevo_nicho.strip()
-elif nicho_seleccionado == "Elige una opción":
-    nicho_actual = ""
-else:
-    nicho_actual = nicho_seleccionado.strip()
+nicho_actual = ""
+if nicho_select_val == OPCION_CREAR:
+    nuevo = st.text_input(
+        "Nombre del nicho nuevo",
+        key="nuevo_nicho_nombre",
+        placeholder="Ej.: Dentistas en Madrid",
+    )
+    nicho_actual = nuevo.strip()
+elif nicho_select_val not in (OPCION_PLACEHOLDER, OPCION_CREAR):
+    nicho_actual = nicho_select_val.strip()
 
 if nicho_actual:
     st.session_state.nicho_actual = nicho_actual
