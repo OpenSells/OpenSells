@@ -172,12 +172,14 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 
 @app.get("/usuario_actual")
+@app.get("/me")
 def usuario_actual(usuario=Depends(get_current_user)):
     """Devuelve los datos básicos del usuario autenticado."""
     return {
         "id": usuario.id,
         "email": usuario.email,
         "plan": usuario.plan or "free",
+        "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
     }
 
 @app.get("/protegido")
