@@ -55,6 +55,11 @@ if client is None:
     st.stop()
 
 st.title("🤖 Tu Asistente Virtual")
+st.write(
+    "Desde este asistente puedes **extraer leads**, **crear tareas**, **gestionar nichos** y consultar información. "
+    "Usa el chat para pedir acciones concretas (p. ej., “busca dentistas en Madrid y crea un nicho”)."
+)
+st.divider()
 
 plan = obtener_plan(st.session_state.token)
 

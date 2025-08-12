@@ -206,8 +206,31 @@ with st.expander("Consejos para obtener mejores leads"):
         "- Combina búsqueda web con Google Maps."
     )
 
+memoria_data = cached_get("mi_memoria", st.session_state.token)
+memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
-if nicho_seleccionado == "➕ Crear nuevo nicho":
+nichos_data = cached_get("mis_nichos", st.session_state.token)
+lista_nichos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
+lista_nichos = lista_nichos or []
+
+cliente_ideal = st.text_input(
+    "¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia"
+)
+
+OPCION_CREAR = "➕ Crear nuevo nicho"
+if "nicho_seleccionado" not in st.session_state:
+    st.session_state["nicho_seleccionado"] = OPCION_CREAR
+
+opciones = [OPCION_CREAR] + lista_nichos
+nicho_seleccionado = st.selectbox(
+    "Selecciona un nicho",
+    options=opciones,
+    index=opciones.index(st.session_state["nicho_seleccionado"]) if st.session_state["nicho_seleccionado"] in opciones else 0,
+    key="nicho_seleccionado",
+)
+nicho_seleccionado = st.session_state["nicho_seleccionado"]
+
+if nicho_seleccionado == OPCION_CREAR:
     nuevo_nicho = st.text_input("Nombre del nuevo nicho")
     nicho_actual = nuevo_nicho.strip()
 elif nicho_seleccionado == "Elige una opción":
