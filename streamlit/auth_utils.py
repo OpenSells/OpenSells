@@ -117,9 +117,9 @@ def logout_button(label: str = "Cerrar sesión") -> None:
             """
 <style>
 .plan-badge {
-  background: #fff4e6;
-  border: 1px solid #f1b37e;
-  color: #7a3e06;
+  background: #e9f3ff;
+  border: 1px solid #a3c7ff;
+  color: #0b3d91;
   border-radius: 999px;
   padding: 6px 10px;
   font-weight: 700;

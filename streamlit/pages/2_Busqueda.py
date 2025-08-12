@@ -228,17 +228,11 @@ OPCION_PLACEHOLDER = "— Selecciona un nicho —"
 OPCION_CREAR = "➕ Crear nuevo nicho"
 
 with st.expander("💡 Sugerencias de nichos rentables", expanded=False):
-    for i, sug in enumerate(_sugerencias(cliente_ideal)):
-        cols = st.columns([1, 6, 2])
-        with cols[0]:
-            st.write("•")
-        with cols[1]:
-            st.write(sug)
-        with cols[2]:
-            if st.button("Usar", key=f"usar_sug_{i}"):
-                st.session_state["nuevo_nicho_nombre"] = sug
-                st.session_state["nicho_select_val"] = OPCION_CREAR
-                st.rerun()
+    sugs = _sugerencias(cliente_ideal)
+    if sugs:
+        st.markdown("\n".join([f"- {s}" for s in sugs]))
+    else:
+        st.caption("Escribe tu cliente ideal para ver ideas.")
 
 lista_nichos = lista_nichos or []
 opciones = [OPCION_PLACEHOLDER, OPCION_CREAR] + lista_nichos

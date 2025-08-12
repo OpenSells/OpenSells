@@ -14,15 +14,6 @@ from utils import http_client
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
-st.markdown(
-    """
-<style>
-  .home-subtle { font-size:0.95rem; opacity:.9; margin-top:-0.5rem; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
 
 def api_me(token: str):
     return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
@@ -30,12 +21,19 @@ def api_me(token: str):
 
 user, token = ensure_token_and_user(api_me)
 
-st.title("OpenSells")
+st.markdown("### ✨ Opensells")
 st.markdown(
-    '<p class="home-subtle">Wrapper Leads SaaS te ayuda a encontrar y gestionar leads de calidad desde Google y Google Maps, con enriquecimiento por IA y exportación sencilla.</p>',
+    '<div class="home-subtitle">IA de generación y gestión de leads para multiplicar x1000 tus ventas.</div>',
     unsafe_allow_html=True,
 )
-st.divider()
+st.markdown(
+    """
+<style>
+.home-subtitle { font-size:1.05rem; opacity:.9; margin:-0.25rem 0 0.75rem 0; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 if not user:
     from json import JSONDecodeError
@@ -149,13 +147,6 @@ num_nichos = len(nichos.get("nichos", []))
 
 _tareas = cached_get("tareas_pendientes", st.session_state.token) or {}
 num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado")])
-
-cols = st.columns(3)
-cols[0].write("🔎 Búsqueda")
-cols[1].write("📥 Exportación CSV")
-cols[2].write("🧠 IA para enriquecer")
-
-st.divider()
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
