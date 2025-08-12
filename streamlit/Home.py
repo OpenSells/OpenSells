@@ -7,14 +7,105 @@ bootstrap()
 from auth_utils import ensure_token_and_user, logout_button
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from cache_utils import cached_get
+from cookies_utils import set_auth_cookies
+from utils import full_width_button, http_client
+from streamlit_js_eval import streamlit_js_eval
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
-logout_button()
 ensure_token_and_user()
 
 if "token" not in st.session_state:
-    st.error("Debes iniciar sesión para ver esta página.")
+    st.title("OpenSells")
+    modo = st.radio(
+        "", ["Iniciar sesión", "Registrarse"], horizontal=True, key="auth_mode"
+    )
+    email = st.text_input("Correo electrónico")
+    password = st.text_input("Contraseña", type="password")
+    if modo == "Registrarse":
+        password2 = st.text_input("Confirmar contraseña", type="password")
+
+    if modo == "Iniciar sesión":
+        if full_width_button("Iniciar sesión", key="btn_login"):
+            try:
+                r = http_client.post(
+                    "/login", data={"username": email, "password": password}
+                )
+            except Exception:
+                st.error("No se pudo conectar con el servidor")
+                st.stop()
+            if r.status_code == 200:
+                data = r.json()
+                token = data.get("access_token")
+                st.session_state.token = token
+                st.session_state.email = email
+                try:
+                    set_auth_cookies(token, email, days=7)
+                except Exception:
+                    pass
+                streamlit_js_eval(
+                    js_expressions=(
+                        f"localStorage.setItem('wrapper_token','{token}');"
+                        f"localStorage.setItem('wrapper_email','{email}');"
+                        "localStorage.setItem('lastActivity', Date.now());"
+                    ),
+                    key="js_login",
+                )
+                ensure_token_and_user()
+                st.rerun()
+            else:
+                detalle = (
+                    r.json().get("detail")
+                    if r.headers.get("content-type", "").startswith("application/json")
+                    else r.text
+                )
+                st.error(detalle or "Credenciales inválidas")
+    else:
+        if full_width_button("Registrarse", key="btn_register"):
+            if password != password2:
+                st.error("Las contraseñas no coinciden")
+            else:
+                try:
+                    r = http_client.post(
+                        "/register", json={"email": email, "password": password}
+                    )
+                except Exception:
+                    st.error("No se pudo conectar con el servidor")
+                    st.stop()
+                if r.status_code == 200:
+                    login_resp = http_client.post(
+                        "/login", data={"username": email, "password": password}
+                    )
+                    if login_resp.status_code == 200:
+                        data = login_resp.json()
+                        token = data.get("access_token")
+                        st.session_state.token = token
+                        st.session_state.email = email
+                        try:
+                            set_auth_cookies(token, email, days=7)
+                        except Exception:
+                            pass
+                        streamlit_js_eval(
+                            js_expressions=(
+                                f"localStorage.setItem('wrapper_token','{token}');"
+                                f"localStorage.setItem('wrapper_email','{email}');"
+                                "localStorage.setItem('lastActivity', Date.now());"
+                            ),
+                            key="js_register",
+                        )
+                        ensure_token_and_user()
+                        st.rerun()
+                    else:
+                        st.info("Usuario registrado. Ahora puedes iniciar sesión.")
+                else:
+                    detalle = (
+                        r.json().get("detail")
+                        if r.headers.get("content-type", "").startswith("application/json")
+                        else r.text
+                    )
+                    st.error(detalle or "Error al registrar usuario")
     st.stop()
+
+logout_button()
 
 APP_DIR = pathlib.Path(__file__).parent
 PAGES_DIR = APP_DIR / "pages"

@@ -249,7 +249,15 @@ for n in nichos_visibles:
                         dominios_existentes = {l["dominio"] for l in todos_leads}
 
                         if dominio_normalizado in dominios_existentes:
-                            st.error("❌ Este dominio ya existe en tus leads.")
+                            st.markdown(
+                                """
+                                <style>
+                                .small-note { font-size: 0.85rem; opacity: 0.85; margin-top: -0.25rem; }
+                                </style>
+                                <div class="small-note">Este lead ya existe en tu sistema (no se duplicará).</div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
                         else:
                             if not tiene_suscripcion_activa(plan):
                                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
