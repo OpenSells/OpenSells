@@ -54,7 +54,18 @@ def api_me(token: str):
     return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
 
 
-ensure_token_and_user(api_me)
+user, token = ensure_token_and_user(api_me)
+if not user:
+    st.info("Es necesario iniciar sesión para usar esta sección.")
+    try:
+        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
+    except Exception:
+        if st.button("Ir a Home"):
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.info("Navega a la página Home desde el menú de la izquierda.")
+    st.stop()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_dominio(url: str) -> str:
@@ -67,10 +78,6 @@ def md5(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
 
 # ── Protección de acceso ─────────────────────────────
-if "token" not in st.session_state:
-    st.error("Debes iniciar sesión para ver esta página.")
-    st.stop()
-
 plan = obtener_plan(st.session_state.token)
 
 # ── Forzar Recarga Caché ─────────────────────────────

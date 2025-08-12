@@ -3,7 +3,6 @@
 import os
 import streamlit as st
 import requests
-from requests.exceptions import ReadTimeout, ConnectTimeout, ConnectionError
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
@@ -14,7 +13,6 @@ bootstrap()
 
 from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from auth_utils import ensure_token_and_user, logout_button
-from cookies_utils import set_auth_cookies
 from plan_utils import obtener_plan, subscription_cta
 
 load_dotenv()
@@ -28,7 +26,18 @@ def api_me(token: str):
     return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
 
 
-ensure_token_and_user(api_me)
+user, token = ensure_token_and_user(api_me)
+if not user:
+    st.info("Es necesario iniciar sesión para usar esta sección.")
+    try:
+        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
+    except Exception:
+        if st.button("Ir a Home"):
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.info("Navega a la página Home desde el menú de la izquierda.")
+    st.stop()
 
 # -------------------- Helpers --------------------
 
@@ -46,87 +55,6 @@ def safe_json(resp: requests.Response) -> dict:
     except JSONDecodeError:
         st.error(f"Respuesta no válida: {resp.text}")
         return {}
-
-# -------------------- Login --------------------
-def wait_for_backend(max_attempts: int = 5):
-    with st.spinner("Conectando con el servidor..."):
-        for i in range(1, max_attempts + 1):
-            if http_client.health_ok():
-                return True
-            st.info(f"Esperando al backend (intento {i}/{max_attempts})...")
-            st.sleep(1.5 * i)
-    return False
-
-
-def login():
-    st.subheader("Iniciar sesión")
-    email = st.text_input("Correo electrónico")
-    password = st.text_input("Contraseña", type="password")
-
-    if st.button("Entrar", use_container_width=True):
-        if not wait_for_backend():
-            st.error(
-                "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos."
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-
-        try:
-            r = http_client.post(
-                "/login",
-                data={"username": email, "password": password},
-            )
-        except (ReadTimeout, ConnectTimeout):
-            st.error(
-                "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'."
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-        except ConnectionError:
-            st.error(
-                "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor."
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-
-        if r.status_code == 200:
-            data = safe_json(r)
-            st.session_state.token = data.get("access_token")
-            st.session_state.email = email
-            try:
-                set_auth_cookies(
-                    st.session_state.token,
-                    st.session_state.get("email"),
-                    days=7,
-                )
-            except Exception:
-                st.warning("No se pudieron guardar las cookies de sesión")
-            st.success("Sesión iniciada.")
-            st.rerun()
-        else:
-            st.error(
-                "Credenciales inválidas o servicio no disponible. Intenta de nuevo."
-            )
-
-    if st.button("Registrarse", key="btn_register"):
-        try:
-            r = http_client.post(
-                "/register",
-                json={"email": email, "password": password},
-            )
-            st.success(
-                "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario."
-            )
-        except Exception:
-            st.error("Error al registrar usuario.")
-
-
-if "token" not in st.session_state:
-    login()
-    st.stop()
 
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
@@ -269,107 +197,15 @@ if st.session_state.loading:
 st.title("🎯 Encuentra tus próximos clientes")
 
 
-def aviso_no_duplicados():
-    with st.container():
-        st.markdown(
-            """
-<style>
-.callout{
-  border:1px solid #E6F0FF;
-  background:linear-gradient(180deg,#F5FAFF 0%, #F2F7FF 100%);
-  border-radius:14px; padding:16px 18px; margin:8px 0 18px 0;
-  box-shadow:0 1px 2px rgba(20,35,80,0.06);
-}
-.callout h4{margin:0 0 6px 0; font-size:1.02rem}
-.callout p{margin:0; line-height:1.45rem; color:#1f2937}
-.badge{
-  display:inline-block; padding:2px 8px; border-radius:999px;
-  background:#EAF4FF; color:#1D4ED8; font-weight:600; font-size:0.78rem; margin-left:8px;
-}
-</style>
-<div class="callout">
-  <h4>ℹ️ Buenas prácticas <span class="badge">Sin duplicados</span></h4>
-  <p>Nunca se guardarán <strong>leads duplicados</strong> en tu cuenta. Puedes repetir la misma búsqueda para ampliar tu base de datos: solo se añadirán los <strong>leads nuevos</strong> que no existan todavía.</p>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
-
-aviso_no_duplicados()
-
-memoria_data = cached_get("mi_memoria", st.session_state.token)
-memoria = memoria_data.get("memoria", "") if memoria_data else ""
-
-nichos_data = cached_get("mis_nichos", st.session_state.token)
-nichos_previos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
-
-# -------------------- Input Cliente Ideal --------------------
-cliente_ideal = st.text_input("¿Cómo es tu cliente ideal?", placeholder="Ej: clínicas dentales en Valencia")
-
-# -------------------- Sugerencias de nicho --------------------
-with st.expander("💡 Sugerencias de nichos rentables para ti"):
-    st.caption(
-        "La memoria se utiliza para entender mejor tus intereses y personalizar las sugerencias de nichos y resultados."
+with st.expander("Consejos para obtener mejores leads"):
+    st.markdown(
+        "- Usa palabras clave específicas + ciudad.\n"
+        "- Evita términos genéricos (ej. \"mejor\", \"barato\") sin contexto.\n"
+        "- Prueba 2–3 variantes por nicho.\n"
+        "- Filtra dominios repetidos y revisa emails sospechosos.\n"
+        "- Combina búsqueda web con Google Maps."
     )
-    if hasattr(st, "page_link"):
-        st.page_link(
-            "pages/7_Mi_Cuenta.py",
-            label="✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)",
-        )
-    else:
-        if st.button(
-            "✏️ Editar memoria del usuario (usada para personalizar sugerencias y resultados)"
-        ):
-            st.switch_page("pages/7_Mi_Cuenta.py")
 
-    if memoria or nichos_previos:
-        try:
-            client = get_openai_client()
-            if client and hasattr(client, "chat"):
-                partes_prompt = [
-                    "Eres un experto en crecimiento de negocios online. Sugiere 5 nichos de mercado distintos, con potencial de alta rentabilidad, adaptados a la siguiente información del usuario.",
-                ]
-                if memoria:
-                    partes_prompt.append(f"Memoria del usuario: '{memoria}'.")
-                if nichos_previos:
-                    partes_prompt.append(
-                        "Historial de nichos creados: " + ", ".join(nichos_previos[:10]) + "."
-                    )
-                partes_prompt.append(
-                    "Devuelve solo la lista en viñetas, un nicho por línea, sin numerar."
-                )
-                prompt = " ".join(partes_prompt)
-                chat = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.4,
-                )
-                sugerencias = [
-                    s.strip("- ").strip()
-                    for s in chat.choices[0].message.content.split("\n")
-                    if s.strip()
-                ]
-                if sugerencias:
-                    st.markdown("\n".join(f"- {s}" for s in sugerencias))
-                else:
-                    st.info(
-                        "⚠️ Aún no hay suficiente información para generar sugerencias personalizadas."
-                    )
-            else:
-                st.warning("No se pudo inicializar el cliente de IA para generar sugerencias.")
-        except Exception:
-            st.warning("Ocurrió un error al generar las sugerencias. Inténtalo más tarde.")
-    else:
-        st.info(
-            "⚠️ Aún no hay suficiente información para generar sugerencias personalizadas."
-        )
-
-# -------------------- Selección de nicho destino --------------------
-options_nicho = ["Elige una opción", "➕ Crear nuevo nicho"] + nichos_previos
-nicho_seleccionado = st.selectbox(
-    "Selecciona un nicho destino:", options_nicho, index=0
-)
 
 if nicho_seleccionado == "➕ Crear nuevo nicho":
     nuevo_nicho = st.text_input("Nombre del nuevo nicho")

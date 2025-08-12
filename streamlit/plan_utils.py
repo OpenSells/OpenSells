@@ -101,9 +101,9 @@ def permite_recurso(plan: str, clave: str) -> bool:
 
 def subscription_cta():
     if hasattr(st, "page_link"):
-        st.page_link("pages/6_Suscripcion.py", label="💳 Ver planes y suscribirme")
+        st.page_link("pages/7_Suscripcion.py", label="💳 Ver planes y suscribirme")
     else:
-        st.markdown("💳 [Ver planes y suscribirme](./05_Suscripcion)")
+        st.markdown("💳 [Ver planes y suscribirme](./07_Suscripcion)")
 
 
 def force_redirect(url: str) -> None:

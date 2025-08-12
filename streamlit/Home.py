@@ -1,5 +1,7 @@
 import pathlib
 import streamlit as st
+from requests import ReadTimeout, ConnectTimeout
+from requests.exceptions import ConnectionError
 from session_bootstrap import bootstrap
 
 bootstrap()
@@ -8,9 +10,18 @@ from auth_utils import ensure_token_and_user, logout_button, save_token
 from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from cache_utils import cached_get
 from cookies_utils import set_auth_cookies
-from utils import full_width_button, http_client
+from utils import http_client
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
+
+st.markdown(
+    """
+<style>
+  .home-subtle { font-size:0.95rem; opacity:.9; margin-top:-0.5rem; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 
 def api_me(token: str):
@@ -19,69 +30,84 @@ def api_me(token: str):
 
 user, token = ensure_token_and_user(api_me)
 
+st.title("OpenSells")
+st.markdown(
+    '<p class="home-subtle">Wrapper Leads SaaS te ayuda a encontrar y gestionar leads de calidad desde Google y Google Maps, con enriquecimiento por IA y exportación sencilla.</p>',
+    unsafe_allow_html=True,
+)
+st.divider()
+
 if not user:
-    st.title("OpenSells")
-    modo = st.radio("", ["Iniciar sesión", "Registrarse"], horizontal=True, key="auth_mode")
+    from json import JSONDecodeError
+
+    def wait_for_backend(max_attempts: int = 5):
+        with st.spinner("Conectando con el servidor..."):
+            for i in range(1, max_attempts + 1):
+                if http_client.health_ok():
+                    return True
+                st.info(f"Esperando al backend (intento {i}/{max_attempts})...")
+                st.sleep(1.5 * i)
+        return False
+
+    def safe_json(resp):
+        try:
+            return resp.json()
+        except JSONDecodeError:
+            st.error(f"Respuesta no válida: {resp.text}")
+            return {}
+
+    st.subheader("Iniciar sesión")
     email = st.text_input("Correo electrónico")
     password = st.text_input("Contraseña", type="password")
-    if modo == "Registrarse":
-        password2 = st.text_input("Confirmar contraseña", type="password")
 
-    if modo == "Iniciar sesión":
-        if full_width_button("Iniciar sesión", key="btn_login"):
-            try:
-                r = http_client.post("/login", data={"username": email, "password": password})
-            except Exception:
-                st.error("No se pudo conectar con el servidor")
-                st.stop()
-            if r.status_code == 200:
-                token = r.json().get("access_token")
-                st.session_state.email = email
-                try:
-                    set_auth_cookies(token, email, days=7)
-                except Exception:
-                    pass
-                save_token(token)
+    if st.button("Entrar", use_container_width=True):
+        if not wait_for_backend():
+            st.error(
+                "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos.",
+            )
+            if st.button("Reintentar", type="secondary"):
                 st.rerun()
-            else:
-                detalle = (
-                    r.json().get("detail")
-                    if r.headers.get("content-type", "").startswith("application/json")
-                    else r.text
-                )
-                st.error(detalle or "Credenciales inválidas")
-    else:
-        if full_width_button("Registrarse", key="btn_register"):
-            if password != password2:
-                st.error("Las contraseñas no coinciden")
-            else:
-                try:
-                    r = http_client.post("/register", json={"email": email, "password": password})
-                except Exception:
-                    st.error("No se pudo conectar con el servidor")
-                    st.stop()
-                if r.status_code == 200:
-                    login_resp = http_client.post(
-                        "/login", data={"username": email, "password": password}
-                    )
-                    if login_resp.status_code == 200:
-                        token = login_resp.json().get("access_token")
-                        st.session_state.email = email
-                        try:
-                            set_auth_cookies(token, email, days=7)
-                        except Exception:
-                            pass
-                        save_token(token)
-                        st.rerun()
-                    else:
-                        st.info("Usuario registrado. Ahora puedes iniciar sesión.")
-                else:
-                    detalle = (
-                        r.json().get("detail")
-                        if r.headers.get("content-type", "").startswith("application/json")
-                        else r.text
-                    )
-                    st.error(detalle or "Error al registrar usuario")
+            st.stop()
+
+        try:
+            r = http_client.post("/login", data={"username": email, "password": password})
+        except (ReadTimeout, ConnectTimeout):
+            st.error(
+                "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'.",
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+        except ConnectionError:
+            st.error(
+                "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor.",
+            )
+            if st.button("Reintentar", type="secondary"):
+                st.rerun()
+            st.stop()
+
+        if r.status_code == 200:
+            data = safe_json(r)
+            token = data.get("access_token")
+            st.session_state.email = email
+            try:
+                set_auth_cookies(token, email, days=7)
+            except Exception:
+                st.warning("No se pudieron guardar las cookies de sesión")
+            save_token(token)
+            st.success("Sesión iniciada.")
+            st.rerun()
+        else:
+            st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
+
+    if st.button("Registrarse", key="btn_register", use_container_width=True):
+        try:
+            r = http_client.post("/register", json={"email": email, "password": password})
+            st.success(
+                "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.",
+            )
+        except Exception:
+            st.error("Error al registrar usuario.")
     st.stop()
 
 logout_button()
@@ -110,8 +136,9 @@ PAGES = {
     "nichos": "3_Mis_Nichos.py",
     "tareas": "4_Tareas.py",
     "export": "5_Exportaciones.py",
-    "suscripcion": "6_Suscripcion.py",
-    "cuenta": "7_Mi_Cuenta.py",
+    "emails": "6_Emails.py",
+    "suscripcion": "7_Suscripcion.py",
+    "cuenta": "8_Mi_Cuenta.py",
 }
 
 plan = obtener_plan(st.session_state.token)
@@ -123,7 +150,12 @@ num_nichos = len(nichos.get("nichos", []))
 _tareas = cached_get("tareas_pendientes", st.session_state.token) or {}
 num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado")])
 
-st.title("OpenSells")
+cols = st.columns(3)
+cols[0].write("🔎 Búsqueda")
+cols[1].write("📥 Exportación CSV")
+cols[2].write("🧠 IA para enriquecer")
+
+st.divider()
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
@@ -147,7 +179,7 @@ with col2:
         on_click=lambda: go(PAGES["busqueda"]),
     )
 
-st.markdown("---")
+st.divider()
 
 accesos = st.columns(4)
 items = [
