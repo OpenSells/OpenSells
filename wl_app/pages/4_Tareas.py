@@ -6,13 +6,14 @@ import time
 from datetime import date
 from dotenv import load_dotenv
 
-from session_bootstrap import bootstrap
+from wl_app.session_bootstrap import bootstrap
+
 bootstrap()
 
-from cache_utils import cached_get, cached_post, limpiar_cache
-from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from auth_utils import ensure_token_and_user, logout_button
-from utils import http_client
+from wl_app.cache_utils import cached_get, cached_post, limpiar_cache
+from wl_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from wl_app.auth_utils import ensure_token_and_user, logout_button
+from wl_app.utils import http_client
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 
@@ -38,16 +39,8 @@ def api_me(token: str):
 
 
 user, token = ensure_token_and_user(api_me)
-if not user:
-    st.info("Es necesario iniciar sesión para usar esta sección.")
-    try:
-        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
-    except Exception:
-        if st.button("Ir a Home"):
-            try:
-                st.switch_page("Home.py")
-            except Exception:
-                st.info("Navega a la página Home desde el menú de la izquierda.")
+if user is None or token is None:
+    st.error("No se pudo validar la sesión. Inicia sesión de nuevo.")
     st.stop()
 
 logout_button()
