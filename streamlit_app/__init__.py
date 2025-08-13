@@ -1,0 +1,1 @@
+"""OpenSells Streamlit frontend package."""
