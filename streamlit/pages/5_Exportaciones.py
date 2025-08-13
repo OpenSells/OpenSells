@@ -1,8 +1,8 @@
 import streamlit as st
 
-from wl_app.session_bootstrap import bootstrap
-from wl_app.auth_utils import ensure_token_and_user, logout_button
-from wl_app.utils import http_client
+from streamlit.session_bootstrap import bootstrap
+from streamlit.auth_utils import ensure_token_and_user, logout_button
+from streamlit.utils import http_client
 
 bootstrap()
 

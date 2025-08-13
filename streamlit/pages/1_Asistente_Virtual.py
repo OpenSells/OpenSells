@@ -3,14 +3,14 @@ import json
 import streamlit as st
 from dotenv import load_dotenv
 
-from wl_app.session_bootstrap import bootstrap
+from streamlit.session_bootstrap import bootstrap
 
 bootstrap()
 
-from wl_app.cache_utils import cached_get, get_openai_client
-from wl_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from wl_app.auth_utils import ensure_token_and_user, logout_button
-from wl_app.utils.http_client import get as http_get, post as http_post, health_ok
+from streamlit.cache_utils import cached_get, get_openai_client
+from streamlit.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit.auth_utils import ensure_token_and_user, logout_button
+from streamlit.utils.http_client import get as http_get, post as http_post, health_ok
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
