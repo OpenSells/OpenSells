@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+import pathlib
 
 # ✅ Cargar archivo .env manualmente desde la raíz del proyecto
 dotenv_path = Path(__file__).resolve().parents[1] / ".env"
