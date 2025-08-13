@@ -1,12 +1,11 @@
 import streamlit as st
 
-from streamlit.session_bootstrap import bootstrap
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit_app.auth_utils import ensure_token_and_user, logout_button
+from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
-bootstrap()
-
-from streamlit.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from streamlit.auth_utils import ensure_token_and_user, logout_button
-from streamlit.utils import http_client
+init_cookie_manager_mount()
 
 st.set_page_config(page_title="Emails", page_icon="✉️")
 

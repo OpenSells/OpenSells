@@ -1,10 +1,10 @@
 import streamlit as st
 
-from streamlit.session_bootstrap import bootstrap
-from streamlit.auth_utils import ensure_token_and_user, logout_button
-from streamlit.utils import http_client
+from streamlit_app.auth_utils import ensure_token_and_user, logout_button
+from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
-bootstrap()
+init_cookie_manager_mount()
 
 st.set_page_config(page_title="Exportaciones", page_icon="📤")
 

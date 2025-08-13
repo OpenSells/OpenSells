@@ -3,15 +3,13 @@ import streamlit as st
 from requests import ReadTimeout, ConnectTimeout
 from requests.exceptions import ConnectionError
 
-from streamlit.session_bootstrap import bootstrap
+from streamlit_app.auth_utils import ensure_token_and_user, logout_button, save_token
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit_app.cache_utils import cached_get
+from streamlit_app.cookies_utils import set_auth_cookies, init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
-bootstrap()
-
-from streamlit.auth_utils import ensure_token_and_user, logout_button, save_token
-from streamlit.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from streamlit.cache_utils import cached_get
-from streamlit.cookies_utils import set_auth_cookies
-from streamlit.utils import http_client
+init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 

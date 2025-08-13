@@ -7,15 +7,14 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 
-from streamlit.utils import http_client
+from streamlit_app.utils import http_client
 
-from streamlit.session_bootstrap import bootstrap
+from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
+from streamlit_app.auth_utils import ensure_token_and_user, logout_button
+from streamlit_app.plan_utils import subscription_cta
+from streamlit_app.cookies_utils import init_cookie_manager_mount
 
-bootstrap()
-
-from streamlit.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit.auth_utils import ensure_token_and_user, logout_button
-from streamlit.plan_utils import subscription_cta
+init_cookie_manager_mount()
 
 load_dotenv()
 
