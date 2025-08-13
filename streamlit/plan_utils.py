@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import time
 import streamlit as st
-from cache_utils import cached_get
+
+from streamlit.cache_utils import cached_get
 from streamlit_js_eval import streamlit_js_eval
 import streamlit.components.v1 as components
 

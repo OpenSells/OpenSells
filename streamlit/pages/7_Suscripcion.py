@@ -5,12 +5,13 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from session_bootstrap import bootstrap
+from streamlit.session_bootstrap import bootstrap
+
 bootstrap()
 
-from auth_utils import ensure_token_and_user, logout_button
-from utils import http_client
-from plan_utils import obtener_plan, force_redirect
+from streamlit.auth_utils import ensure_token_and_user, logout_button
+from streamlit.utils import http_client
+from streamlit.plan_utils import obtener_plan, force_redirect
 
 load_dotenv()
 
@@ -36,16 +37,8 @@ def api_me(token: str):
 
 
 user, token = ensure_token_and_user(api_me)
-if not user:
-    st.info("Es necesario iniciar sesión para usar esta sección.")
-    try:
-        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
-    except Exception:
-        if st.button("Ir a Home"):
-            try:
-                st.switch_page("Home.py")
-            except Exception:
-                st.info("Navega a la página Home desde el menú de la izquierda.")
+if user is None or token is None:
+    st.error("No se pudo validar la sesión. Inicia sesión de nuevo.")
     st.stop()
 
 logout_button()

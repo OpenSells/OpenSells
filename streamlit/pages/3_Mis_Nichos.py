@@ -13,22 +13,23 @@
 
 import os
 import streamlit as st
-import sys
 import hashlib
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-from session_bootstrap import bootstrap
+from streamlit.session_bootstrap import bootstrap
+
 bootstrap()
 
-# Añadir raíz del proyecto al path para importar correctamente desde backend/
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-
-from backend.utils import normalizar_nicho
-from cache_utils import cached_get, cached_post, cached_delete, limpiar_cache
-from plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from auth_utils import ensure_token_and_user, logout_button
-from utils import http_client
+from streamlit.cache_utils import (
+    cached_get,
+    cached_post,
+    cached_delete,
+    limpiar_cache,
+)
+from streamlit.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit.auth_utils import ensure_token_and_user, logout_button
+from streamlit.utils import http_client
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -54,21 +55,22 @@ def api_me(token: str):
 
 
 user, token = ensure_token_and_user(api_me)
-if not user:
-    st.info("Es necesario iniciar sesión para usar esta sección.")
-    try:
-        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
-    except Exception:
-        if st.button("Ir a Home"):
-            try:
-                st.switch_page("Home.py")
-            except Exception:
-                st.info("Navega a la página Home desde el menú de la izquierda.")
+if user is None or token is None:
+    st.error("No se pudo validar la sesión. Inicia sesión de nuevo.")
     st.stop()
 
 logout_button()
 
 # ── Helpers ──────────────────────────────────────────
+def normalizar_nicho(texto: str) -> str:
+    import unicodedata
+    import re
+
+    texto = texto.strip().lower()
+    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
+    texto = re.sub(r"[^a-z0-9]+", "_", texto)
+    return texto.strip("_")
+
 def normalizar_dominio(url: str) -> str:
     if not url:
         return ""

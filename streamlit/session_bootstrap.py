@@ -1,5 +1,6 @@
 import streamlit as st
-from cookies_utils import init_cookie_manager_mount
+
+from streamlit.cookies_utils import init_cookie_manager_mount
 
 def bootstrap() -> None:
     """Initialise components that must run before any auth checks."""

@@ -6,14 +6,16 @@ import requests
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
-from utils import http_client
 
-from session_bootstrap import bootstrap
+from streamlit.utils import http_client
+
+from streamlit.session_bootstrap import bootstrap
+
 bootstrap()
 
-from cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from auth_utils import ensure_token_and_user, logout_button
-from plan_utils import subscription_cta
+from streamlit.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
+from streamlit.auth_utils import ensure_token_and_user, logout_button
+from streamlit.plan_utils import subscription_cta
 
 load_dotenv()
 
@@ -26,16 +28,8 @@ def api_me(token: str):
 
 
 user, token = ensure_token_and_user(api_me)
-if not user:
-    st.info("Es necesario iniciar sesión para usar esta sección.")
-    try:
-        st.page_link("Home.py", label="Ir al formulario de inicio de sesión")
-    except Exception:
-        if st.button("Ir a Home"):
-            try:
-                st.switch_page("Home.py")
-            except Exception:
-                st.info("Navega a la página Home desde el menú de la izquierda.")
+if user is None or token is None:
+    st.error("No se pudo validar la sesión. Inicia sesión de nuevo.")
     st.stop()
 
 plan = (user or {}).get("plan", "free")

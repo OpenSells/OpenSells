@@ -21,7 +21,7 @@ openai
 stripe
 
 # Frontend
-streamlit
+streamlit>=1.31
 streamlit_js_eval
 extra-streamlit-components
 

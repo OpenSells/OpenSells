@@ -1,5 +1,6 @@
 import streamlit as st
-from cache_utils import limpiar_cache
+
+from streamlit.cache_utils import limpiar_cache
 
 def global_reset_button():
     """Render a sidebar button to clear cache and rerun the app."""
