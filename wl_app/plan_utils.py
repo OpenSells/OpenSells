@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 import streamlit as st
 
-from streamlit.cache_utils import cached_get
+from wl_app.cache_utils import cached_get
 from streamlit_js_eval import streamlit_js_eval
 import streamlit.components.v1 as components
 

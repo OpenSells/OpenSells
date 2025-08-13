@@ -3,12 +3,12 @@
 import os
 import streamlit as st
 
-from streamlit.session_bootstrap import bootstrap
+from wl_app.session_bootstrap import bootstrap
 
 bootstrap()
 
-from streamlit.auth_utils import ensure_token_and_user, logout_button
-from streamlit.utils import http_client
+from wl_app.auth_utils import ensure_token_and_user, logout_button
+from wl_app.utils import http_client
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
 

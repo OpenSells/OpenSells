@@ -17,19 +17,19 @@ import hashlib
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-from streamlit.session_bootstrap import bootstrap
+from wl_app.session_bootstrap import bootstrap
 
 bootstrap()
 
-from streamlit.cache_utils import (
+from wl_app.cache_utils import (
     cached_get,
     cached_post,
     cached_delete,
     limpiar_cache,
 )
-from streamlit.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from streamlit.auth_utils import ensure_token_and_user, logout_button
-from streamlit.utils import http_client
+from wl_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from wl_app.auth_utils import ensure_token_and_user, logout_button
+from wl_app.utils import http_client
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
