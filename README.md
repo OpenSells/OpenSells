@@ -1,6 +1,6 @@
 # OpenSells
 
-*Actualizado el 12/08/2025*
+*Actualizado el 13/08/2025*
 
 **OpenSells** es un SaaS para generación y gestión de leads apoyado en un backend FastAPI y una interfaz multipágina en Streamlit.
 
@@ -12,13 +12,14 @@
 - **Página “Búsqueda” mejorada:** expander con sugerencias de nichos y consejos para mejores leads, selector de nicho seguro y badge de plan en la barra lateral.
 - **Página “Emails” (placeholder):** muestra "Disponible próximamente" con vista previa de envío 1:1, masivo y plantillas.
 - **Aviso de leads duplicados más discreto:** se reemplazó el warning por una nota sutil.
+- **Gestión de sesión y rutas unificada:** refactor para centralizar manejo de tokens y paths en toda la app.
 
 ## 📊 Estado del proyecto
 
 - **Backend:** FastAPI + SQLAlchemy + PostgreSQL; endpoints para usuarios, nichos, leads, tareas, exportaciones y suscripciones (Stripe).
 - **Frontend:** Streamlit multipágina con generación de leads, gestión de nichos, tareas, asistente virtual, exportaciones y control de acceso por plan.
 - **Autenticación:** JWT con almacenamiento en `localStorage`, helper `auth_utils.py` para restaurar sesión y auto-logout.
-- **Pruebas:** `pytest` aún falla por configuración de base de datos; el código compila con `python -m py_compile`.
+- **Pruebas:** `pytest` devuelve 4 fallos (401) y 1 test pasa; el código compila con `python -m py_compile`.
 
 ## 🛠️ Ejecución local
 
@@ -50,7 +51,7 @@ cp .env.example .env
 
 ## 🚀 Próximos pasos
 
-- Configurar un entorno de pruebas para que `pytest` se ejecute correctamente.
+- Configurar autenticación en el entorno de pruebas para que `pytest` se ejecute correctamente.
 - Añadir envío de emails real en la página *Emails*.
 - Mejorar estilo global (tipografía, botones) y paginación/ordenación de tablas de leads.
 - Guardar la última página visitada para restaurarla tras login o refresh.
@@ -59,4 +60,4 @@ OpenSells sigue evolucionando hacia un servicio estable de generación de leads 
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 12/08/2025.)*
+*(Generado automáticamente el 13/08/2025.)*
