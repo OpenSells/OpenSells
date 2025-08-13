@@ -5,26 +5,25 @@ from requests.exceptions import ConnectionError
 # --- Ensure project root is in sys.path
 import sys
 from pathlib import Path
+import pathlib
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.auth_utils import ensure_token_and_user, logout_button, save_token
+from streamlit_app.auth_utils import get_session_user, logout_button, save_token
 from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
 from streamlit_app.cookies_utils import set_auth_cookies, init_cookie_manager_mount
 from streamlit_app.utils import http_client
+from streamlit_app.common_paths import APP_DIR, PAGES_DIR
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
 
-def api_me(token: str):
-    return http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
-
-
-user, token = ensure_token_and_user(api_me)
+token, user = get_session_user(require_auth=False)
 
 st.markdown("### ✨ Opensells")
 st.markdown(
@@ -114,9 +113,6 @@ if not user:
     st.stop()
 
 logout_button()
-
-APP_DIR = pathlib.Path(__file__).parent
-PAGES_DIR = APP_DIR / "pages"
 
 
 def page_exists(name: str) -> bool:
