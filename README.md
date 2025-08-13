@@ -34,7 +34,7 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-3. Inicia el frontend:
+3. Inicia el frontend desde la raíz del proyecto:
 
 ```bash
 streamlit run streamlit_app/Home.py

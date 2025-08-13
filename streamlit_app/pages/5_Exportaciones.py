@@ -1,8 +1,8 @@
 import streamlit as st
 
-from streamlit_app.auth_utils import ensure_token_and_user, logout_button
-from streamlit_app.cookies_utils import init_cookie_manager_mount
-from streamlit_app.utils import http_client
+from ..auth_utils import ensure_token_and_user, logout_button
+from ..cookies_utils import init_cookie_manager_mount
+from ..utils import http_client
 
 init_cookie_manager_mount()
 

@@ -1,13 +1,19 @@
-import pathlib
 import streamlit as st
 from requests import ReadTimeout, ConnectTimeout
 from requests.exceptions import ConnectionError
 
-from streamlit_app.auth_utils import ensure_token_and_user, logout_button, save_token
-from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
-from streamlit_app.cache_utils import cached_get
-from streamlit_app.cookies_utils import set_auth_cookies, init_cookie_manager_mount
-from streamlit_app.utils import http_client
+# --- ensure project root on sys.path (fallback for Streamlit working-dir quirks)
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from .auth_utils import ensure_token_and_user, logout_button, save_token
+from .plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
+from .cache_utils import cached_get
+from .cookies_utils import set_auth_cookies, init_cookie_manager_mount
+from .utils import http_client
 
 init_cookie_manager_mount()
 
