@@ -5,10 +5,10 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.auth_utils import ensure_token_and_user, logout_button
-from streamlit_app.utils import http_client
-from streamlit_app.plan_utils import obtener_plan, force_redirect
-from streamlit_app.cookies_utils import init_cookie_manager_mount
+from ..auth_utils import ensure_token_and_user, logout_button
+from ..utils import http_client
+from ..plan_utils import obtener_plan, force_redirect
+from ..cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
