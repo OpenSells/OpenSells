@@ -37,7 +37,7 @@ uvicorn backend.main:app --reload
 3. Inicia el frontend:
 
 ```bash
-streamlit run streamlit/Home.py
+streamlit run streamlit_app/Home.py
 ```
 
 ## 🔑 Variables de entorno

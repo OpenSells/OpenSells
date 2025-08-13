@@ -62,7 +62,6 @@ def cached_delete(endpoint, token, params=None):
         print(f"[cached_delete] Error: {e}")
         return None
 
-from streamlit import session_state
 
 def cached_post(endpoint, token, payload=None, params=None):
     url = f"{BACKEND_URL}/{endpoint}"
@@ -72,10 +71,10 @@ def cached_post(endpoint, token, payload=None, params=None):
         if r.status_code == 200:
             # Limpiar cache relevante si es una acción conocida
             if endpoint in ["tarea_completada", "editar_tarea", "tarea_lead"]:
-                if "_cache" in session_state:
-                    for key in list(session_state._cache.keys()):
+                if "_cache" in st.session_state:
+                    for key in list(st.session_state._cache.keys()):
                         if "tareas_pendientes" in key or "tareas_lead" in key or "tareas_nicho" in key:
-                            del session_state._cache[key]
+                            del st.session_state._cache[key]
             return r.json()
     except Exception as e:
         print(f"[cached_post] Error: {e}")
@@ -84,8 +83,8 @@ def cached_post(endpoint, token, payload=None, params=None):
 
 def limpiar_cache():
     """Clear all Streamlit caches."""
-    if "_cache" in session_state:
-        session_state._cache.clear()
+    if "_cache" in st.session_state:
+        st.session_state._cache.clear()
     # Clear Streamlit's global caches as well
     st.cache_data.clear()
     st.cache_resource.clear()
