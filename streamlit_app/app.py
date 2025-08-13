@@ -1,11 +1,18 @@
 """Main entry point for the Streamlit app."""
 
+# --- Ensure project root is in sys.path
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import os
 import streamlit as st
 
-from .auth_utils import ensure_token_and_user, logout_button
-from .cookies_utils import init_cookie_manager_mount
-from .utils import http_client
+from streamlit_app.auth_utils import ensure_token_and_user, logout_button
+from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
 
