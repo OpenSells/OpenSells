@@ -767,9 +767,14 @@ def build_system_prompt() -> str:
     resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (
-        "Eres un asistente virtual conectado a la base de datos del usuario. "
-        "Puedes buscar leads, cambiar estados, añadir notas y tareas, y consultar historial. "
-        "Responde de forma clara y breve, proponiendo acciones útiles.\n\n"
+        "Eres un asistente conectado a herramientas. Cuando el usuario pida BUSCAR o EXTRAER leads, "
+        "SIEMPRE sigue este pipeline con tools y sin inventar nada:\n"
+        "1) api_buscar(cliente_ideal) → si devuelve 'pregunta_sugerida', haz como máximo 2 preguntas breves.\n"
+        "2) api_buscar_variantes_seleccionadas(elige 3 variantes relevantes).\n"
+        "3) api_extraer_multiples(urls, pais detectado o 'ES' por defecto).\n"
+        "4) api_exportar_csv(urls, pais, nicho) → ofrece botón de descarga.\n"
+        "Si el plan es free y una acción premium devuelve 403, informa y muestra CTA.\n"
+        "Para tareas/estados/notas/historial usa las tools específicas.\n\n"
         f"Nichos del usuario: {resumen_nichos}.\n{resumen_tareas}"
     )
 
@@ -804,6 +809,8 @@ for entrada in st.session_state.chat:
 pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 
 if pregunta:
+    st.session_state.pop("csv_bytes", None)
+    st.session_state.pop("csv_filename", None)
     if not tiene_suscripcion_activa(plan):
         st.info(
             "Puedes chatear y gestionar información básica. Para EXTRAER o EXPORTAR leads necesitas un plan activo."
@@ -814,6 +821,9 @@ if pregunta:
         st.markdown(pregunta)
 
     contexto = build_system_prompt()
+    keywords = ["extraer", "conseguir", "buscar", "crear nicho", "exportar"]
+    if any(k in pregunta.lower() for k in keywords):
+        contexto += f"\nObjetivo del usuario: {pregunta}"
     messages = [{"role": "system", "content": contexto}] + st.session_state.chat
 
     with st.spinner("Pensando..."):
@@ -822,19 +832,26 @@ if pregunta:
                 model="gpt-4o-mini",
                 messages=messages,
                 tools=tool_defs,
+                tool_choice="auto",
             )
             msg = response.choices[0].message
-            while msg.tool_calls:
-                st.session_state.chat.append({"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls})
+            while getattr(msg, "tool_calls", None):
+                st.session_state.chat.append(
+                    {"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls}
+                )
                 for tc in msg.tool_calls:
                     func = TOOLS.get(tc.function.name)
                     args = json.loads(tc.function.arguments or "{}")
                     resultado = func(**args) if func else {"error": f"Tool {tc.function.name} no disponible"}
-                    st.session_state.chat.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(resultado, ensure_ascii=False)})
+                    st.session_state.chat.append(
+                        {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(resultado, ensure_ascii=False)}
+                    )
                 messages = [{"role": "system", "content": contexto}] + st.session_state.chat
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
+                    tools=tool_defs,
+                    tool_choice="auto",
                 )
                 msg = response.choices[0].message
         except Exception:
