@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import streamlit as st
 
 from streamlit_app.utils import http_client
+from streamlit_app.cookies_utils import get_auth_token
 
 
 def save_token(token: Optional[str]) -> None:
@@ -26,6 +27,11 @@ def logout_button(label: str = "Cerrar sesión") -> None:
 def ensure_token_and_user() -> Tuple[dict | None, str | None]:
     """Devuelve ``(user, token)`` si existe una sesión válida."""
     token = st.session_state.get("token")
+    if not token:
+        cookie_token = get_auth_token()
+        if cookie_token:
+            st.session_state["token"] = cookie_token
+            token = cookie_token
     if not token:
         return None, None
 
