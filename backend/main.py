@@ -739,7 +739,7 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
     return {"mensaje": "Tarea editada correctamente"}
 
 @app.get("/tareas_pendientes")
-def tareas_pendientes(usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     tareas = obtener_todas_tareas_pendientes(usuario.email, db)
     return {"tareas": tareas}
 

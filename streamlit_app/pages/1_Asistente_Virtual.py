@@ -65,13 +65,23 @@ def _require_subscription() -> bool:
     return False
 
 
+def _handle_resp(r):
+    """Gestiona respuestas 401/403 mostrando mensajes adecuados."""
+    if r.status_code == 401:
+        get_session_user(require_auth=True)
+    if r.status_code == 403:
+        st.warning("Tu plan no permite esta acción.")
+        subscription_cta()
+    return {"error": r.text}
+
+
 # ────────────────── Funciones de herramientas ─────────────────────
 def buscar_leads(query: str):
     try:
         r = http_get("/buscar_leads", headers=_auth_headers(), params={"query": query})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         if not health_ok():
             st.info("Conectando con el backend...")
@@ -84,7 +94,7 @@ def obtener_estado_lead(dominio: str):
         r = http_get("/estado_lead", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -95,7 +105,7 @@ def actualizar_estado_lead(dominio: str, estado: str):
         r = http_post("/estado_lead", headers=_auth_headers(), json={"dominio": dominio, "estado": estado})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -106,7 +116,7 @@ def obtener_nota_lead(dominio: str):
         r = http_get("/nota_lead", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -117,7 +127,7 @@ def actualizar_nota_lead(dominio: str, nota: str):
         r = http_post("/nota_lead", headers=_auth_headers(), json={"dominio": dominio, "nota": nota})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -128,27 +138,46 @@ def obtener_tareas_lead(dominio: str):
         r = http_get("/tareas_lead", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
 
-def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str = "media"):
-    payload = {"texto": texto, "dominio": dominio, "tipo": "lead", "prioridad": prioridad}
+def crear_tarea(
+    texto: str,
+    fecha: str | None = None,
+    prioridad: str = "media",
+    tipo: str = "general",
+    nicho: str | None = None,
+    dominio: str | None = None,
+):
+    payload = {"texto": texto, "prioridad": prioridad, "tipo": tipo}
     if fecha:
         try:
             datetime.fromisoformat(fecha)
             payload["fecha"] = fecha
         except ValueError:
             return {"error": "fecha_invalida"}
-    st.session_state["lead_actual"] = dominio
+    if dominio:
+        payload["dominio"] = dominio
+        st.session_state["lead_actual"] = dominio
+    if tipo == "nicho":
+        if not nicho:
+            return {"error": "nicho_requerido"}
+        payload["nicho"] = nicho
+    if tipo == "lead" and not dominio:
+        return {"error": "dominio_requerido"}
     try:
         r = http_post("/tarea_lead", headers=_auth_headers(), json=payload)
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
+
+
+def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str = "media"):
+    return crear_tarea(texto, fecha, prioridad, tipo="lead", dominio=dominio)
 
 
 def completar_tarea(tarea_id: int):
@@ -156,7 +185,7 @@ def completar_tarea(tarea_id: int):
         r = http_post("/tarea_completada", headers=_auth_headers(), params={"tarea_id": tarea_id})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -167,7 +196,7 @@ def historial_lead(dominio: str):
         r = http_get("/historial_lead", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -177,7 +206,7 @@ def mis_nichos():
         r = http_get("/mis_nichos", headers=_auth_headers())
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -187,7 +216,7 @@ def obtener_memoria():
         r = http_get("/mi_memoria", headers=_auth_headers())
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -197,7 +226,7 @@ def guardar_memoria(descripcion: str):
         r = http_post("/mi_memoria", headers=_auth_headers(), json={"descripcion": descripcion})
         if r.status_code == 200:
             return r.json()
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -205,8 +234,6 @@ def guardar_memoria(descripcion: str):
 # --- Nuevas herramientas conectadas al backend ---
 
 def buscar(cliente_ideal: str, forzar_variantes: bool = False, contexto_extra: str | None = None):
-    if not _require_subscription():
-        return {"error": "suscripcion_requerida"}
     payload = {"cliente_ideal": cliente_ideal, "forzar_variantes": forzar_variantes}
     if contexto_extra:
         payload["contexto_extra"] = contexto_extra
@@ -214,16 +241,12 @@ def buscar(cliente_ideal: str, forzar_variantes: bool = False, contexto_extra: s
         r = http_post("/buscar", headers=_auth_headers(), json=payload)
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
 
 def buscar_variantes_seleccionadas(variantes: list[str]):
-    if not _require_subscription():
-        return {"error": "suscripcion_requerida"}
     try:
         r = http_post(
             "/buscar_variantes_seleccionadas",
@@ -232,9 +255,7 @@ def buscar_variantes_seleccionadas(variantes: list[str]):
         )
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -252,9 +273,7 @@ def extraer_multiples(urls: list[str], pais: str = "ES"):
             datos = r.json()
             st.session_state["export_payload"] = datos.get("payload_export")
             return datos
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -275,9 +294,7 @@ def exportar_csv(urls: list[str], nicho: str, pais: str = "ES"):
             st.session_state["last_csv_name"] = f"{nicho}.csv"
             st.toast("Leads guardados en la base de datos")
             return {"status": "ok"}
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -287,9 +304,7 @@ def leads_por_nicho(nicho: str):
         r = http_get("/leads_por_nicho", headers=_auth_headers(), params={"nicho": nicho})
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -304,9 +319,7 @@ def mover_lead(dominio: str, origen: str, destino: str):
         )
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -320,9 +333,7 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
         )
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -336,9 +347,7 @@ def eliminar_nicho(nicho: str):
         )
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -352,9 +361,7 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
         r = http_delete("/eliminar_lead", headers=_auth_headers(), params=params)
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -367,23 +374,21 @@ def historial_tareas(tipo: str = "general", nicho: str | None = None):
         r = http_get("/historial_tareas", headers=_auth_headers(), params=params)
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
 
 def tareas_pendientes():
-    if not _require_subscription():
-        return {"error": "suscripcion_requerida"}
     try:
         r = http_get("/tareas_pendientes", headers=_auth_headers())
         if r.status_code == 200:
             return r.json()
-        if r.status_code == 401:
-            get_session_user(require_auth=True)
-        return {"error": r.text}
+        if r.status_code == 403:
+            st.warning("Tu plan no permite ver tareas pendientes desde esta vista")
+            subscription_cta()
+            return {"error": r.text}
+        return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
 
@@ -393,39 +398,60 @@ def _render_lead_actions():
     if not dominio:
         return
     c1, c2, c3 = st.columns(3)
+
+    # Ver tareas
+    ver_key = f"show_tareas_{dominio}"
     if c1.button("Ver tareas de este lead", key=f"ver_tareas_{dominio}"):
+        st.session_state[ver_key] = not st.session_state.get(ver_key, False)
+    if st.session_state.get(ver_key, False):
         tareas = obtener_tareas_lead(dominio)
         if tareas.get("error"):
-            st.error(tareas["error"])
+            c1.error(tareas["error"])
         else:
             for t in tareas.get("tareas", []):
-                st.write(f"- {t.get('texto')} ({t.get('prioridad')})")
-                if st.button("Completar", key=f"compl_{t.get('id')}"):
+                c1.write(f"- {t.get('texto')} ({t.get('prioridad')})")
+                if c1.button("Completar", key=f"compl_{t.get('id')}"):
                     res = completar_tarea(t.get("id"))
                     if res.get("error"):
-                        st.error(res["error"])
+                        c1.error(res["error"])
                     else:
-                        st.success("Tarea completada")
+                        c1.success("Tarea completada")
+
+    # Añadir nota
+    nota_key = f"show_nota_{dominio}"
     if c2.button("Añadir nota", key=f"add_nota_{dominio}"):
-        nota = st.text_area("Nota", key=f"nota_{dominio}")
-        if st.button("Guardar nota", key=f"guardar_nota_{dominio}"):
-            res = actualizar_nota_lead(dominio, nota)
-            if res.get("error"):
-                st.error(res["error"])
-            else:
-                st.toast("Nota guardada")
+        st.session_state[nota_key] = not st.session_state.get(nota_key, False)
+    if st.session_state.get(nota_key, False):
+        with c2.form(key=f"nota_form_{dominio}"):
+            nota = st.text_area("Nota", key=f"nota_{dominio}")
+            submitted = st.form_submit_button("Guardar nota")
+            if submitted:
+                res = actualizar_nota_lead(dominio, nota)
+                if res.get("error"):
+                    c2.error(res["error"])
+                else:
+                    st.toast("Nota guardada")
+                    st.session_state[nota_key] = False
+
+    # Cambiar estado
+    estado_key = f"show_estado_{dominio}"
     if c3.button("Cambiar estado", key=f"cambiar_estado_{dominio}"):
-        estado = st.selectbox(
-            "Nuevo estado",
-            ["nuevo", "contactado", "en_proceso", "cliente", "descartado"],
-            key=f"estado_{dominio}",
-        )
-        if st.button("Guardar estado", key=f"guardar_estado_{dominio}"):
-            res = actualizar_estado_lead(dominio, estado)
-            if res.get("error"):
-                st.error(res["error"])
-            else:
-                st.toast("Estado actualizado")
+        st.session_state[estado_key] = not st.session_state.get(estado_key, False)
+    if st.session_state.get(estado_key, False):
+        with c3.form(key=f"estado_form_{dominio}"):
+            estado = st.selectbox(
+                "Nuevo estado",
+                ["nuevo", "contactado", "en_proceso", "cliente", "descartado"],
+                key=f"estado_{dominio}",
+            )
+            submitted = st.form_submit_button("Guardar estado")
+            if submitted:
+                res = actualizar_estado_lead(dominio, estado)
+                if res.get("error"):
+                    c3.error(res["error"])
+                else:
+                    st.toast("Estado actualizado")
+                    st.session_state[estado_key] = False
 
 
 TOOLS = {
@@ -439,6 +465,7 @@ TOOLS = {
     "obtener_nota_lead": obtener_nota_lead,
     "actualizar_nota_lead": actualizar_nota_lead,
     "obtener_tareas_lead": obtener_tareas_lead,
+    "crear_tarea": crear_tarea,
     "crear_tarea_lead": crear_tarea_lead,
     "completar_tarea": completar_tarea,
     "historial_lead": historial_lead,
@@ -607,6 +634,25 @@ tool_defs = [
                     "prioridad": {"type": "string"},
                 },
                 "required": ["dominio", "texto"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_tarea",
+            "description": "Crea una tarea general o por nicho",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "texto": {"type": "string"},
+                    "fecha": {"type": "string"},
+                    "prioridad": {"type": "string"},
+                    "tipo": {"type": "string"},
+                    "nicho": {"type": "string"},
+                    "dominio": {"type": "string"},
+                },
+                "required": ["texto"],
             },
         },
     },
