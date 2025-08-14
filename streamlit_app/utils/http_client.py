@@ -33,6 +33,11 @@ def post(path: str, **kwargs):
     timeout = kwargs.pop("timeout", LONG_TIMEOUT)
     return _session.post(_url(path), timeout=timeout, **kwargs)
 
+
+def delete(path: str, **kwargs):
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    return _session.delete(_url(path), timeout=timeout, **kwargs)
+
 def health_ok() -> bool:
     try:
         # Intenta /health y, si no existe, cae a /
