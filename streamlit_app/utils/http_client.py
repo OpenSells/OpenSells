@@ -3,6 +3,7 @@ import requests
 from urllib.parse import urljoin
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import streamlit as st
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
 
@@ -25,18 +26,36 @@ LONG_TIMEOUT = (5, 120)    # para /login si Render está frío
 def _url(path: str) -> str:
     return urljoin(BACKEND_URL + "/", path.lstrip("/"))
 
+def _handle_401(resp):
+    if resp is not None and resp.status_code == 401:
+        from streamlit_app.utils.auth_utils import clear_session
+        clear_session()
+        st.error("La sesión ha caducado. Por favor, inicia sesión de nuevo.")
+        try:
+            st.switch_page("streamlit/Home.py")
+        except Exception:
+            try:
+                st.switch_page("Home.py")
+            except Exception:
+                st.experimental_rerun()
+    return resp
+
+
 def get(path: str, **kwargs):
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    return _session.get(_url(path), timeout=timeout, **kwargs)
+    resp = _session.get(_url(path), timeout=timeout, **kwargs)
+    return _handle_401(resp)
 
 def post(path: str, **kwargs):
     timeout = kwargs.pop("timeout", LONG_TIMEOUT)
-    return _session.post(_url(path), timeout=timeout, **kwargs)
+    resp = _session.post(_url(path), timeout=timeout, **kwargs)
+    return _handle_401(resp)
 
 
 def delete(path: str, **kwargs):
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    return _session.delete(_url(path), timeout=timeout, **kwargs)
+    resp = _session.delete(_url(path), timeout=timeout, **kwargs)
+    return _handle_401(resp)
 
 def health_ok() -> bool:
     try:

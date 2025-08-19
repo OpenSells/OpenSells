@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.auth_utils import get_session_user, logout_button, save_token
+from streamlit_app.utils.auth_utils import ensure_session, logout_button
 from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
-from streamlit_app.cookies_utils import set_auth_cookies, init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
 from streamlit_app.utils import http_client
 from streamlit_app.common_paths import APP_DIR, PAGES_DIR
 
@@ -23,7 +23,7 @@ init_cookie_manager_mount()
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
 
-token, user = get_session_user(require_auth=False)
+user, token = ensure_session(require_auth=False)
 
 st.markdown("### ✨ Opensells")
 st.markdown(
@@ -91,14 +91,15 @@ if not user:
         if r.status_code == 200:
             data = safe_json(r)
             token = data.get("access_token")
+            st.session_state["token"] = token
             st.session_state.email = email
             try:
-                set_auth_cookies(token, email, days=7)
+                set_auth_token(token)
             except Exception:
                 st.warning("No se pudieron guardar las cookies de sesión")
-            save_token(token)
-            st.success("Sesión iniciada.")
-            st.rerun()
+            ensure_session(require_auth=True)
+            st.success("¡Sesión iniciada!")
+            st.switch_page("streamlit/Home.py")
         else:
             st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
 

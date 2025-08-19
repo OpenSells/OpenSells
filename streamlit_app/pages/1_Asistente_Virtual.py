@@ -6,16 +6,16 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.auth_utils import get_session_user, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_button
 from streamlit_app.utils import http_client
-from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
 
-token, user = get_session_user(require_auth=True)
+user, token = ensure_session(require_auth=True)
 
 logout_button()
 
@@ -58,12 +58,10 @@ def _auth_headers():
 
 def _handle_resp(r):
     """Gestiona respuestas 401/403 mostrando mensajes adecuados."""
-    if r.status_code == 401:
-        get_session_user(require_auth=True)
     if r.status_code == 403:
         st.warning("Tu plan no permite esta acción.")
         subscription_cta()
-    return {"error": r.text}
+    return {"error": r.text, "status": r.status_code}
 
 
 # ────────────────── Funciones de herramientas ─────────────────────
@@ -232,8 +230,6 @@ def api_extraer_multiples(urls: list[str], pais: str = "ES"):
         if r.status_code == 403:
             st.warning("Tu plan no permite extraer leads.")
             subscription_cta()
-        elif r.status_code == 401:
-            get_session_user(require_auth=True)
         return {"error": r.text, "status": r.status_code}
     except Exception as e:
         return {"error": str(e)}
@@ -254,8 +250,6 @@ def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
         if r.status_code == 403:
             st.warning("Tu plan no permite exportar leads.")
             subscription_cta()
-        elif r.status_code == 401:
-            get_session_user(require_auth=True)
         else:
             st.error(f"No se pudo exportar: {r.text}")
         return {"ok": False, "error": r.text, "status": r.status_code}
@@ -345,8 +339,6 @@ def api_tareas_pendientes():
     if r.status_code == 403:
         st.warning("Tu plan no permite ver tareas pendientes desde esta vista")
         subscription_cta()
-    elif r.status_code == 401:
-        get_session_user(require_auth=True)
     return {"error": r.text, "status": r.status_code}
 
 

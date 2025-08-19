@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.auth_utils import get_session_user, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_button
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import subscription_cta, force_redirect
-from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
@@ -34,7 +34,7 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
-token, user = get_session_user(require_auth=True)
+user, token = ensure_session(require_auth=True)
 
 logout_button()
 

@@ -15,7 +15,7 @@ def init_cookie_manager_mount() -> None:
     _get_cookie_manager()
 
 
-def set_auth_cookies(token: str, email: Optional[str], days: int = 7) -> None:
+def set_auth_token(token: str, days: int = 7) -> None:
     if not token:
         return
     cm = _get_cookie_manager()
@@ -29,15 +29,6 @@ def set_auth_cookies(token: str, email: Optional[str], days: int = 7) -> None:
             secure=True,
             same_site="Lax",
         )
-        if email:
-            cm.set(
-                "wrapper_email",
-                str(email),
-                max_age=max_age,
-                path="/",
-                secure=True,
-                same_site="Lax",
-            )
     except Exception:
         # No romper la app si el navegador bloquea cookies
         pass
@@ -51,18 +42,21 @@ def get_auth_token() -> Optional[str]:
         return None
 
 
-def get_auth_email() -> Optional[str]:
+def clear_auth_token() -> None:
     cm = _get_cookie_manager()
     try:
-        return cm.get("wrapper_email") or None
+        cm.delete("wrapper_token", path="/")
     except Exception:
-        return None
+        pass
+
+
+# Backwards compatibility helpers ----------------------------------------
+
+def set_auth_cookies(token: str, email: Optional[str] = None, days: int = 7) -> None:
+    """Deprecated wrapper maintained for older imports."""
+    set_auth_token(token, days=days)
 
 
 def clear_auth_cookies() -> None:
-    cm = _get_cookie_manager()
-    for key in ("wrapper_token", "wrapper_email"):
-        try:
-            cm.delete(key, path="/")
-        except Exception:
-            pass
+    """Deprecated wrapper maintained for older imports."""
+    clear_auth_token()
