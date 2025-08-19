@@ -10,7 +10,7 @@ from json import JSONDecodeError
 from streamlit_app.utils import http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -26,7 +26,8 @@ user, token = ensure_session(require_auth=True)
 
 plan = (user or {}).get("plan", "free")
 
-logout_button()
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 # -------------------- Helpers --------------------
 

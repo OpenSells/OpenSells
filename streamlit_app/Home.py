@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
 from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
@@ -99,7 +99,10 @@ if not user:
                 st.warning("No se pudieron guardar las cookies de sesión")
             ensure_session(require_auth=True)
             st.success("¡Sesión iniciada!")
-            st.switch_page("streamlit/Home.py")
+            try:
+                st.switch_page("streamlit/Home.py")
+            except Exception:
+                st.experimental_rerun()
         else:
             st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
 
@@ -113,7 +116,8 @@ if not user:
             st.error("Error al registrar usuario.")
     st.stop()
 
-logout_button()
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 
 def page_exists(name: str) -> bool:

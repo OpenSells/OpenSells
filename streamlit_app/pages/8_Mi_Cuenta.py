@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -35,40 +35,21 @@ st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
 user, token = ensure_session(require_auth=True)
+plan = (user or {}).get("plan", "free")
 
-logout_button()
+if "email" not in st.session_state and user:
+    st.session_state.email = user.get("email")
+
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
-
-# -------------------- Cargar email si falta --------------------
-if "email" not in st.session_state:
-    r = cached_get("protegido", st.session_state.token)
-    if r:
-        st.session_state.email = r.get("mensaje", "").split(",")[-1].strip()
-    else:
-        st.warning("No se pudo obtener tu email. Intenta volver a iniciar sesión.")
-        st.stop()
 
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")
 
 # -------------------- Plan actual --------------------
-# Validar token antes de hacer la petición
-# Obtener plan del usuario
-try:
-    data_plan = cached_get("protegido", st.session_state.token)
-    if data_plan:
-        plan = data_plan.get("plan", "").strip().lower()
-    else:
-        st.warning("⚠️ No se pudo verificar tu suscripción. Vuelve a iniciar sesión.")
-        plan = "desconocido"
-except Exception as e:
-    st.error(f"❌ Error de conexión al verificar el plan: {e}")
-    plan = "desconocido"
-
-st.text(f"Plan detectado: {plan}")
-
 st.subheader("📄 Plan actual")
 if plan == "free":
     st.success("Tu plan actual es: free")
@@ -81,7 +62,7 @@ elif plan == "basico":
 elif plan == "premium":
     st.success("Tu plan actual es: premium")
 else:
-    st.warning("Tu plan actual es: desconocido")
+    st.success(f"Tu plan actual es: {plan}")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
@@ -193,6 +174,10 @@ with col1:
                     st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
+
+with st.expander("Depurar sesión"):
+    st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
+    st.write("Usuario:", st.session_state.get("user"))
 
 with col2:
     if plan not in ["basico", "premium"]:

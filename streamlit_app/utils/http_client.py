@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import streamlit as st
+from streamlit_app.utils.auth_utils import clear_session
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
 
@@ -27,17 +28,10 @@ def _url(path: str) -> str:
     return urljoin(BACKEND_URL + "/", path.lstrip("/"))
 
 def _handle_401(resp):
-    if resp is not None and resp.status_code == 401:
-        from streamlit_app.utils.auth_utils import clear_session
+    if resp is not None and getattr(resp, "status_code", None) == 401:
         clear_session()
         st.error("La sesión ha caducado. Por favor, inicia sesión de nuevo.")
-        try:
-            st.switch_page("streamlit/Home.py")
-        except Exception:
-            try:
-                st.switch_page("Home.py")
-            except Exception:
-                st.experimental_rerun()
+        st.experimental_rerun()
     return resp
 
 

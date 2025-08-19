@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils import http_client
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -17,7 +17,8 @@ st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
 user, token = ensure_session(require_auth=True)
 
-logout_button()
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
