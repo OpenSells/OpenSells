@@ -18,7 +18,7 @@
 
 - **Backend:** FastAPI + SQLAlchemy + PostgreSQL; endpoints para usuarios, nichos, leads, tareas, exportaciones y suscripciones (Stripe).
 - **Frontend:** Streamlit multipágina con generación de leads, gestión de nichos, tareas, asistente virtual, exportaciones y control de acceso por plan.
-- **Autenticación:** JWT con almacenamiento en `localStorage`, helper `auth_utils.py` para restaurar sesión y auto-logout.
+- **Autenticación:** JWT persistido en cookies, helper `utils/auth_utils.py` para restaurar sesión y auto-logout.
 - **Pruebas:** `pytest` devuelve 4 fallos (401) y 1 test pasa; el código compila con `python -m py_compile`.
 
 ## 🛠️ Ejecución local

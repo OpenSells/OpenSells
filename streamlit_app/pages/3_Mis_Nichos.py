@@ -24,8 +24,8 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.auth_utils import get_session_user, logout_button
-from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
@@ -49,10 +49,11 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
 
-token, user = get_session_user(require_auth=True)
+user, token = ensure_session(require_auth=True)
 plan = (user or {}).get("plan", "free")
 
-logout_button()
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

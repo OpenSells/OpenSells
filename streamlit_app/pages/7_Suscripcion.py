@@ -5,10 +5,10 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.auth_utils import get_session_user, logout_button
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import force_redirect
-from streamlit_app.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
@@ -31,9 +31,10 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
 
-token, user = get_session_user(require_auth=True)
+user, token = ensure_session(require_auth=True)
 
-logout_button()
+if st.sidebar.button("Cerrar sesión"):
+    logout_and_redirect()
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")
