@@ -175,9 +175,23 @@ with col1:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-with st.expander("Depurar sesión"):
+with st.expander("Debug sesión/DB"):
     st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
     st.write("Usuario:", st.session_state.get("user"))
+    try:
+        dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
+    except Exception:
+        dbg_db = {}
+    try:
+        dbg_snapshot = requests.get(
+            f"{BACKEND_URL}/debug-user-snapshot", headers=headers
+        ).json()
+    except Exception:
+        dbg_snapshot = {}
+    st.write("Email /me:", dbg_snapshot.get("email_me"))
+    st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
+    st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
+    st.write("# Leads:", dbg_snapshot.get("leads_count_total"))
 
 with col2:
     if plan not in ["basico", "premium"]:
