@@ -40,12 +40,6 @@ if st.sidebar.button("Cerrar sesión"):
 
 plan = (user or {}).get("plan", "free")
 
-# Validar el token llamando a un endpoint protegido. Si falla, forzamos logout
-validacion = cached_get("protegido", st.session_state.token, nocache_key=time.time())
-if not validacion or "detail" in validacion:
-    st.error("Token inválido o expirado. Inicia sesión nuevamente.")
-    st.stop()
-
 HDR = {"Authorization": f"Bearer {st.session_state.token}"}
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}

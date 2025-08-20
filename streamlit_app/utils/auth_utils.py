@@ -42,9 +42,9 @@ def ensure_session(require_auth: bool = False) -> Tuple[Optional[dict], Optional
     return None, None
 
 
-def logout_and_redirect():
+def logout_and_redirect(target: str = "streamlit/Home.py"):
     clear_session()
     try:
-        st.switch_page("streamlit/Home.py")
+        st.switch_page(target)
     except Exception:
-        st.experimental_rerun()
+        st.rerun()

@@ -31,7 +31,7 @@ def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
         clear_session()
         st.error("La sesión ha caducado. Por favor, inicia sesión de nuevo.")
-        st.experimental_rerun()
+        st.rerun()
     return resp
 
 
