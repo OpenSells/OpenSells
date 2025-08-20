@@ -1,7 +1,11 @@
 import streamlit as st
 from typing import Tuple, Optional
 from streamlit_app.utils import http_client
-from streamlit_app.cookies_utils import get_auth_token, set_auth_token, clear_auth_token
+from streamlit_app.utils.cookies_utils import (
+    get_auth_token,
+    set_auth_token,
+    clear_auth_token,
+)
 
 
 def clear_session():
