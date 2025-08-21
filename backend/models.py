@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
+from sqlalchemy.orm import validates
 from backend.database import Base
 
 # Tabla de usuarios
@@ -17,6 +18,7 @@ class LeadTarea(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, nullable=False)
+    user_email_lower = Column(String, index=True)
     dominio = Column(String)
     texto = Column(Text, nullable=False)
     fecha = Column(String)
@@ -26,16 +28,27 @@ class LeadTarea(Base):
     nicho = Column(String)
     prioridad = Column(String, default="media")
 
+    @validates("email")
+    def _set_lower(self, key, value):
+        self.user_email_lower = (value or "").strip().lower()
+        return (value or "").strip()
+
 # Tabla de historial
 class LeadHistorial(Base):
     __tablename__ = "lead_historial"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, nullable=False)
+    user_email_lower = Column(String, index=True)
     dominio = Column(String, nullable=False)
     tipo = Column(String, nullable=False)
     descripcion = Column(Text, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    @validates("email")
+    def _set_lower(self, key, value):
+        self.user_email_lower = (value or "").strip().lower()
+        return (value or "").strip()
 
 
 class LeadNota(Base):
@@ -43,9 +56,15 @@ class LeadNota(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, nullable=False)
+    email_lower = Column(String, index=True)
     url = Column(String, nullable=False)
     nota = Column(Text, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    @validates("email")
+    def _set_lower(self, key, value):
+        self.email_lower = (value or "").strip().lower()
+        return (value or "").strip()
 
 class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
@@ -56,14 +75,26 @@ class LeadInfoExtra(Base):
     telefono = Column(String)
     informacion = Column(Text)
     user_email = Column(String)
+    user_email_lower = Column(String, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    @validates("user_email")
+    def _set_lower(self, key, value):
+        self.user_email_lower = (value or "").strip().lower()
+        return (value or "").strip()
 
 class LeadExtraido(Base):
     __tablename__ = "leads_extraidos"
 
     id = Column(Integer, primary_key=True)
     user_email = Column(String, nullable=False)
+    user_email_lower = Column(String, index=True, nullable=False)
     url = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     nicho = Column(String, nullable=False)  # Normalizado
     nicho_original = Column(String, nullable=False)
+
+    @validates("user_email")
+    def _set_lower(self, key, value):
+        self.user_email_lower = (value or "").strip().lower()
+        return (value or "").strip()

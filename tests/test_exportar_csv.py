@@ -12,7 +12,8 @@ def test_exportar_csv_limpeza():
             "https://www.wikipedia.org/",  # URL duplicada para probar limpieza
             "https://noexiste.abcde/"       # URL inválida
         ],
-        "pais": "ES"
+        "pais": "ES",
+        "nicho": "test"
     }
 
     response = client.post("/exportar_csv", json=payload)

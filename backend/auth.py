@@ -3,6 +3,7 @@ from jose import jwt, JWTError
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.future import select
+from sqlalchemy import func
 from backend.models import Usuario
 from backend.database import get_db
 from sqlalchemy.orm import Session
@@ -40,7 +41,8 @@ def crear_token(data: dict):
 
 
 def obtener_usuario_por_email(email: str, db: Session):
-    return db.query(Usuario).filter(Usuario.email == email).first()
+    email = (email or "").strip().lower()
+    return db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Obtiene el usuario actual a partir de un token JWT.
@@ -59,7 +61,9 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
 
     if token is None:
         if os.getenv("ALLOW_ANON_USER") == "1":
-            return Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon = Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon.email_lower = anon.email
+            return anon
         raise credentials_exc
 
     try:
@@ -67,9 +71,12 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
         email = payload.get("sub")
         if email is None:
             raise credentials_exc
+        email = email.strip().lower()
         user = obtener_usuario_por_email(email, db)
         if user is None:
             raise credentials_exc
+        user.email = (user.email or "").strip()
+        user.email_lower = user.email.lower()
         return user
     except JWTError:
         raise credentials_exc
