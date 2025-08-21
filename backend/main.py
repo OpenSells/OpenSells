@@ -181,7 +181,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = obtener_usuario_por_email(email, db)
     if not user or not verificar_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = crear_token({"sub": user.email})
+    token = crear_token({"sub": email})
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -191,7 +191,7 @@ def usuario_actual(usuario=Depends(get_current_user)):
     """Devuelve los datos básicos del usuario autenticado."""
     return {
         "id": usuario.id,
-        "email": usuario.email.lower(),
+        "email": usuario.email_lower,
         "plan": usuario.plan or "free",
         "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
     }
@@ -199,8 +199,8 @@ def usuario_actual(usuario=Depends(get_current_user)):
 @app.get("/protegido")
 async def protegido(usuario = Depends(get_current_user)):
     return {
-        "mensaje": f"Bienvenido, {usuario.email.lower()}",
-        "email": usuario.email.lower(),
+        "mensaje": f"Bienvenido, {usuario.email_lower}",
+        "email": usuario.email_lower,
         "plan": usuario.plan or "free"
     }
 
@@ -226,7 +226,7 @@ async def generar_variantes_cliente_ideal(
 
     # 1. Si no hay contexto manual ni forzar_variantes, intenta cargar memoria automáticamente
     if not forzar_variantes and not contexto_extra:
-        memoria = obtener_memoria_usuario(usuario.email.lower())
+        memoria = obtener_memoria_usuario(usuario.email_lower)
         if memoria:
             contexto_extra = f"El usuario indicó esto sobre su negocio: {memoria}"
 
@@ -426,11 +426,13 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
-    dominios_guardados = obtener_todos_los_dominios_usuario(usuario.email.lower(), db)
-    dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
-    nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
-
-    guardar_leads_extraidos(usuario.email.lower(), nuevos_dominios, nicho_normalizado, nicho_original, db)
+    try:
+        dominios_guardados = obtener_todos_los_dominios_usuario(usuario.email_lower, db)
+        dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
+        nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
+        guardar_leads_extraidos(usuario.email_lower, nuevos_dominios, nicho_normalizado, nicho_original, db)
+    except Exception as e:
+        logger.warning("exportar_csv no pudo acceder a BD: %s", e)
 
     # Ya no se mantiene un CSV global. Solo se guardan en la base de datos.
 
@@ -445,28 +447,34 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
 # 📜 Historial de exportaciones
 @app.get("/historial")
 def ver_historial(usuario = Depends(get_current_user)):
-    historial = obtener_historial(usuario.email.lower())
+    historial = obtener_historial(usuario.email_lower)
     return {"historial": historial}
 
 # 📂 Ver nichos del usuario
 @app.get("/mis_nichos")
 def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    email = usuario.email.lower()
-    nichos = obtener_nichos_usuario(email, db)
+    email_lower = usuario.email_lower
+    nichos = obtener_nichos_usuario(email_lower, db)
     if DEBUG_DIAGNOSTICO:
-        logger.info("/mis_nichos email=%s count=%d", email, len(nichos))
+        logger.info(
+            "/mis_nichos email=%s lower=%s count=%d",
+            usuario.email,
+            email_lower,
+            len(nichos),
+        )
     return {"nichos": nichos}
 
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
 def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = usuario.email.lower()
+    email = usuario.email_lower
     nicho_original = nicho
     nicho_norm = normalizar_nicho(nicho)
     leads = obtener_leads_por_nicho(email, nicho_norm, db)
     if DEBUG_DIAGNOSTICO:
         logger.info(
-            "/leads_por_nicho email=%s nicho=%s nicho_norm=%s count=%d",
+            "/leads_por_nicho email=%s lower=%s nicho=%s nicho_norm=%s count=%d",
+            usuario.email,
             email,
             nicho_original,
             nicho_norm,
@@ -474,7 +482,8 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
         )
         if not leads:
             logger.warning(
-                "/leads_por_nicho sin resultados email=%s nicho=%s nicho_norm=%s",
+                "/leads_por_nicho sin resultados email=%s lower=%s nicho=%s nicho_norm=%s",
+                usuario.email,
                 email,
                 nicho_original,
                 nicho_norm,
@@ -484,7 +493,7 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
 @app.get("/exportar_leads_nicho")
 def exportar_leads_nicho(nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     start = perf_counter()
-    email = usuario.email.lower()
+    email = usuario.email_lower
     nicho_norm = normalizar_nicho(nicho)
     leads = obtener_leads_por_nicho(email, nicho_norm, db)
 
@@ -519,7 +528,7 @@ def eliminar_nicho_usuario(
     db: Session = Depends(get_db)
 ):
     nicho = normalizar_nicho(nicho)
-    eliminar_nicho_postgres(usuario.email.lower(), nicho, db)
+    eliminar_nicho_postgres(usuario.email_lower, nicho, db)
     return {"mensaje": f"Nicho '{nicho}' eliminado correctamente"}
 
 # ✅ Filtrar URLs repetidas por nicho
@@ -530,7 +539,7 @@ class FiltrarUrlsRequest(BaseModel):
 @app.post("/filtrar_urls")
 def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     payload.nicho = normalizar_nicho(payload.nicho)
-    urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email.lower(), payload.nicho, db)
+    urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email_lower, payload.nicho, db)
 
     dominios_guardados = set(extraer_dominio_base(url) for url in urls_guardadas)
     urls_filtradas = [url for url in payload.urls if extraer_dominio_base(url) not in dominios_guardados]
@@ -544,7 +553,7 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
 
     leads = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email == usuario.email.lower())
+        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
         .order_by(LeadExtraido.timestamp.desc())
         .all()
     )
@@ -565,7 +574,7 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
     df_total.to_csv(buffer, index=False, encoding="utf-8-sig")
     buffer.seek(0)
 
-    nombre_archivo = f"leads_totales_{usuario.email.lower()}.csv"
+    nombre_archivo = f"leads_totales_{usuario.email_lower}.csv"
     logger.info(
         "exportar_todos_mis_leads %d leads en %.2fs", len(df_total), perf_counter() - start
     )
@@ -581,9 +590,9 @@ from sqlalchemy.orm import Session  # asegúrate de tener este import
 def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         url = normalizar_dominio(payload.dominio.strip())
-        logger.info(f"Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email.lower()}'")
-        guardar_estado_lead(usuario.email.lower(), url, payload.estado.strip(), db)
-        guardar_evento_historial(usuario.email.lower(), url, "estado", f"Estado cambiado a '{payload.estado}'", db)
+        logger.info(f"Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email_lower}'")
+        guardar_estado_lead(usuario.email_lower, url, payload.estado.strip(), db)
+        guardar_evento_historial(usuario.email_lower, url, "estado", f"Estado cambiado a '{payload.estado}'", db)
         return {"mensaje": "Estado actualizado"}
     except Exception as e:
         logger.error(f"ERROR al guardar estado: {str(e)}")
@@ -592,13 +601,13 @@ def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_us
 @app.get("/estado_lead")
 def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     url = normalizar_dominio(dominio)
-    estado = obtener_estado_lead(usuario.email.lower(), url, db)
+    estado = obtener_estado_lead(usuario.email_lower, url, db)
     return {"estado": estado or "nuevo"}
 
 @app.get("/nichos_de_dominio")
 def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     dominio_base = extraer_dominio_base(dominio)
-    nichos = obtener_nichos_para_url(usuario.email.lower(), dominio_base, db)
+    nichos = obtener_nichos_para_url(usuario.email_lower, dominio_base, db)
     return {"nichos": nichos}
 
 from sqlalchemy.orm import Session
@@ -615,8 +624,8 @@ def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user),
     from backend.db import guardar_nota_lead_postgres as guardar_nota_lead
     try:
         dominio_base = normalizar_dominio(payload.dominio.strip())
-        guardar_nota_lead(usuario.email.lower(), dominio_base, payload.nota.strip(), db)
-        guardar_evento_historial(usuario.email.lower(), dominio_base, "nota", "Nota actualizada", db)
+        guardar_nota_lead(usuario.email_lower, dominio_base, payload.nota.strip(), db)
+        guardar_evento_historial(usuario.email_lower, dominio_base, "nota", "Nota actualizada", db)
         return {"mensaje": "Nota guardada"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar nota: {str(e)}")
@@ -625,11 +634,11 @@ def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user),
 def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import obtener_nota_lead_postgres as obtener_nota_lead
     dominio_base = normalizar_dominio(dominio)
-    nota = obtener_nota_lead(usuario.email.lower(), dominio_base, db)
+    nota = obtener_nota_lead(usuario.email_lower, dominio_base, db)
 
     # Guardar en log
     with open("log_nota_lead.txt", "a", encoding="utf-8") as f:
-        f.write(f"[{datetime.now()}] Email: {usuario.email.lower()} - Dominio: {dominio_base} - Nota encontrada: '{nota}'\n")
+        f.write(f"[{datetime.now()}] Email: {usuario.email_lower} - Dominio: {dominio_base} - Nota encontrada: '{nota}'\n")
 
     return {"nota": nota or ""}
 
@@ -645,14 +654,14 @@ def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_u
 
     dominio = normalizar_dominio(data.dominio.strip())
     guardar_info_extra(
-        user_email=usuario.email.lower(),
+        user_email=usuario.email_lower,
         dominio=dominio,
         email=data.email.strip(),
         telefono=data.telefono.strip(),
         informacion=data.informacion.strip(),
         db=db
     )
-    guardar_evento_historial(usuario.email.lower(), dominio, "info", "Información extra guardada o actualizada", db)
+    guardar_evento_historial(usuario.email_lower, dominio, "info", "Información extra guardada o actualizada", db)
     return {"mensaje": "Información guardada correctamente"}
 
 @app.get("/info_extra")
@@ -660,12 +669,12 @@ def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: 
     from backend.db import obtener_info_extra_postgres as obtener_info_extra
 
     dominio = normalizar_dominio(dominio)
-    info = obtener_info_extra(usuario.email.lower(), dominio, db)
+    info = obtener_info_extra(usuario.email_lower, dominio, db)
     return info
 
 @app.get("/buscar_leads")
 def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    resultados = buscar_leads_global_postgres(usuario.email.lower(), query, db)
+    resultados = buscar_leads_global_postgres(usuario.email_lower, query, db)
     return {"resultados": resultados}
 
 from pydantic import BaseModel
@@ -686,7 +695,7 @@ from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
 @app.post("/tarea_lead")
 def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     guardar_tarea_lead(
-        email=usuario.email.lower(),
+        email=usuario.email_lower,
         texto=payload.texto.strip(),
         fecha=payload.fecha,
         dominio=payload.dominio.strip() if payload.dominio else None,
@@ -699,7 +708,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
     # 📌 GUARDAR HISTORIAL SI ES TAREA GENERAL O POR NICHO
     if not payload.dominio:
         guardar_evento_historial(
-            usuario.email.lower(),
+            usuario.email_lower,
             dominio="general" if payload.tipo == "general" else payload.nicho,
             tipo=payload.tipo,
             descripcion=f"Tarea añadida: {payload.texto}",
@@ -709,7 +718,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
     # 🧠 GUARDAR HISTORIAL SI ES TAREA POR LEAD
     if payload.dominio:
         guardar_evento_historial(
-            usuario.email.lower(),
+            usuario.email_lower,
             payload.dominio,
             "tarea",
             f"Tarea añadida: {payload.texto}",
@@ -721,21 +730,21 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
 
 @app.get("/tareas_lead")
 def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    tareas = obtener_tareas_lead(usuario.email.lower(), normalizar_dominio(dominio), db)
+    tareas = obtener_tareas_lead(usuario.email_lower, normalizar_dominio(dominio), db)
     return {"tareas": tareas}
 
 @app.post("/tarea_completada")
 def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    marcar_tarea_completada(usuario.email.lower(), tarea_id, db)
+    marcar_tarea_completada(usuario.email_lower, tarea_id, db)
 
-    tarea = obtener_tarea_por_id(usuario.email.lower(), tarea_id, db)
+    tarea = obtener_tarea_por_id(usuario.email_lower, tarea_id, db)
 
     if tarea:
         tipo = tarea.get("tipo")
         texto = tarea.get("texto")
         if tipo == "lead":
             guardar_evento_historial(
-                usuario.email.lower(),
+                usuario.email_lower,
                 tarea["dominio"],
                 tipo="tarea",
                 descripcion=f"Tarea completada: {texto}",
@@ -743,7 +752,7 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
             )
         elif tipo == "nicho":
             guardar_evento_historial(
-                usuario.email.lower(),
+                usuario.email_lower,
                 tarea["nicho"],
                 tipo="nicho",
                 descripcion=f"Tarea completada: {texto}",
@@ -751,7 +760,7 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
             )
         elif tipo == "general":
             guardar_evento_historial(
-                usuario.email.lower(),
+                usuario.email_lower,
                 "general",
                 tipo="general",
                 descripcion=f"Tarea completada: {texto}",
@@ -763,9 +772,9 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
 @app.post("/editar_tarea")
 def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     from backend.db import editar_tarea_existente_postgres as editar_tarea_existente
-    editar_tarea_existente(usuario.email.lower(), tarea_id, payload, db)
+    editar_tarea_existente(usuario.email_lower, tarea_id, payload, db)
     guardar_evento_historial(
-        usuario.email.lower(),
+        usuario.email_lower,
         payload.dominio or payload.nicho or "general",
         "tarea",
         f"Tarea editada: {payload.texto}",
@@ -775,18 +784,18 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
 
 @app.get("/tareas_pendientes")
 def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    tareas = obtener_todas_tareas_pendientes(usuario.email.lower(), db)
+    tareas = obtener_todas_tareas_pendientes(usuario.email_lower, db)
     return {"tareas": tareas}
 
 @app.get("/historial_lead")
 def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    eventos = obtener_historial_por_dominio(usuario.email.lower(), normalizar_dominio(dominio), db)
+    eventos = obtener_historial_por_dominio(usuario.email_lower, normalizar_dominio(dominio), db)
     return {"historial": eventos}
 
 @app.post("/mi_memoria")
 def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
     try:
-        guardar_memoria_usuario(usuario.email.lower(), request.descripcion.strip())
+        guardar_memoria_usuario(usuario.email_lower, request.descripcion.strip())
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar memoria: {str(e)}")
@@ -794,7 +803,7 @@ def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user)):
     try:
-        memoria = obtener_memoria_usuario(usuario.email.lower())
+        memoria = obtener_memoria_usuario(usuario.email_lower)
         return {"memoria": memoria or ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")
@@ -806,9 +815,9 @@ def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(g
     from backend.db import obtener_historial_por_tipo_postgres as obtener_historial_por_tipo, obtener_historial_por_nicho_postgres as obtener_historial_por_nicho
 
     if tipo == "nicho" and nicho:
-        historial = obtener_historial_por_nicho(usuario.email.lower(), nicho, db)
+        historial = obtener_historial_por_nicho(usuario.email_lower, nicho, db)
     else:
-        historial = obtener_historial_por_tipo(usuario.email.lower(), tipo, db)
+        historial = obtener_historial_por_tipo(usuario.email_lower, tipo, db)
 
     return {"historial": historial}
 
@@ -846,7 +855,7 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
         dominio_normalizado = normalizar_dominio(dominio)
 
         # Comprobar duplicados globales
-        existentes = obtener_todos_los_dominios_usuario(usuario.email.lower(), db)
+        existentes = obtener_todos_los_dominios_usuario(usuario.email_lower, db)
         existentes_normalizados = set(normalizar_dominio(d) for d in existentes)
 
         if dominio_normalizado in existentes_normalizados:
@@ -854,7 +863,7 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
 
         # Guardar en base de datos
         guardar_leads_extraidos(
-            usuario.email.lower(),
+            usuario.email_lower,
             [dominio],
             normalizar_nicho(request.nicho),
             request.nicho,
@@ -901,7 +910,7 @@ def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar
 
     df_nuevo = pd.DataFrame(filas)
 
-    guardar_leads_extraidos(usuario.email.lower(), list(dominios), normalizar_nicho(nicho), nicho, db)
+    guardar_leads_extraidos(usuario.email_lower, list(dominios), normalizar_nicho(nicho), nicho, db)
 
     return {"mensaje": f"Se han importado {len(dominios)} leads correctamente."}
 
@@ -921,7 +930,7 @@ def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db:
 
     # Actualizar en base de datos
     mover_lead_en_bd(
-        user_email=usuario.email.lower(),
+        user_email=usuario.email_lower,
         dominio_original=request.dominio.strip(),
         nicho_origen=normalizar_nicho(request.origen),
         nicho_destino=normalizar_nicho(request.destino),
@@ -944,14 +953,14 @@ def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user),
     from backend.db import editar_nombre_nicho, guardar_evento_historial
     try:
         editar_nombre_nicho(
-            email=usuario.email.lower(),
+            email=usuario.email_lower,
             nicho_actual=request.nicho_actual,
             nuevo_nombre=request.nuevo_nombre,
             db=db
         )
 
         guardar_evento_historial(
-            email=usuario.email.lower(),
+            email=usuario.email_lower,
             dominio="nicho",
             tipo="nicho",
             descripcion=f"Nicho renombrado de '{request.nicho_actual}' a '{request.nuevo_nombre}'",
@@ -979,16 +988,16 @@ def eliminar_lead(
 
         # 🧪 Log inicial
         with open("log_eliminar_lead.txt", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now()}] Inicio eliminación — Email: {usuario.email.lower()} — Dominio: {dominio_base} — Solo este nicho: {solo_de_este_nicho} — Nicho: {nicho}\n")
+            f.write(f"[{datetime.now()}] Inicio eliminación — Email: {usuario.email_lower} — Dominio: {dominio_base} — Solo este nicho: {solo_de_este_nicho} — Nicho: {nicho}\n")
 
         if solo_de_este_nicho:
             if not nicho:
                 raise HTTPException(status_code=400, detail="Debes especificar el nicho.")
-            eliminar_lead_de_nicho(usuario.email.lower(), dominio_base, normalizar_nicho(nicho), db)
+            eliminar_lead_de_nicho(usuario.email_lower, dominio_base, normalizar_nicho(nicho), db)
         else:
-            eliminar_lead_completamente(usuario.email.lower(), dominio_base, db)
+            eliminar_lead_completamente(usuario.email_lower, dominio_base, db)
 
-        guardar_evento_historial(usuario.email.lower(), dominio_base, "lead", "Lead eliminado", db)
+        guardar_evento_historial(usuario.email_lower, dominio_base, "lead", "Lead eliminado", db)
 
 
         return {"mensaje": "Lead eliminado correctamente"}
@@ -1015,7 +1024,7 @@ def crear_checkout(
             if coupon_id:
                 discounts = [{"coupon": coupon_id}]
         checkout = stripe.checkout.Session.create(
-            customer_email=usuario.email.lower(),
+            customer_email=usuario.email_lower,
             payment_method_types=["card"],
             line_items=[{
                 "price": plan,
@@ -1040,7 +1049,7 @@ def crear_portal_pago(
 ):
     """Crea una sesión de Checkout o Customer Portal según corresponda."""
     try:
-        customers = stripe.Customer.list(email=usuario.email.lower()).data
+        customers = stripe.Customer.list(email=usuario.email_lower).data
         if customers:
             session = stripe.billing_portal.Session.create(
                 customer=customers[0].id,
@@ -1061,7 +1070,7 @@ def crear_portal_pago(
                 discounts = [{"coupon": coupon_id}]
 
         checkout = stripe.checkout.Session.create(
-            customer_email=usuario.email.lower(),
+            customer_email=usuario.email_lower,
             payment_method_types=["card"],
             line_items=[{"price": plan, "quantity": 1}],
             mode="subscription",
@@ -1081,7 +1090,7 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
     """Genera una sesión del portal de facturación de Stripe para que el
     usuario pueda gestionar su suscripción."""
     try:
-        customers = stripe.Customer.list(email=usuario.email.lower()).data
+        customers = stripe.Customer.list(email=usuario.email_lower).data
         if not customers or not customers[0].id:
             raise HTTPException(
                 status_code=400,
@@ -1141,19 +1150,18 @@ def debug_db():
 
 @app.get("/debug-user-snapshot")
 def debug_user_snapshot(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    db_url = os.getenv("DATABASE_URL") or ""
-    email = usuario.email.lower()
-    nichos = obtener_nichos_usuario(email, db)
+    email_lower = usuario.email_lower
+    nichos = obtener_nichos_usuario(email_lower, db)
     muestra = [n["nicho"] for n in nichos[:5]]
     leads_total = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email == email)
+        .filter(LeadExtraido.user_email_lower == email_lower)
         .count()
     )
     return {
-        "email_me": email,
-        "db_url_prefix": db_url[:16],
+        "email_me": usuario.email,
+        "email_me_lower": email_lower,
         "nichos_count": len(nichos),
-        "muestra_nichos": muestra,
-        "leads_count_total": leads_total,
+        "nichos_sample": muestra,
+        "leads_total_count": leads_total,
     }

@@ -61,7 +61,9 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
 
     if token is None:
         if os.getenv("ALLOW_ANON_USER") == "1":
-            return Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon = Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon.email_lower = anon.email
+            return anon
         raise credentials_exc
 
     try:
@@ -73,6 +75,8 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
         user = obtener_usuario_por_email(email, db)
         if user is None:
             raise credentials_exc
+        user.email = (user.email or "").strip()
+        user.email_lower = user.email.lower()
         return user
     except JWTError:
         raise credentials_exc

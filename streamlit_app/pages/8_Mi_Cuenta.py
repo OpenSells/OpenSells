@@ -189,9 +189,10 @@ with st.expander("Debug sesión/DB"):
     except Exception:
         dbg_snapshot = {}
     st.write("Email /me:", dbg_snapshot.get("email_me"))
+    st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
     st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
     st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
-    st.write("# Leads:", dbg_snapshot.get("leads_count_total"))
+    st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
 
 with col2:
     if plan not in ["basico", "premium"]:

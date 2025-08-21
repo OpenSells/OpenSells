@@ -72,6 +72,7 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
     timestamp = datetime.utcnow().isoformat()
     nueva_tarea = LeadTarea(
         email=email,
+        user_email_lower=(email or "").strip().lower(),
         dominio=dominio,
         texto=texto,
         fecha=fecha,
@@ -87,7 +88,7 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
 def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
     tareas = (
         db.query(LeadTarea)
-        .filter(LeadTarea.email == email)
+        .filter(LeadTarea.user_email_lower == email)
         .order_by(
             LeadTarea.completado.asc(),
             LeadTarea.prioridad.asc(),
@@ -117,7 +118,7 @@ def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
 def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
     resultados = (
         db.query(LeadTarea)
-        .filter(LeadTarea.email == email, LeadTarea.dominio == dominio)
+        .filter(LeadTarea.user_email_lower == email, LeadTarea.dominio == dominio)
         .order_by(LeadTarea.timestamp.desc())
         .all()
     )
@@ -139,7 +140,7 @@ def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
 def marcar_tarea_completada_postgres(email: str, tarea_id: int, db: Session):
     tarea = db.query(LeadTarea).filter(
         LeadTarea.id == tarea_id,
-        LeadTarea.email == email
+        LeadTarea.user_email_lower == email
     ).first()
 
     if tarea:
@@ -168,16 +169,18 @@ def guardar_leads_extraidos(
     nuevo aun cuando se proporcionaron dominios.
     """
 
+    user_email_lower = (user_email or "").strip().lower()
     nuevos = []
     for dominio in dominios:
         existe = (
             db.query(LeadExtraido)
-            .filter_by(user_email=user_email, url=dominio, nicho=nicho)
+            .filter_by(user_email_lower=user_email_lower, url=dominio, nicho=nicho)
             .first()
         )
         if not existe:
             nuevo = LeadExtraido(
                 user_email=user_email,
+                user_email_lower=user_email_lower,
                 url=dominio,
                 nicho=nicho,
                 nicho_original=nicho_original,
@@ -210,7 +213,7 @@ def obtener_nichos_usuario(user_email: str, db: Session):
             LeadExtraido.nicho,
             func.max(LeadExtraido.nicho_original).label("nicho_original")
         )
-        .filter(LeadExtraido.user_email == user_email)
+        .filter(LeadExtraido.user_email_lower == user_email)
         .group_by(LeadExtraido.nicho)
         .order_by(func.max(LeadExtraido.timestamp).desc())
         .all()
@@ -220,7 +223,7 @@ def obtener_nichos_usuario(user_email: str, db: Session):
 def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session):
     resultados = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
         .order_by(LeadExtraido.timestamp.desc())
         .all()
     )
@@ -240,7 +243,7 @@ def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
     """Eliminar todas las filas asociadas a un nicho para un usuario."""
     (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
         .delete(synchronize_session=False)
     )
     db.commit()
@@ -248,7 +251,7 @@ def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
 def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
     resultados = (
         db.query(LeadExtraido.url)
-        .filter(LeadExtraido.user_email == user_email, LeadExtraido.nicho == nicho)
+        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
         .all()
     )
     return [row[0] for row in resultados]
@@ -298,7 +301,8 @@ def guardar_nota_lead(email: str, url: str, nota: str):
 from backend.models import LeadNota
 
 def guardar_nota_lead_postgres(email: str, url: str, nota: str, db: Session):
-    existente = db.query(LeadNota).filter_by(email=email, url=url).first()
+    email_lower = (email or "").strip().lower()
+    existente = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
     if existente:
         existente.nota = nota
     else:
@@ -316,7 +320,8 @@ def obtener_nota_lead(email: str, url: str) -> str:
         return row[0] if row else ""
 
 def obtener_nota_lead_postgres(email: str, url: str, db: Session) -> str:
-    nota = db.query(LeadNota).filter_by(email=email, url=url).first()
+    email_lower = (email or "").strip().lower()
+    nota = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
     return nota.nota if nota else ""
 
 def buscar_leads_global(email: str, query: str):
@@ -344,10 +349,10 @@ def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[st
         db.query(LeadExtraido.url)
         .outerjoin(
             LeadNota,
-            (LeadNota.url == LeadExtraido.url) & (LeadNota.email == LeadExtraido.user_email)
+            (LeadNota.url == LeadExtraido.url) & (LeadNota.email_lower == LeadExtraido.user_email_lower)
         )
         .filter(
-            LeadExtraido.user_email == email,
+            LeadExtraido.user_email_lower == email,
             (
                 LeadExtraido.url.ilike(query) |
                 LeadNota.nota.ilike(query)
@@ -460,7 +465,7 @@ def obtener_historial_por_dominio(email: str, dominio: str):
 def obtener_historial_por_dominio_postgres(email: str, dominio: str, db: Session):
     eventos = (
         db.query(LeadHistorial)
-        .filter(LeadHistorial.email == email, LeadHistorial.dominio == dominio)
+        .filter(LeadHistorial.user_email_lower == email, LeadHistorial.dominio == dominio)
         .order_by(LeadHistorial.timestamp.desc())
         .all()
     )
@@ -477,7 +482,7 @@ def obtener_historial_por_dominio_postgres(email: str, dominio: str, db: Session
 def obtener_tarea_por_id_postgres(email: str, tarea_id: int, db: Session):
     tarea = (
         db.query(LeadTarea)
-        .filter(LeadTarea.id == tarea_id, LeadTarea.email == email)
+        .filter(LeadTarea.id == tarea_id, LeadTarea.user_email_lower == email)
         .first()
     )
     if tarea:
@@ -538,7 +543,7 @@ def obtener_historial_por_tipo(email: str, tipo: str):
 def obtener_historial_por_tipo_postgres(email: str, tipo: str, db: Session):
     eventos = (
         db.query(LeadHistorial)
-        .filter(LeadHistorial.email == email, LeadHistorial.tipo == tipo)
+        .filter(LeadHistorial.user_email_lower == email, LeadHistorial.tipo == tipo)
         .order_by(LeadHistorial.timestamp.desc())
         .all()
     )
@@ -547,7 +552,7 @@ def obtener_historial_por_tipo_postgres(email: str, tipo: str, db: Session):
 def obtener_historial_por_nicho_postgres(email: str, nicho: str, db: Session):
     eventos = (
         db.query(LeadHistorial)
-        .filter(LeadHistorial.email == email, LeadHistorial.tipo == "nicho", LeadHistorial.dominio == nicho)
+        .filter(LeadHistorial.user_email_lower == email, LeadHistorial.tipo == "nicho", LeadHistorial.dominio == nicho)
         .order_by(LeadHistorial.timestamp.desc())
         .all()
     )
@@ -556,8 +561,9 @@ def obtener_historial_por_nicho_postgres(email: str, nicho: str, db: Session):
 from backend.models import LeadExtraido
 
 def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str, db: Session):
+    email_lower = (user_email or "").strip().lower()
     db.query(LeadExtraido).filter_by(
-        user_email=user_email,
+        user_email_lower=email_lower,
         url=dominio,
         nicho=nicho
     ).delete()
@@ -580,11 +586,13 @@ def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, 
     dominio_limpio = extraer_dominio_base(dominio_original)
 
     # 🗑️ Eliminar del nicho original
-    db.query(LeadExtraido).filter_by(user_email=user_email, url=dominio_limpio, nicho=nicho_origen).delete()
+    email_lower = (user_email or "").strip().lower()
+    db.query(LeadExtraido).filter_by(user_email_lower=email_lower, url=dominio_limpio, nicho=nicho_origen).delete()
 
     # ✅ Insertar en el nuevo nicho
     nuevo = LeadExtraido(
         user_email=user_email,
+        user_email_lower=email_lower,
         url=dominio_limpio,
         timestamp=datetime.utcnow().isoformat(),
         nicho=nicho_destino,
@@ -593,7 +601,7 @@ def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, 
     db.add(nuevo)
 
     # 🔁 Actualizar tareas relacionadas
-    db.query(LeadTarea).filter_by(email=user_email, dominio=dominio_limpio).update({"nicho": nicho_destino})
+    db.query(LeadTarea).filter_by(user_email_lower=email_lower, dominio=dominio_limpio).update({"nicho": nicho_destino})
 
     db.commit()
 
@@ -670,7 +678,7 @@ def editar_tarea_existente(email: str, tarea_id: int, datos):
 def editar_tarea_existente_postgres(email: str, tarea_id: int, datos, db: Session):
     tarea = db.query(LeadTarea).filter(
         LeadTarea.id == tarea_id,
-        LeadTarea.email == email
+        LeadTarea.user_email_lower == email
     ).first()
 
     if tarea:
@@ -696,7 +704,7 @@ def obtener_historial_por_nicho(email: str, nicho: str):
 def obtener_todos_los_dominios_usuario(email: str, db: Session):
     resultados = (
         db.query(LeadExtraido.url)
-        .filter(LeadExtraido.user_email == email)
+        .filter(LeadExtraido.user_email_lower == email)
         .distinct()
         .all()
     )
@@ -726,7 +734,8 @@ def guardar_info_extra(user_email: str, dominio: str, email: str, telefono: str,
 from backend.models import LeadInfoExtra
 
 def guardar_info_extra_postgres(user_email: str, dominio: str, email: str, telefono: str, informacion: str, db: Session):
-    existente = db.query(LeadInfoExtra).filter_by(user_email=user_email, dominio=dominio).first()
+    email_lower = (user_email or "").strip().lower()
+    existente = db.query(LeadInfoExtra).filter_by(user_email_lower=email_lower, dominio=dominio).first()
     if existente:
         existente.email = email
         existente.telefono = telefono
@@ -737,7 +746,8 @@ def guardar_info_extra_postgres(user_email: str, dominio: str, email: str, telef
             email=email,
             telefono=telefono,
             informacion=informacion,
-            user_email=user_email
+            user_email=user_email,
+            user_email_lower=email_lower
         )
         db.add(nuevo)
     db.commit()
@@ -753,7 +763,8 @@ def obtener_info_extra(user_email: str, dominio: str):
             "informacion": row[2] if row else ""
         }
 def obtener_info_extra_postgres(user_email: str, dominio: str, db: Session):
-    info = db.query(LeadInfoExtra).filter_by(user_email=user_email, dominio=dominio).first()
+    email_lower = (user_email or "").strip().lower()
+    info = db.query(LeadInfoExtra).filter_by(user_email_lower=email_lower, dominio=dominio).first()
     return {
         "email": info.email if info else "",
         "telefono": info.telefono if info else "",
