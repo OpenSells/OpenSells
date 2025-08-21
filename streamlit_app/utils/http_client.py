@@ -1,66 +1,57 @@
-import os
 import requests
-from urllib.parse import urljoin
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import streamlit as st
-from streamlit_app.utils.auth_utils import clear_session
 
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
+from .auth_utils import get_backend_url, handle_401_and_redirect
 
-_session = requests.Session()
-_retries = Retry(
-    total=4,                # 1 intento + 4 reintentos = 5 en total
-    backoff_factor=1.5,     # backoff exponencial: 1.5s, 3s, 4.5s, 6s...
-    status_forcelist=(429, 502, 503, 504),
-    allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]),
-    raise_on_status=False,
-)
-_adapter = HTTPAdapter(max_retries=_retries, pool_connections=10, pool_maxsize=20)
-_session.mount("http://", _adapter)
-_session.mount("https://", _adapter)
+BACKEND_URL = get_backend_url()
 
-# timeouts: (connect_timeout, read_timeout)
-DEFAULT_TIMEOUT = (5, 60)  # conectar rápido; dar margen al backend "cold start"
-LONG_TIMEOUT = (5, 120)    # para /login si Render está frío
 
-def _url(path: str) -> str:
-    return urljoin(BACKEND_URL + "/", path.lstrip("/"))
+def _session_with_auth():
+    s = requests.Session()
+    token = st.session_state.get("token")
+    if token:
+        s.headers.update({"Authorization": f"Bearer {token}"})
+    s.headers.update({"Accept": "application/json"})
+    return s
 
-def _handle_401(resp):
-    if resp is not None and getattr(resp, "status_code", None) == 401:
-        clear_session()
-        st.error("La sesión ha caducado. Por favor, inicia sesión de nuevo.")
-        st.rerun()
+
+def _request(method: str, path: str, **kwargs) -> requests.Response:
+    url = f"{BACKEND_URL}/{path.lstrip('/')}"
+    with _session_with_auth() as s:
+        resp = s.request(method, url, timeout=30, **kwargs)
+    if resp.status_code == 401:
+        handle_401_and_redirect()
     return resp
 
 
-def get(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    resp = _session.get(_url(path), timeout=timeout, **kwargs)
-    return _handle_401(resp)
-
-def post(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", LONG_TIMEOUT)
-    resp = _session.post(_url(path), timeout=timeout, **kwargs)
-    return _handle_401(resp)
+def api_get(path: str, **kwargs) -> requests.Response:
+    return _request("GET", path, **kwargs)
 
 
-def delete(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    resp = _session.delete(_url(path), timeout=timeout, **kwargs)
-    return _handle_401(resp)
+def api_post(path: str, json=None, data=None, params=None, **kwargs) -> requests.Response:
+    return _request("POST", path, json=json, data=data, params=params, **kwargs)
+
+
+def api_delete(path: str, params=None, **kwargs) -> requests.Response:
+    return _request("DELETE", path, params=params, **kwargs)
+
+
+# Backwards compatibility
+get = api_get
+post = api_post
+delete = api_delete
+
 
 def health_ok() -> bool:
     try:
-        # Intenta /health y, si no existe, cae a /
-        r = get("/health", timeout=(3, 5))
+        r = api_get("/health")
         if r.status_code < 500:
             return True
     except Exception:
         pass
     try:
-        r = get("/", timeout=(3, 5))
+        r = api_get("/")
         return r.status_code < 500
     except Exception:
         return False
+

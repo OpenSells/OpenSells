@@ -1,25 +1,11 @@
 import os
 import streamlit as st
-import requests
 from dotenv import load_dotenv
 from openai import OpenAI
-from urllib.parse import urlencode
+
+from streamlit_app.utils.http_client import api_get, api_post, api_delete
 
 load_dotenv()
-
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 @st.cache_resource
 def get_openai_client() -> OpenAI | None:
@@ -34,29 +20,21 @@ def auth_headers(token: str) -> dict:
 
 @st.cache_data
 def cached_get(endpoint, token, query=None, nocache_key=None):
-    """
-    GET con caché de Streamlit. Si nocache_key cambia, se fuerza recarga.
-    """
-    url = f"{BACKEND_URL}/{endpoint}"
-    headers = {"Authorization": f"Bearer {token}"}
-    if query:
-        url += "?" + urlencode(query)
+    """GET con caché de Streamlit. Si nocache_key cambia, se fuerza recarga."""
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            return response.json()
+        resp = api_get(endpoint, params=query)
+        if resp.status_code == 200:
+            return resp.json()
     except Exception as e:
         print(f"[cached_get] Error: {e}")
     return {}
 
 
 def cached_delete(endpoint, token, params=None):
-    url = f"{BACKEND_URL}/{endpoint}"
-    headers = {"Authorization": f"Bearer {token}"}
     try:
-        r = requests.delete(url, headers=headers, params=params)
-        if r.status_code == 200:
-            return r.json()
+        resp = api_delete(endpoint, params=params)
+        if resp.status_code == 200:
+            return resp.json()
         return None
     except Exception as e:
         print(f"[cached_delete] Error: {e}")
@@ -64,18 +42,16 @@ def cached_delete(endpoint, token, params=None):
 
 
 def cached_post(endpoint, token, payload=None, params=None):
-    url = f"{BACKEND_URL}/{endpoint}"
-    headers = {"Authorization": f"Bearer {token}"}
     try:
-        r = requests.post(url, headers=headers, json=payload, params=params)
-        if r.status_code == 200:
+        resp = api_post(endpoint, json=payload, params=params)
+        if resp.status_code == 200:
             # Limpiar cache relevante si es una acción conocida
             if endpoint in ["tarea_completada", "editar_tarea", "tarea_lead"]:
                 if "_cache" in st.session_state:
                     for key in list(st.session_state._cache.keys()):
                         if "tareas_pendientes" in key or "tareas_lead" in key or "tareas_nicho" in key:
                             del st.session_state._cache[key]
-            return r.json()
+            return resp.json()
     except Exception as e:
         print(f"[cached_post] Error: {e}")
     return None

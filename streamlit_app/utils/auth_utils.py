@@ -1,50 +1,38 @@
+import os
 import streamlit as st
-from typing import Tuple, Optional
-from streamlit_app.utils import http_client
-from streamlit_app.utils.cookies_utils import (
-    get_auth_token,
-    set_auth_token,
-    clear_auth_token,
-)
 
 
-def clear_session():
-    for k in ("token", "user", "csv_bytes", "csv_filename", "lead_actual"):
-        st.session_state.pop(k, None)
-    try:
-        clear_auth_token()
-    except Exception:
-        pass
+def get_backend_url() -> str:
+    url = os.getenv("BACKEND_URL", st.secrets.get("BACKEND_URL", "http://localhost:8000"))
+    return url.rstrip("/")
 
 
-def ensure_session(require_auth: bool = False) -> Tuple[Optional[dict], Optional[str]]:
-    """Devuelve (user, token). Restaura desde cookie, valida con /me y sincroniza estado."""
-    token = st.session_state.get("token") or get_auth_token()
-    if not token:
-        if require_auth:
-            st.error("Token inválido o expirado. Inicia sesión nuevamente.")
+def ensure_session(require_auth: bool = False):
+    """
+    Devuelve (user, token). Si require_auth=True y no hay token, muestra aviso y corta la ejecución.
+    """
+    user = st.session_state.get("user")
+    token = st.session_state.get("token")
+    if require_auth and not token:
+        st.error("Tu sesión no está activa. Inicia sesión en Home.")
+        try:
+            st.switch_page("Home.py")
+        except Exception:
             st.stop()
-        return None, None
-
-    st.session_state["token"] = token
-    resp = http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
-    if getattr(resp, "status_code", None) == 200:
-        user = resp.json()
-        st.session_state["user"] = user
-        set_auth_token(token)
-        return user, token
-
-    # token inválido
-    clear_session()
-    if require_auth:
-        st.error("Token inválido o expirado. Inicia sesión nuevamente.")
-        st.stop()
-    return None, None
+    return user, token
 
 
-def logout_and_redirect(target: str = "streamlit/Home.py"):
-    clear_session()
+def logout_and_redirect():
+    st.session_state.pop("user", None)
+    st.session_state.pop("token", None)
+    st.success("Sesión cerrada correctamente.")
     try:
-        st.switch_page(target)
+        st.switch_page("Home.py")
     except Exception:
-        st.rerun()
+        st.stop()
+
+
+def handle_401_and_redirect():
+    st.warning("Sesión expirada o inválida. Vuelve a iniciar sesión.")
+    logout_and_redirect()
+

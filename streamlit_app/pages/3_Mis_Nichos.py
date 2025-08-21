@@ -11,9 +11,9 @@
 #      reruns innecesarios.
 #   4. Limpieza y tipado ligero.
 
-import os
 import streamlit as st
 import hashlib
+import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -24,28 +24,20 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import (
+    ensure_session,
+    logout_and_redirect,
+    get_backend_url,
+    handle_401_and_redirect,
+)
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
-from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = get_backend_url()
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
 
@@ -178,7 +170,10 @@ for n in nichos_visibles:
                 f"{BACKEND_URL}/exportar_leads_nicho",
                 headers={"Authorization": f"Bearer {st.session_state.token}"},
                 params={"nicho": n["nicho"]},
+                timeout=60,
             )
+            if resp.status_code == 401:
+                handle_401_and_redirect()
             if resp.status_code == 200:
                 cols[0].download_button(
                     "📥 Descargar CSV",
