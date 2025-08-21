@@ -3,8 +3,21 @@ import streamlit as st
 
 
 def get_backend_url() -> str:
-    url = os.getenv("BACKEND_URL", st.secrets.get("BACKEND_URL", "http://localhost:8000"))
-    return url.rstrip("/")
+    # 1) ENV primero
+    env = os.getenv("BACKEND_URL")
+    if env:
+        return env.rstrip("/")
+
+    # 2) st.secrets si existe, sin romper si no hay secrets.toml
+    try:
+        val = st.secrets.get("BACKEND_URL", None)
+        if val:
+            return str(val).rstrip("/")
+    except Exception:
+        pass
+
+    # 3) Fallback
+    return "http://localhost:8000"
 
 
 def ensure_session(require_auth: bool = False):

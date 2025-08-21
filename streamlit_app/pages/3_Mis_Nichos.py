@@ -13,7 +13,6 @@
 
 import streamlit as st
 import hashlib
-import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -24,12 +23,8 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import (
-    ensure_session,
-    logout_and_redirect,
-    get_backend_url,
-    handle_401_and_redirect,
-)
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.http_client import api_get
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
@@ -37,7 +32,6 @@ init_cookie_manager_mount()
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 
-BACKEND_URL = get_backend_url()
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
 
@@ -166,14 +160,7 @@ for n in nichos_visibles:
 
         # ── Descargar CSV ───────────────────────────
         try:
-            resp = requests.get(
-                f"{BACKEND_URL}/exportar_leads_nicho",
-                headers={"Authorization": f"Bearer {st.session_state.token}"},
-                params={"nicho": n["nicho"]},
-                timeout=60,
-            )
-            if resp.status_code == 401:
-                handle_401_and_redirect()
+            resp = api_get("/exportar_leads_nicho", params={"nicho": n["nicho"]})
             if resp.status_code == 200:
                 cols[0].download_button(
                     "📥 Descargar CSV",

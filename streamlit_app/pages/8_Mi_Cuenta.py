@@ -9,8 +9,7 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
-from streamlit_app.utils import http_client
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, get_backend_url
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -19,18 +18,6 @@ init_cookie_manager_mount()
 load_dotenv()
 
 
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
@@ -92,7 +79,7 @@ st.subheader("📊 Estadísticas de uso")
 
 resp_nichos = cached_get("mis_nichos", st.session_state.token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
-leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
+leads_resp = requests.get(f"{get_backend_url()}/exportar_todos_mis_leads", headers=headers)
 total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
@@ -153,7 +140,7 @@ with col1:
             price_id = planes[plan_elegido]
             try:
                 r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_pago",
+                    f"{get_backend_url()}/crear_portal_pago",
                     headers=headers,
                     params={"plan": price_id},
                     timeout=30,
@@ -179,12 +166,12 @@ with st.expander("Debug sesión/DB"):
     st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
     st.write("Usuario:", st.session_state.get("user"))
     try:
-        dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
+        dbg_db = requests.get(f"{get_backend_url()}/debug-db").json()
     except Exception:
         dbg_db = {}
     try:
         dbg_snapshot = requests.get(
-            f"{BACKEND_URL}/debug-user-snapshot", headers=headers
+            f"{get_backend_url()}/debug-user-snapshot", headers=headers
         ).json()
     except Exception:
         dbg_snapshot = {}
@@ -201,7 +188,7 @@ with col2:
         if st.button("🧾 Gestionar suscripción"):
             try:
                 r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_cliente",
+                    f"{get_backend_url()}/crear_portal_cliente",
                     headers=headers,
                     timeout=30,
                 )

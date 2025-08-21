@@ -7,18 +7,14 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 
-from streamlit_app.utils import http_client
-
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, get_backend_url
 from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
 load_dotenv()
-
-BACKEND_URL = http_client.BACKEND_URL
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 
@@ -92,7 +88,7 @@ def procesar_extraccion():
     if fase == "buscando":
         st.session_state.estado_actual = "Buscando dominios"
         r = requests.post(
-            f"{BACKEND_URL}/buscar_variantes_seleccionadas",
+            f"{get_backend_url()}/buscar_variantes_seleccionadas",
             json={"variantes": st.session_state.seleccionadas},
             headers=headers,
         )
@@ -114,7 +110,7 @@ def procesar_extraccion():
             st.rerun()
 
         r = requests.post(
-            f"{BACKEND_URL}/extraer_multiples",
+            f"{get_backend_url()}/extraer_multiples",
             json={"urls": [f"https://{d}" for d in st.session_state.dominios], "pais": "ES"},
             headers=headers,
         )
@@ -147,7 +143,7 @@ def procesar_extraccion():
         # Ejecutar exportación solo una vez
         if not st.session_state.get("export_realizado"):
             r = requests.post(
-                f"{BACKEND_URL}/exportar_csv", json=st.session_state.payload_export, headers=headers
+                f"{get_backend_url()}/exportar_csv", json=st.session_state.payload_export, headers=headers
             )
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
@@ -255,7 +251,7 @@ if st.button("🚀 Buscar variantes"):
     else:
         payload = {"cliente_ideal": f"{cliente_ideal}. {memoria}".strip('.')}
         with st.spinner("Generando variantes con IA..."):
-            r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
+            r = requests.post(f"{get_backend_url()}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
             data = safe_json(r)
             if "pregunta_sugerida" in data:
@@ -276,7 +272,7 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
             "forzar_variantes": True,
         }
         with st.spinner("Generando variantes con contexto adicional..."):
-            r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
+            r = requests.post(f"{get_backend_url()}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
             st.session_state.pregunta_sugerida = None
             st.session_state.variantes = safe_json(r).get("variantes_generadas", [])
@@ -307,7 +303,7 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
                 st.error("Falta configurar el price_id del plan Básico.")
                 st.stop()
             r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
+                f"{get_backend_url()}/crear_checkout",
                 headers=headers,
                 params={"plan": price_id}
             )

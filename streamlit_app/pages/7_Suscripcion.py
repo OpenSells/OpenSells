@@ -5,8 +5,7 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
-from streamlit_app.utils import http_client
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, get_backend_url
 from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -25,8 +24,6 @@ def _safe_secret(name: str, default=None):
     except Exception:
         return default
 
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
@@ -70,7 +67,7 @@ with cols[1]:
         if price_basico:
             try:
                 r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_pago",
+                    f"{get_backend_url()}/crear_portal_pago",
                     headers={"Authorization": f"Bearer {st.session_state.token}"},
                     params={"plan": price_basico},
                     timeout=30,
@@ -102,7 +99,7 @@ with cols[2]:
         if price_premium:
             try:
                 r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_pago",
+                    f"{get_backend_url()}/crear_portal_pago",
                     headers={"Authorization": f"Bearer {st.session_state.token}"},
                     params={"plan": price_premium},
                     timeout=30,

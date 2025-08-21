@@ -22,20 +22,6 @@ if st.sidebar.button("Cerrar sesión"):
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
-
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 client = get_openai_client()
 
 if client is None:
