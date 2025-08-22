@@ -60,6 +60,17 @@ def token(client):
     return resp.json()["access_token"]
 
 
+def test_login_creates_user_with_free_plan(client):
+    resp = client.post(
+        "/login", data={"username": "nuevo@example.com", "password": "pw"}
+    )
+    assert resp.status_code == 200
+    with SessionLocal() as db:
+        user = db.query(Usuario).filter_by(email_lower="nuevo@example.com").first()
+        assert user is not None
+        assert user.plan == "free"
+
+
 def test_mis_nichos(client, token):
     resp = client.get("/mis_nichos", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
@@ -83,3 +94,4 @@ def test_debug_user_snapshot(client, token):
     data = resp.json()
     assert data["counts"]["leads"] == 2
     assert data["plan"] == "free"
+    assert data["db_backend"]

@@ -2,7 +2,6 @@ from backend.db import obtener_todas_tareas_pendientes_postgres as obtener_todas
 from backend.db import eliminar_lead_completamente
 from backend.db import obtener_tarea_por_id_postgres as obtener_tarea_por_id
 from fastapi import UploadFile
-from backend.db import normalizar_dominio
 from backend.db import guardar_info_extra, obtener_info_extra
 from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
@@ -13,6 +12,7 @@ from backend.db import tiene_suscripcion_activa
 # Se importa sin alias para usar el mismo nombre en el endpoint y evitar
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
 from backend.db import buscar_leads_global_postgres
+from backend.utils import normalizar_nicho, normalizar_dominio, normalizar_email
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
@@ -20,12 +20,11 @@ from typing import Optional
 from openai import OpenAI
 import requests
 import logging
+import re
 import pandas as pd
 import os
 from datetime import datetime
 from dotenv import load_dotenv
-import unicodedata
-import re
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 import asyncio
@@ -36,6 +35,8 @@ from scraper.extractor import extraer_datos_desde_url
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
 
+
+# Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 # BD & seguridad
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
-from backend.database import engine, Base, get_db, db_info
+from backend.database import engine, Base, get_db, db_info, bootstrap_database
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -122,24 +123,8 @@ async def startup():
         info.get("sslmode"),
     )
     Base.metadata.create_all(bind=engine)
+    bootstrap_database()
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
-
-def normalizar_nicho(texto: str) -> str:
-    texto = texto.strip().lower()
-    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
-    texto = re.sub(r'[^a-z0-9]+', '_', texto)
-    return texto.strip('_')
-
-from urllib.parse import urlparse
-
-def extraer_dominio_base(url: str) -> str:
-    if not url:
-        return ""
-    if url.startswith("http://") or url.startswith("https://"):
-        dominio = urlparse(url).netloc
-    else:
-        dominio = urlparse("http://" + url).netloc  # ← SOLUCIÓN
-    return dominio.replace("www.", "").strip()
 
 openai_key = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key) if openai_key else None
@@ -189,10 +174,10 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    email = form_data.username.strip().lower()
+    email = normalizar_email(form_data.username)
     user = obtener_usuario_por_email(email, db)
     if not user:
-        user = Usuario(email=email, hashed_password=hashear_password(form_data.password))
+        user = Usuario(email=email, hashed_password=hashear_password(form_data.password), plan="free")
         db.add(user)
         db.commit()
     elif not verificar_password(form_data.password, user.hashed_password):
@@ -356,7 +341,7 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
                 continue
 
     todas_urls = list(set(todas_urls))[:60]
-    dominios_unicos = list(set(extraer_dominio_base(url) for url in todas_urls))
+    dominios_unicos = list(set(normalizar_dominio(url) for url in todas_urls))
 
     return {
         "dominios": dominios_unicos,
@@ -396,7 +381,7 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
     start = perf_counter()
     resultados = []
 
-    dominios_unicos = list(set(extraer_dominio_base(url) for url in payload.urls))
+    dominios_unicos = list(set(normalizar_dominio(url) for url in payload.urls))
     urls_base = [f"https://{dominio}" for dominio in dominios_unicos]
 
     for dominio in dominios_unicos:
@@ -425,7 +410,7 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
     nicho_normalizado = normalizar_nicho(nicho_original)
 
     # Obtener dominios únicos normalizados
-    dominios_unicos = list(set(extraer_dominio_base(url) for url in payload.urls))
+    dominios_unicos = list(set(normalizar_dominio(url) for url in payload.urls))
 
     # Crear filas solo con dominio y fecha
     filas = [{
@@ -566,8 +551,8 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
     payload.nicho = normalizar_nicho(payload.nicho)
     urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email_lower, payload.nicho, db)
 
-    dominios_guardados = set(extraer_dominio_base(url) for url in urls_guardadas)
-    urls_filtradas = [url for url in payload.urls if extraer_dominio_base(url) not in dominios_guardados]
+    dominios_guardados = set(normalizar_dominio(url) for url in urls_guardadas)
+    urls_filtradas = [url for url in payload.urls if normalizar_dominio(url) not in dominios_guardados]
 
     return {"urls_filtradas": urls_filtradas}
 
@@ -631,7 +616,7 @@ def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session 
 
 @app.get("/nichos_de_dominio")
 def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    dominio_base = extraer_dominio_base(dominio)
+    dominio_base = normalizar_dominio(dominio)
     nichos = obtener_nichos_para_url(usuario.email_lower, dominio_base, db)
     return {"nichos": nichos}
 
@@ -876,7 +861,7 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
-        dominio = extraer_dominio_base(request.dominio)
+        dominio = normalizar_dominio(request.dominio)
         dominio_normalizado = normalizar_dominio(dominio)
 
         # Comprobar duplicados globales
@@ -916,7 +901,7 @@ def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar
     dominios = set()
 
     for fila in reader:
-        dominio = extraer_dominio_base(fila.get("Dominio", "").strip())
+        dominio = normalizar_dominio(fila.get("Dominio", "").strip())
         if not dominio:
             continue
 

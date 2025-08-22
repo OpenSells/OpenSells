@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy import func
 from backend.models import Usuario
 from backend.database import get_db
+from backend.utils import normalizar_email
 from sqlalchemy.orm import Session
 import os
 
@@ -41,7 +42,7 @@ def crear_token(data: dict):
 
 
 def obtener_usuario_por_email(email: str, db: Session):
-    email = (email or "").strip().lower()
+    email = normalizar_email(email)
     return db.query(Usuario).filter(Usuario.email_lower == email).first()
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
@@ -71,7 +72,7 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
         email = payload.get("sub")
         if email is None:
             raise credentials_exc
-        email = email.strip().lower()
+        email = normalizar_email(email)
         user = obtener_usuario_por_email(email, db)
         if user is None:
             raise credentials_exc

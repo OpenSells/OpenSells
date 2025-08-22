@@ -12,6 +12,7 @@ Base = declarative_base()
 from sqlalchemy import func
 import sqlite3
 from datetime import datetime
+from backend.utils import normalizar_dominio
 
 DB_PATH = "backend/historial.db"
 
@@ -616,21 +617,10 @@ def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str, db: Sessio
     ).delete()
     db.commit()
 
-from urllib.parse import urlparse
-
-def extraer_dominio_base(url: str) -> str:
-    if not url:
-        return ""
-    if url.startswith("http://") or url.startswith("https://"):
-        dominio = urlparse(url).netloc
-        return dominio.replace("www.", "").strip()
-    else:
-        return url.replace("www.", "").strip()
-
 def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, nicho_destino: str, nicho_original_destino: str, db: Session):
     from backend.models import LeadExtraido, LeadTarea
 
-    dominio_limpio = extraer_dominio_base(dominio_original)
+    dominio_limpio = normalizar_dominio(dominio_original)
 
     # 🗑️ Eliminar del nicho original
     email_lower = (user_email or "").strip().lower()
@@ -652,21 +642,9 @@ def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, 
 
     db.commit()
 
-from urllib.parse import urlparse
-
-def normalizar_dominio(url: str) -> str:
-    if not url:
-        return ""
-    url = url.lower().strip()
-    if url.startswith("http://") or url.startswith("https://"):
-        dominio = urlparse(url).netloc
-    else:
-        dominio = urlparse("http://" + url).netloc
-    dominio = dominio.replace("www.", "").strip()
-    return dominio.split("/")[0]  # Elimina todo lo que haya después de /
 
 def editar_nombre_nicho(email: str, nicho_actual: str, nuevo_nombre: str):
-    from .main import normalizar_nicho
+    from backend.utils import normalizar_nicho
     with sqlite3.connect(DB_PATH) as db:
         db.execute("""
             UPDATE leads_extraidos
