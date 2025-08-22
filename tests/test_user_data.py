@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
@@ -81,6 +82,23 @@ def test_mis_nichos(client, token):
     assert resp.status_code == 200
     data = resp.json()
     assert data["nichos"][0]["total_leads"] == 2
+
+
+def test_mis_leads(client, token):
+    resp = client.get("/mis_leads", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    emails = {lead["user_email_lower"] for lead in data["leads"]}
+    assert emails == {"test@example.com"}
+
+
+def test_requires_auth(client):
+    os.environ["ALLOW_ANON_USER"] = "0"
+    try:
+        assert client.get("/mis_nichos").status_code == 401
+        assert client.get("/mis_leads").status_code == 401
+    finally:
+        os.environ["ALLOW_ANON_USER"] = "1"
 
 
 def test_leads_por_nicho(client, token):

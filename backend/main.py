@@ -61,6 +61,7 @@ from backend.models import (
     LeadInfoExtra,
     LeadExtraido,
     Nicho,
+    Suscripcion,
 )
 from backend.auth import (
     hashear_password,
@@ -69,7 +70,7 @@ from backend.auth import (
     obtener_usuario_por_email,
     get_current_user,
 )
-from backend.tenant import get_tenant_filter, resolve_user_plan
+from backend.tenant import get_tenant_filter, resolve_user_plan, get_tenant_email
 
 from fastapi import Depends
 
@@ -483,6 +484,24 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
             len(nichos),
         )
     return {"nichos": nichos}
+
+
+@app.get("/mis_leads")
+def mis_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return all leads for the authenticated user."""
+    tenant_email = get_tenant_email(usuario)
+    leads = (
+        db.query(LeadExtraido)
+        .filter_by(user_email_lower=tenant_email)
+        .order_by(LeadExtraido.timestamp.desc())
+        .all()
+    )
+    return {
+        "leads": [
+            {"url": l.url, "nicho": l.nicho, "user_email_lower": l.user_email_lower}
+            for l in leads
+        ]
+    }
 
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
@@ -1188,6 +1207,12 @@ def debug_user_snapshot(
         nichos_count = db.query(Nicho).filter_by(**filtro).count()
         leads_count = db.query(LeadExtraido).filter_by(**filtro).count()
         tareas_count = db.query(LeadTarea).filter_by(**filtro).count()
+        sus = (
+            db.query(Suscripcion)
+            .filter_by(user_email_lower=usuario.email_lower)
+            .order_by(Suscripcion.current_period_end.desc())
+            .first()
+        )
         usuarios_total = db.query(Usuario).count()
         nichos_sin_user = (
             db.query(Nicho)
@@ -1218,6 +1243,8 @@ def debug_user_snapshot(
             "user_email_lower": usuario.email_lower,
             "user_id": usuario.id,
             "plan": resolve_user_plan(usuario, db),
+            "suscripcion_status": sus.status if sus else None,
+            "current_period_end": sus.current_period_end.isoformat() if sus and sus.current_period_end else None,
             "db_vendor": info["driver"],
             "nichos_count": nichos_count,
             "leads_count": leads_count,
@@ -1228,6 +1255,11 @@ def debug_user_snapshot(
                 "leads_sin_nicho": leads_sin_nicho,
                 "leads_sin_dominio": leads_sin_dominio,
             },
+            "warning": (
+                "tareas_sin_nichos_leads"
+                if tareas_count > 0 and nichos_count == 0 and leads_count == 0
+                else None
+            ),
         }
     except Exception as e:
         return {"ok": False, "detail": str(e)}
