@@ -65,6 +65,37 @@ def db_info() -> dict:
 def bootstrap_database():
     """Idempotent database fixes for production (adds columns/constraints)."""
     if url.drivername.startswith("sqlite"):
+        with engine.begin() as conn:
+            inspector = inspect(conn)
+            if "leads_extraidos" in inspector.get_table_names():
+                lcols = {c["name"] for c in inspector.get_columns("leads_extraidos")}
+                if "dominio" not in lcols:
+                    conn.execute(text("ALTER TABLE leads_extraidos ADD COLUMN dominio VARCHAR"))
+                conn.execute(
+                    text(
+                        "UPDATE leads_extraidos SET user_email_lower = LOWER(TRIM(user_email)) "
+                        "WHERE user_email_lower IS NULL OR user_email_lower = ''"
+                    )
+                )
+                rows = conn.execute(
+                    text(
+                        "SELECT id, url, dominio, nicho, nicho_original FROM leads_extraidos"
+                    )
+                ).fetchall()
+                for row in rows:
+                    dom = normalizar_dominio(row.url or row.dominio or "")
+                    nicho_norm = normalizar_nicho(row.nicho_original or row.nicho or "")
+                    updates = {}
+                    if not row.dominio or row.dominio != dom:
+                        updates["dominio"] = dom
+                    if not row.nicho or row.nicho != nicho_norm:
+                        updates["nicho"] = nicho_norm
+                    if updates:
+                        set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+                        conn.execute(
+                            text(f"UPDATE leads_extraidos SET {set_clause} WHERE id = :id"),
+                            {**updates, "id": row.id},
+                        )
         return
     with engine.begin() as conn:
         inspector = inspect(conn)
@@ -92,7 +123,8 @@ def bootstrap_database():
         # Ensure user_email_lower columns and uniqueness
         table_sources = {
             "nichos": ("email", "uq_user_nicho", "nicho"),
-            "leads_extraidos": ("user_email", "uq_user_dominio", "dominio"),
+            # Constraint de leads se maneja tras crear/normalizar dominio
+            "leads_extraidos": ("user_email", None, None),
             "lead_tarea": ("email", None, None),
             "lead_historial": ("email", None, None),
             "lead_info_extra": ("user_email", None, None),
@@ -104,11 +136,16 @@ def bootstrap_database():
             tcols = {c["name"] for c in inspector.get_columns(table)}
             if "user_email_lower" not in tcols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_email_lower VARCHAR"))
-                if src and src in tcols:
-                    conn.execute(text(
-                        f"UPDATE {table} SET user_email_lower = LOWER(TRIM({src})) WHERE user_email_lower IS NULL"
-                    ))
-                conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN user_email_lower SET NOT NULL"))
+                tcols.add("user_email_lower")
+            if src and src in tcols:
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET user_email_lower = LOWER(TRIM({src})) WHERE user_email_lower IS NULL OR user_email_lower = ''"
+                    )
+                )
+            conn.execute(
+                text(f"ALTER TABLE {table} ALTER COLUMN user_email_lower SET NOT NULL")
+            )
             idxs = {idx["name"] for idx in inspector.get_indexes(table)}
             idx_name = f"ix_{table}_user_email_lower"
             if idx_name not in idxs:
@@ -146,20 +183,35 @@ def bootstrap_database():
         # Normalize leads
         if "leads_extraidos" in inspector.get_table_names():
             lcols = {c["name"] for c in inspector.get_columns("leads_extraidos")}
-            if "dominio" not in lcols:
+            # Detect alternative domain columns
+            dom_col = None
+            for cand in ["dominio", "dominio_normalizado", "domain", "host"]:
+                if cand in lcols:
+                    dom_col = cand
+                    break
+            if dom_col and dom_col != "dominio":
+                logger.info("Renombrando %s a dominio en leads_extraidos", dom_col)
+                conn.execute(
+                    text(f"ALTER TABLE leads_extraidos RENAME COLUMN {dom_col} TO dominio")
+                )
+                lcols.add("dominio")
+            elif not dom_col:
                 logger.info("Adding dominio column to leads_extraidos")
                 conn.execute(text("ALTER TABLE leads_extraidos ADD COLUMN dominio VARCHAR"))
+                lcols.add("dominio")
             rows = conn.execute(
                 text(
                     "SELECT id, url, dominio, nicho, nicho_original FROM leads_extraidos"
                 )
             ).fetchall()
+            updated_dom = 0
             for row in rows:
                 dom = normalizar_dominio(row.url or row.dominio or "")
                 nicho_norm = normalizar_nicho(row.nicho_original or row.nicho or "")
                 updates = {}
                 if not row.dominio or row.dominio != dom:
                     updates["dominio"] = dom
+                    updated_dom += 1
                 if not row.nicho or row.nicho != nicho_norm:
                     updates["nicho"] = nicho_norm
                 if updates:
@@ -168,6 +220,8 @@ def bootstrap_database():
                         text(f"UPDATE leads_extraidos SET {set_clause} WHERE id = :id"),
                         {**updates, "id": row.id},
                     )
+            if updated_dom:
+                logger.info("Actualizados %s dominios en leads_extraidos", updated_dom)
             conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN dominio SET NOT NULL"))
             conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN nicho SET NOT NULL"))
             conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN nicho_original SET NOT NULL"))
@@ -178,7 +232,7 @@ def bootstrap_database():
                 logger.info("Creating unique constraint uq_user_dominio")
                 conn.execute(
                     text(
-                        "ALTER TABLE leads_extraidos ADD CONSTRAINT uq_user_dominio UNIQUE (user_email_lower, dominio)",
+                        "ALTER TABLE leads_extraidos ADD CONSTRAINT uq_user_dominio UNIQUE (user_email_lower, dominio)"
                     )
                 )
 

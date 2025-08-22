@@ -1205,6 +1205,11 @@ def debug_user_snapshot(
             )
             .count()
         )
+        leads_sin_dominio = (
+            db.query(LeadExtraido)
+            .filter((LeadExtraido.dominio == None) | (LeadExtraido.dominio == ""))
+            .count()
+        )
         leads_sin_nicho = (
             db.query(LeadExtraido)
             .filter((LeadExtraido.nicho == None) | (LeadExtraido.nicho == ""))
@@ -1227,6 +1232,7 @@ def debug_user_snapshot(
                 "nichos_sin_user_email_lower": nichos_sin_user,
                 "leads_sin_user_email_lower": leads_sin_user,
                 "leads_sin_nicho": leads_sin_nicho,
+                "leads_sin_dominio": leads_sin_dominio,
             },
         }
     except Exception as e:

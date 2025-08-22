@@ -1,8 +1,9 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect, text
 
 from backend.main import app
-from backend.database import Base, engine, SessionLocal
+from backend.database import Base, engine, SessionLocal, bootstrap_database
 from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea
 from backend.auth import hashear_password
 
@@ -122,3 +123,50 @@ def test_debug_user_snapshot(client, token):
     assert inc.get("nichos_sin_user_email_lower") == 0
     assert inc.get("leads_sin_user_email_lower") == 0
     assert inc.get("leads_sin_nicho") == 0
+    assert inc.get("leads_sin_dominio") == 0
+
+
+def test_bootstrap_backfills_legacy_leads(client):
+    # Insert legacy lead missing dominio and user_email_lower
+    with SessionLocal() as db:
+        user = Usuario(email="legacy@example.com", hashed_password=hashear_password("pw"))
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    # Insert legacy row via raw SQL to skip validators
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO leads_extraidos (user_email, user_email_lower, url, dominio, nicho, nicho_original) "
+                "VALUES (:ue, '', :url, '', 'legacy', 'Legacy')"
+            ),
+            {"ue": "legacy@example.com", "url": "https://legacy.com/page"},
+        )
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT dominio FROM leads_extraidos WHERE url=:u"
+            ),
+            {"u": "https://legacy.com/page"},
+        ).fetchone()
+        assert row and row.dominio == ""
+
+    # Run bootstrap to backfill
+    bootstrap_database()
+    bootstrap_database()  # idempotent second run
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT dominio, user_email_lower FROM leads_extraidos WHERE url=:u"
+            ),
+            {"u": "https://legacy.com/page"},
+        ).fetchone()
+    assert row is not None
+    assert row.dominio == "legacy.com"
+    assert row.user_email_lower == "legacy@example.com"
+
+    with engine.begin() as conn:
+        inspector = inspect(conn)
+        ucs = {uc["name"] for uc in inspector.get_unique_constraints("leads_extraidos")}
+        assert "uq_user_dominio" in ucs
