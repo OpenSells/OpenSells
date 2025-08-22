@@ -51,7 +51,12 @@ def _seed_data():
             texto="demo",
             tipo="general",
         )
-        db.add_all([nicho, lead1, lead2, tarea])
+        sus = Suscripcion(
+            user_email_lower=user.email_lower,
+            status="active",
+            current_period_end=datetime.utcnow() + timedelta(days=1),
+        )
+        db.add_all([nicho, lead1, lead2, tarea, sus])
         db.commit()
 
 
@@ -124,7 +129,8 @@ def test_me_includes_plan(client, token):
     resp = client.get("/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["plan"] == "free"
+    assert data["plan"] == "pro"
+    assert data["plan_resuelto"] == "pro"
     assert data["email"] == "test@example.com"
 
 
@@ -136,7 +142,7 @@ def test_debug_user_snapshot(client, token):
     data = resp.json()
     assert data["leads_count"] == 2
     assert data["nichos_count"] == 1
-    assert data["plan"] == "free"
+    assert data["plan_resuelto"] == "pro"
     assert data["db_vendor"]
     inc = data.get("inconsistencias", {})
     assert inc.get("nichos_sin_user_email_lower") == 0
@@ -165,7 +171,39 @@ def test_mi_plan_active_subscription(client):
     token = resp.json()["access_token"]
     resp = client.get("/mi_plan", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
-    assert resp.json()["plan"] == "pro"
+    assert resp.json()["plan_resuelto"] == "pro"
+
+
+def test_guard_requires_subscription(client):
+    with SessionLocal() as db:
+        user = Usuario(email="nosub@example.com", hashed_password=hashear_password("pw"))
+        db.add(user)
+        db.commit()
+    resp = client.post("/login", data={"username": "nosub@example.com", "password": "pw"})
+    token = resp.json()["access_token"]
+    r = client.get("/tareas_pendientes", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+def test_plan_change_without_new_token(client):
+    with SessionLocal() as db:
+        user = Usuario(email="flip@example.com", hashed_password=hashear_password("pw"))
+        db.add(user)
+        db.commit()
+    resp = client.post("/login", data={"username": "flip@example.com", "password": "pw"})
+    token = resp.json()["access_token"]
+    # initially should be 403
+    assert client.get("/tareas_pendientes", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+    # activate subscription without regenerating token
+    with SessionLocal() as db:
+        sus = Suscripcion(
+            user_email_lower="flip@example.com",
+            status="active",
+            current_period_end=datetime.utcnow() + timedelta(days=1),
+        )
+        db.add(sus)
+        db.commit()
+    assert client.get("/tareas_pendientes", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
 def test_bootstrap_backfills_legacy_leads(client):

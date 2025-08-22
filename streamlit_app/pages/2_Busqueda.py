@@ -9,7 +9,7 @@ from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, limpiar_cache
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
-from streamlit_app.plan_utils import subscription_cta
+from streamlit_app.plan_utils import obtener_plan, subscription_cta
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -21,7 +21,7 @@ st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered
 
 user, token = ensure_session(require_auth=True)
 
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token)
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()

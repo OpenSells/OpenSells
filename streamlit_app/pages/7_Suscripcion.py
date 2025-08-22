@@ -5,7 +5,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
-from streamlit_app.plan_utils import force_redirect
+from streamlit_app.plan_utils import force_redirect, obtener_plan
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -37,7 +37,7 @@ price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")
 price_premium = _safe_secret("STRIPE_PRICE_PREMIUM")
 
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token)
 
 st.title("💳 Suscripción")
 

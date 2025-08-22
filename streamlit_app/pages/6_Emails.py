@@ -1,6 +1,6 @@
 import streamlit as st
 
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
@@ -15,7 +15,7 @@ user, token = ensure_session(require_auth=True)
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
 
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token)
 
 st.title("✉️ Emails")
 st.info("Funcionalidad de envío de emails — Disponible próximamente.")

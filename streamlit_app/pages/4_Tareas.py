@@ -6,7 +6,7 @@ from datetime import date
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -22,7 +22,7 @@ user, token = ensure_session(require_auth=True)
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
 
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token)
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()

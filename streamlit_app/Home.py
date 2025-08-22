@@ -97,6 +97,9 @@ if not user:
                 set_auth_token(token)
             except Exception:
                 st.warning("No se pudieron guardar las cookies de sesión")
+            user_resp = http_client.get("/me")
+            if user_resp.status_code == 200:
+                st.session_state["user"] = user_resp.json()
             ensure_session(require_auth=True)
             st.success("¡Sesión iniciada!")
             try:

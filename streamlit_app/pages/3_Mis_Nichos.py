@@ -22,7 +22,7 @@ from streamlit_app.cache_utils import (
     cached_delete,
     limpiar_cache,
 )
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils.http_client import api_get
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -36,7 +36,7 @@ st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
 
 user, token = ensure_session(require_auth=True)
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token)
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()

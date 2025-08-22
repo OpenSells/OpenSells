@@ -7,7 +7,6 @@ from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
-from backend.db import tiene_suscripcion_activa
 # Utilidad para buscar leads guardados en la base de datos PostgreSQL
 # Se importa sin alias para usar el mismo nombre en el endpoint y evitar
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
@@ -70,19 +69,11 @@ from backend.auth import (
     obtener_usuario_por_email,
     get_current_user,
 )
-from backend.tenant import get_tenant_filter, resolve_user_plan, get_tenant_email
+from backend.tenant import get_tenant_filter, get_tenant_email
+from backend.services.subscriptions import resolve_user_plan
+from backend.deps.guards import require_active_subscription
 
 from fastapi import Depends
-
-def validar_suscripcion(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    if os.getenv("ALLOW_ANON_USER") == "1":
-        return usuario
-    if not tiene_suscripcion_activa(get_tenant_filter(usuario), db):
-        raise HTTPException(
-            status_code=403,
-            detail="Debes tener una suscripción activa para usar esta función.",
-        )
-    return usuario
 
 
 # Historial de exportaciones y leads
@@ -192,11 +183,11 @@ def login(
     else:
         db.refresh(user)
     token = crear_token({"sub": email})
-    plan = resolve_user_plan(user, db)
+    info = resolve_user_plan(db, user.email_lower)
     return {
         "access_token": token,
         "token_type": "bearer",
-        "plan": plan,
+        "plan": info["plan_resuelto"],
     }
 
 
@@ -204,10 +195,14 @@ def login(
 @app.get("/me")
 def usuario_actual(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """Devuelve los datos básicos del usuario autenticado."""
+    info = resolve_user_plan(db, usuario.email_lower)
     return {
         "id": usuario.id,
         "email": usuario.email_lower,
-        "plan": resolve_user_plan(usuario, db),
+        "plan": info["plan_resuelto"],
+        "plan_resuelto": info["plan_resuelto"],
+        "status": info["status"],
+        "current_period_end": info["current_period_end"].isoformat() if info["current_period_end"] else None,
         "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
     }
 
@@ -215,14 +210,15 @@ def usuario_actual(usuario=Depends(get_current_user), db: Session = Depends(get_
 @app.get("/mi_plan")
 def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """Devuelve el plan resuelto del usuario."""
-    return {"plan": resolve_user_plan(usuario, db)}
+    info = resolve_user_plan(db, usuario.email_lower)
+    return {**info, "plan": info["plan_resuelto"]}
 
 @app.get("/protegido")
 async def protegido(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     return {
         "mensaje": f"Bienvenido, {usuario.email_lower}",
         "email": usuario.email_lower,
-        "plan": resolve_user_plan(usuario, db),
+        "plan": resolve_user_plan(db, usuario.email_lower)["plan_resuelto"],
     }
 
 @app.get("/")
@@ -237,7 +233,8 @@ class BuscarRequest(BaseModel):
 @app.post("/buscar")
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
-    usuario=Depends(get_current_user)
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
 ):
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
@@ -376,7 +373,8 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
 def extraer_datos_endpoint(
     url: str = Body(..., embed=True),
     pais: str = Body("ES", embed=True),
-    usuario = Depends(validar_suscripcion)  # 👈 protección activada
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
 ):
     try:
         datos = extraer_datos_desde_url(url, pais)
@@ -397,7 +395,11 @@ def extraer_datos_endpoint(
 from datetime import datetime
 
 @app.post("/extraer_multiples")
-def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar_suscripcion)):
+def extraer_multiples_endpoint(
+    payload: UrlsMultiples,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+):
     start = perf_counter()
     resultados = []
 
@@ -424,7 +426,12 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def exportar_csv(
+    payload: ExportarCSVRequest,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
@@ -742,7 +749,12 @@ from backend.db import guardar_tarea_lead_postgres as guardar_tarea_lead
 from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
 
 @app.post("/tarea_lead")
-def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def agregar_tarea(
+    payload: TareaRequest,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     guardar_tarea_lead(
         email=usuario.email_lower,
         texto=payload.texto.strip(),
@@ -778,12 +790,22 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
 
 
 @app.get("/tareas_lead")
-def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def ver_tareas(
+    dominio: str,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     tareas = obtener_tareas_lead(usuario.email_lower, normalizar_dominio(dominio), db)
     return {"tareas": tareas}
 
 @app.post("/tarea_completada")
-def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def completar_tarea(
+    tarea_id: int,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     marcar_tarea_completada(usuario.email_lower, tarea_id, db)
 
     tarea = obtener_tarea_por_id(usuario.email_lower, tarea_id, db)
@@ -819,7 +841,13 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
     return {"mensaje": "Tarea marcada como completada"}
 
 @app.post("/editar_tarea")
-def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def editar_tarea(
+    tarea_id: int,
+    payload: TareaRequest,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     from backend.db import editar_tarea_existente_postgres as editar_tarea_existente
     editar_tarea_existente(usuario.email_lower, tarea_id, payload, db)
     guardar_evento_historial(
@@ -832,7 +860,11 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
     return {"mensaje": "Tarea editada correctamente"}
 
 @app.get("/tareas_pendientes")
-def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def tareas_pendientes(
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     tareas = obtener_todas_tareas_pendientes(get_tenant_filter(usuario), db)
     return {"tareas": tareas}
 
@@ -860,8 +892,17 @@ def obtener_memoria(usuario=Depends(get_current_user)):
 from sqlalchemy.orm import Session
 
 @app.get("/historial_tareas")
-def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import obtener_historial_por_tipo_postgres as obtener_historial_por_tipo, obtener_historial_por_nicho_postgres as obtener_historial_por_nicho
+def historial_tareas(
+    tipo: str = "general",
+    nicho: str = None,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
+    from backend.db import (
+        obtener_historial_por_tipo_postgres as obtener_historial_por_tipo,
+        obtener_historial_por_nicho_postgres as obtener_historial_por_nicho,
+    )
 
     if tipo == "nicho" and nicho:
         historial = obtener_historial_por_nicho(usuario.email_lower, nicho, db)
@@ -896,7 +937,12 @@ class LeadManualRequest(BaseModel):
     nicho: str
 
 @app.post("/añadir_lead_manual")
-def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def añadir_lead_manual(
+    request: LeadManualRequest,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
@@ -931,7 +977,13 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
 from sqlalchemy.orm import Session
 
 @app.post("/importar_csv_manual")
-def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def importar_csv_manual(
+    nicho: str,
+    archivo: UploadFile,
+    usuario=Depends(get_current_user),
+    info=Depends(require_active_subscription),
+    db: Session = Depends(get_db),
+):
     contenido = archivo.file.read()
     decoded = contenido.decode("utf-8").splitlines()
     reader = csv.DictReader(decoded)
@@ -1204,6 +1256,7 @@ def debug_user_snapshot(
     try:
         filtro = get_tenant_filter(usuario)
         info = db_info()
+        info_plan = resolve_user_plan(db, usuario.email_lower)
         nichos_count = db.query(Nicho).filter_by(**filtro).count()
         leads_count = db.query(LeadExtraido).filter_by(**filtro).count()
         tareas_count = db.query(LeadTarea).filter_by(**filtro).count()
@@ -1242,9 +1295,9 @@ def debug_user_snapshot(
             "email": usuario.email,
             "user_email_lower": usuario.email_lower,
             "user_id": usuario.id,
-            "plan": resolve_user_plan(usuario, db),
-            "suscripcion_status": sus.status if sus else None,
-            "current_period_end": sus.current_period_end.isoformat() if sus and sus.current_period_end else None,
+            "plan_resuelto": info_plan["plan_resuelto"],
+            "status": info_plan["status"],
+            "current_period_end": info_plan["current_period_end"].isoformat() if info_plan["current_period_end"] else None,
             "db_vendor": info["driver"],
             "nichos_count": nichos_count,
             "leads_count": leads_count,

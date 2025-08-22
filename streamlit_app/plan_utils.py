@@ -61,7 +61,11 @@ def obtener_plan(token: str) -> str:
     try:
         data = cached_get("mi_plan", token, nocache_key=time.time())
         if data:
-            return (data.get("plan") or "free").strip().lower()
+            return (
+                data.get("plan_resuelto")
+                or data.get("plan")
+                or "free"
+            ).strip().lower()
     except Exception:
         # En caso de error de red u otro, asumimos plan gratuito para no
         # bloquear al usuario.
