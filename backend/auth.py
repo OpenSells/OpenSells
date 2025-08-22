@@ -42,7 +42,7 @@ def crear_token(data: dict):
 
 def obtener_usuario_por_email(email: str, db: Session):
     email = (email or "").strip().lower()
-    return db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
+    return db.query(Usuario).filter(Usuario.email_lower == email).first()
 
 def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Obtiene el usuario actual a partir de un token JWT.

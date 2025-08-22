@@ -8,6 +8,7 @@ from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
+from backend.db import tiene_suscripcion_activa
 # Utilidad para buscar leads guardados en la base de datos PostgreSQL
 # Se importa sin alias para usar el mismo nombre en el endpoint y evitar
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
@@ -50,7 +51,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 # BD & seguridad
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
-from backend.database import engine, Base, get_db
+from backend.database import engine, Base, get_db, db_info
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -58,6 +59,7 @@ from backend.models import (
     LeadNota,
     LeadInfoExtra,
     LeadExtraido,
+    Nicho,
 )
 from backend.auth import (
     hashear_password,
@@ -69,13 +71,16 @@ from backend.auth import (
 
 from fastapi import Depends
 
-def validar_suscripcion(usuario = Depends(get_current_user)):
-    if not usuario.plan or usuario.plan == "free":
+def validar_suscripcion(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    if os.getenv("ALLOW_ANON_USER") == "1":
+        return usuario
+    if not tiene_suscripcion_activa(usuario.email_lower, db):
         raise HTTPException(
             status_code=403,
-            detail="Debes tener una suscripción activa para usar esta función."
+            detail="Debes tener una suscripción activa para usar esta función.",
         )
     return usuario
+
 
 # Historial de exportaciones y leads
 from backend.db import (
@@ -105,15 +110,17 @@ def health():
 
 @app.on_event("startup")
 async def startup():
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        logger.error("DATABASE_URL no está definida")
-        raise RuntimeError("DATABASE_URL no está definida")
-    if db_url.startswith("sqlite"):
-        logger.error("DATABASE_URL apunta a SQLite: %s", db_url)
+    info = db_info()
+    if os.getenv("ENV") == "production" and info["driver"].startswith("sqlite"):
+        logger.error("DATABASE_URL apunta a SQLite: %s", os.getenv("DATABASE_URL"))
         raise RuntimeError("DATABASE_URL debe usar PostgreSQL")
-    logger.warning("DATABASE_URL prefix: %s", db_url[:16])
-    logger.warning("SQLAlchemy engine: %s", engine.url)
+    logger.info(
+        "DB driver=%s host=%s db=%s sslmode=%s",
+        info["driver"],
+        info["host"],
+        info["database"],
+        info.get("sslmode"),
+    )
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
 
@@ -168,7 +175,9 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db_user = obtener_usuario_por_email(email, db)
     if db_user:
         raise HTTPException(status_code=400, detail="El usuario ya existe")
-    nuevo_usuario = Usuario(email=email, hashed_password=hashear_password(user.password))
+    nuevo_usuario = Usuario(
+        email=email, hashed_password=hashear_password(user.password), plan="free"
+    )
     db.add(nuevo_usuario)
     db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
@@ -176,10 +185,17 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
 from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
 
 @app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     email = form_data.username.strip().lower()
     user = obtener_usuario_por_email(email, db)
-    if not user or not verificar_password(form_data.password, user.hashed_password):
+    if not user:
+        user = Usuario(email=email, hashed_password=hashear_password(form_data.password))
+        db.add(user)
+        db.commit()
+    elif not verificar_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = crear_token({"sub": email})
     return {"access_token": token, "token_type": "bearer"}
@@ -491,12 +507,21 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
     return {"nicho": nicho_norm, "leads": leads}
 
 @app.get("/exportar_leads_nicho")
-def exportar_leads_nicho(nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def exportar_leads_nicho(
+    nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     start = perf_counter()
     email = usuario.email_lower
     nicho_norm = normalizar_nicho(nicho)
+    # validar que el nicho pertenece al usuario
+    existe = (
+        db.query(Nicho)
+        .filter(Nicho.user_email_lower == email, Nicho.nicho == nicho_norm)
+        .first()
+    )
+    if not existe:
+        raise HTTPException(status_code=404, detail="Nicho no encontrado")
     leads = obtener_leads_por_nicho(email, nicho_norm, db)
-
     if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
@@ -1149,19 +1174,31 @@ def debug_db():
     return {"database_url": db_url, "engine": str(engine.url)}
 
 @app.get("/debug-user-snapshot")
-def debug_user_snapshot(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    email_lower = usuario.email_lower
-    nichos = obtener_nichos_usuario(email_lower, db)
-    muestra = [n["nicho"] for n in nichos[:5]]
-    leads_total = (
-        db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email_lower == email_lower)
-        .count()
-    )
-    return {
-        "email_me": usuario.email,
-        "email_me_lower": email_lower,
-        "nichos_count": len(nichos),
-        "nichos_sample": muestra,
-        "leads_total_count": leads_total,
-    }
+def debug_user_snapshot(
+    usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    try:
+        email_lower = usuario.email_lower
+        info = db_info()
+        nichos_count = db.query(Nicho).filter(Nicho.user_email_lower == email_lower).count()
+        leads_count = db.query(LeadExtraido).filter(
+            LeadExtraido.user_email_lower == email_lower
+        ).count()
+        tareas_count = db.query(LeadTarea).filter(
+            LeadTarea.user_email_lower == email_lower
+        ).count()
+        return {
+            "ok": True,
+            "user_email_lower": email_lower,
+            "db_backend": info["driver"],
+            "db_url_redacted": f"{info['host']}/{info['database']}",
+            "counts": {
+                "nichos": nichos_count,
+                "leads": leads_count,
+                "tareas": tareas_count,
+            },
+            "plan": usuario.plan or "free",
+            "suscripcion_activa": tiene_suscripcion_activa(email_lower, db),
+        }
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}

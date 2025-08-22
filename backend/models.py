@@ -1,16 +1,48 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    Boolean,
+    func,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import validates
+
 from backend.database import Base
+
 
 # Tabla de usuarios
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, nullable=False)
+    email_lower = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
+
+    @validates("email")
+    def _set_lower(self, key, value):
+        lower = (value or "").strip().lower()
+        self.email_lower = lower
+        return (value or "").strip()
+
+
+class Nicho(Base):
+    __tablename__ = "nichos"
+
+    id = Column(Integer, primary_key=True)
+    user_email_lower = Column(String, index=True, nullable=False)
+    nicho = Column(String, nullable=False)  # normalizado
+    nicho_original = Column(String, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_email_lower", "nicho", name="uq_user_nicho"),
+    )
+
 
 # Tabla de tareas
 class LeadTarea(Base):
@@ -32,6 +64,7 @@ class LeadTarea(Base):
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
 
 # Tabla de historial
 class LeadHistorial(Base):
@@ -66,6 +99,7 @@ class LeadNota(Base):
         self.email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
+
 class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
 
@@ -83,6 +117,7 @@ class LeadInfoExtra(Base):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
+
 class LeadExtraido(Base):
     __tablename__ = "leads_extraidos"
 
@@ -94,7 +129,21 @@ class LeadExtraido(Base):
     nicho = Column(String, nullable=False)  # Normalizado
     nicho_original = Column(String, nullable=False)
 
+    __table_args__ = (
+        UniqueConstraint("user_email_lower", "url", name="uq_user_url"),
+    )
+
     @validates("user_email")
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
+
+class Suscripcion(Base):
+    __tablename__ = "suscripciones"
+
+    id = Column(Integer, primary_key=True)
+    user_email_lower = Column(String, index=True, nullable=False)
+    status = Column(String, nullable=False)
+    current_period_end = Column(DateTime, nullable=False)
+

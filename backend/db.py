@@ -158,7 +158,7 @@ def guardar_exportacion(user_email: str, filename: str):
 
 from datetime import datetime
 from sqlalchemy.orm import Session
-from backend.models import LeadExtraido
+from backend.models import LeadExtraido, Nicho, Suscripcion
 
 def guardar_leads_extraidos(
     user_email: str, dominios: list[str], nicho: str, nicho_original: str, db: Session
@@ -171,6 +171,21 @@ def guardar_leads_extraidos(
 
     user_email_lower = (user_email or "").strip().lower()
     nuevos = []
+
+    # Ensure nicho exists
+    nicho_row = (
+        db.query(Nicho)
+        .filter_by(user_email_lower=user_email_lower, nicho=nicho)
+        .first()
+    )
+    if not nicho_row:
+        nicho_row = Nicho(
+            user_email_lower=user_email_lower,
+            nicho=nicho,
+            nicho_original=nicho_original,
+        )
+        db.add(nicho_row)
+
     for dominio in dominios:
         existe = (
             db.query(LeadExtraido)
@@ -208,17 +223,30 @@ def obtener_historial(user_email: str):
         return [{"filename": row[0], "timestamp": row[1]} for row in rows]
 
 def obtener_nichos_usuario(user_email: str, db: Session):
-    subquery = (
+    resultados = (
         db.query(
-            LeadExtraido.nicho,
-            func.max(LeadExtraido.nicho_original).label("nicho_original")
+            Nicho.nicho,
+            Nicho.nicho_original,
+            func.count(LeadExtraido.id).label("total_leads"),
         )
-        .filter(LeadExtraido.user_email_lower == user_email)
-        .group_by(LeadExtraido.nicho)
+        .outerjoin(
+            LeadExtraido,
+            (LeadExtraido.user_email_lower == Nicho.user_email_lower)
+            & (LeadExtraido.nicho == Nicho.nicho),
+        )
+        .filter(Nicho.user_email_lower == user_email)
+        .group_by(Nicho.nicho, Nicho.nicho_original)
         .order_by(func.max(LeadExtraido.timestamp).desc())
         .all()
     )
-    return [{"nicho": row.nicho, "nicho_original": row.nicho_original} for row in subquery]
+    return [
+        {
+            "nicho": row.nicho,
+            "nicho_original": row.nicho_original,
+            "total_leads": row.total_leads,
+        }
+        for row in resultados
+    ]
 
 def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session):
     resultados = (
@@ -246,6 +274,9 @@ def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
         .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
         .delete(synchronize_session=False)
     )
+    db.query(Nicho).filter(
+        Nicho.user_email_lower == user_email, Nicho.nicho == nicho
+    ).delete(synchronize_session=False)
     db.commit()
 
 def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
@@ -255,6 +286,22 @@ def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
         .all()
     )
     return [row[0] for row in resultados]
+
+
+def tiene_suscripcion_activa(email_lower: str, db: Session) -> bool:
+    """Comprueba si el usuario tiene una suscripción activa."""
+    now = datetime.utcnow()
+    sus = (
+        db.query(Suscripcion)
+        .filter(
+            Suscripcion.user_email_lower == email_lower,
+            Suscripcion.status == "active",
+            Suscripcion.current_period_end >= now,
+        )
+        .order_by(Suscripcion.current_period_end.desc())
+        .first()
+    )
+    return sus is not None
 
 def guardar_estado_lead(email: str, url: str, estado: str):
     timestamp = datetime.utcnow().isoformat()
