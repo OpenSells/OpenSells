@@ -127,6 +127,7 @@ def bootstrap_database():
             "leads_extraidos": ("user_email", None, None),
             "lead_tarea": ("email", None, None),
             "lead_historial": ("email", None, None),
+            "lead_nota": ("email", None, None),
             "lead_info_extra": ("user_email", None, None),
             "suscripciones": (None, None, None),
         }
@@ -165,6 +166,11 @@ def bootstrap_database():
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS idx_nichos_user_email_lower ON nichos(user_email_lower)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_nota_email_lower ON lead_nota(user_email_lower)"
             )
         )
 

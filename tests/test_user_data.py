@@ -6,7 +6,7 @@ from sqlalchemy import inspect, text
 from backend.main import app
 from backend.database import Base, engine, SessionLocal, bootstrap_database
 from datetime import datetime, timedelta
-from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea, Suscripcion
+from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea, LeadNota, Suscripcion
 from backend.auth import hashear_password
 
 
@@ -45,6 +45,12 @@ def _seed_data():
             nicho="marketing",
             nicho_original="Marketing",
         )
+        nota = LeadNota(
+            email=user.email_lower,
+            user_email_lower=user.email_lower,
+            url="https://b.com",
+            nota="special note",
+        )
         tarea = LeadTarea(
             email=user.email_lower,
             user_email_lower=user.email_lower,
@@ -56,7 +62,7 @@ def _seed_data():
             status="active",
             current_period_end=datetime.utcnow() + timedelta(days=1),
         )
-        db.add_all([nicho, lead1, lead2, tarea, sus])
+        db.add_all([nicho, lead1, lead2, tarea, nota, sus])
         db.commit()
 
 
@@ -172,6 +178,17 @@ def test_mi_plan_active_subscription(client):
     resp = client.get("/mi_plan", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["plan_resuelto"] == "pro"
+
+
+def test_buscar_leads_uses_notes_and_urls(client, token):
+    headers = {"Authorization": f"Bearer {token}"}
+    resp_url = client.get("/buscar_leads", params={"query": "a.com"}, headers=headers)
+    assert resp_url.status_code == 200
+    assert "https://a.com" in resp_url.json()["resultados"]
+
+    resp_note = client.get("/buscar_leads", params={"query": "special"}, headers=headers)
+    assert resp_note.status_code == 200
+    assert "https://b.com" in resp_note.json()["resultados"]
 
 
 def test_guard_requires_subscription(client):

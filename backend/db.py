@@ -338,21 +338,25 @@ def obtener_nichos_para_url(user_email: str, url: str):
 
 def guardar_nota_lead(email: str, url: str, nota: str):
     timestamp = datetime.utcnow().isoformat()
+    user_email_lower = (email or "").strip().lower()
     with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            INSERT INTO lead_nota (email, url, nota, timestamp)
-            VALUES (?, ?, ?, ?)
+        db.execute(
+            """
+            INSERT INTO lead_nota (email, user_email_lower, url, nota, timestamp)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(email, url) DO UPDATE SET
                 nota = excluded.nota,
                 timestamp = excluded.timestamp
-        """, (email, url, nota, timestamp))
+            """,
+            (email, user_email_lower, url, nota, timestamp),
+        )
         db.commit()
 
 from backend.models import LeadNota
 
 def guardar_nota_lead_postgres(email: str, url: str, nota: str, db: Session):
-    email_lower = (email or "").strip().lower()
-    existente = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
+    user_email_lower = (email or "").strip().lower()
+    existente = db.query(LeadNota).filter_by(user_email_lower=user_email_lower, url=url).first()
     if existente:
         existente.nota = nota
     else:
@@ -361,52 +365,59 @@ def guardar_nota_lead_postgres(email: str, url: str, nota: str, db: Session):
     db.commit()
 
 def obtener_nota_lead(email: str, url: str) -> str:
+    user_email_lower = (email or "").strip().lower()
     with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
+        cursor = db.execute(
+            """
             SELECT nota FROM lead_nota
-            WHERE email = ? AND url = ?
-        """, (email, url))
+            WHERE user_email_lower = ? AND url = ?
+            """,
+            (user_email_lower, url),
+        )
         row = cursor.fetchone()
         return row[0] if row else ""
 
 def obtener_nota_lead_postgres(email: str, url: str, db: Session) -> str:
-    email_lower = (email or "").strip().lower()
-    nota = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
+    user_email_lower = (email or "").strip().lower()
+    nota = db.query(LeadNota).filter_by(user_email_lower=user_email_lower, url=url).first()
     return nota.nota if nota else ""
 
-def buscar_leads_global(email: str, query: str):
+def buscar_leads_global(user_email_lower: str, query: str):
     query = f"%{query.lower()}%"
     with sqlite3.connect(DB_PATH) as db:
-        cursor = db.execute("""
+        cursor = db.execute(
+            """
             SELECT DISTINCT le.url
             FROM leads_extraidos le
-            LEFT JOIN lead_estado es ON le.url = es.url AND le.user_email = es.email
-            LEFT JOIN lead_nota nt ON le.url = nt.url AND le.user_email = nt.email
-            WHERE le.user_email = ?
+            LEFT JOIN lead_estado es ON le.url = es.url AND le.user_email_lower = es.user_email_lower
+            LEFT JOIN lead_nota nt ON le.url = nt.url AND le.user_email_lower = nt.user_email_lower
+            WHERE le.user_email_lower = ?
             AND (
                 LOWER(le.url) LIKE ?
                 OR LOWER(nt.nota) LIKE ?
                 OR LOWER(es.estado) LIKE ?
             )
             ORDER BY le.timestamp DESC
-        """, (email, query, query, query))
+            """,
+            (user_email_lower, query, query, query),
+        )
         rows = cursor.fetchall()
         return [row[0] for row in rows]
 
-def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[str]:
+def buscar_leads_global_postgres(user_email_lower: str, query: str, db: Session) -> list[str]:
     query = f"%{query.lower()}%"
     resultados = (
         db.query(LeadExtraido.url)
         .outerjoin(
             LeadNota,
-            (LeadNota.url == LeadExtraido.url) & (LeadNota.email_lower == LeadExtraido.user_email_lower)
+            (LeadNota.url == LeadExtraido.url)
+            & (func.lower(LeadNota.user_email_lower) == LeadExtraido.user_email_lower)
         )
         .filter(
-            LeadExtraido.user_email_lower == email,
+            LeadExtraido.user_email_lower == user_email_lower,
             (
-                LeadExtraido.url.ilike(query) |
-                LeadNota.nota.ilike(query)
-            )
+                LeadExtraido.url.ilike(query) | LeadNota.nota.ilike(query)
+            ),
         )
         .distinct()
         .all()
@@ -611,36 +622,50 @@ def obtener_historial_por_nicho_postgres(email: str, nicho: str, db: Session):
 from backend.models import LeadExtraido
 
 def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str, db: Session):
-    email_lower = (user_email or "").strip().lower()
+    user_email_lower = (user_email or "").strip().lower()
     db.query(LeadExtraido).filter_by(
-        user_email_lower=email_lower,
+        user_email_lower=user_email_lower,
         url=dominio,
-        nicho=nicho
+        nicho=nicho,
     ).delete()
     db.commit()
 
-def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, nicho_destino: str, nicho_original_destino: str, db: Session):
+def mover_lead_en_bd(
+    user_email: str,
+    dominio_original: str,
+    nicho_origen: str,
+    nicho_destino: str,
+    nicho_original_destino: str,
+    db: Session,
+):
     from backend.models import LeadExtraido, LeadTarea
 
     dominio_limpio = normalizar_dominio(dominio_original)
 
     # 🗑️ Eliminar del nicho original
-    email_lower = (user_email or "").strip().lower()
-    db.query(LeadExtraido).filter_by(user_email_lower=email_lower, url=dominio_limpio, nicho=nicho_origen).delete()
+    user_email_lower = (user_email or "").strip().lower()
+    db.query(LeadExtraido).filter_by(
+        user_email_lower=user_email_lower,
+        url=dominio_limpio,
+        nicho=nicho_origen,
+    ).delete()
 
     # ✅ Insertar en el nuevo nicho
     nuevo = LeadExtraido(
         user_email=user_email,
-        user_email_lower=email_lower,
+        user_email_lower=user_email_lower,
         url=dominio_limpio,
         timestamp=datetime.utcnow().isoformat(),
         nicho=nicho_destino,
-        nicho_original=nicho_original_destino
+        nicho_original=nicho_original_destino,
     )
     db.add(nuevo)
 
     # 🔁 Actualizar tareas relacionadas
-    db.query(LeadTarea).filter_by(user_email_lower=email_lower, dominio=dominio_limpio).update({"nicho": nicho_destino})
+    db.query(LeadTarea).filter_by(
+        user_email_lower=user_email_lower,
+        dominio=dominio_limpio,
+    ).update({"nicho": nicho_destino})
 
     db.commit()
 
@@ -760,9 +785,19 @@ def guardar_info_extra(user_email: str, dominio: str, email: str, telefono: str,
 
 from backend.models import LeadInfoExtra
 
-def guardar_info_extra_postgres(user_email: str, dominio: str, email: str, telefono: str, informacion: str, db: Session):
-    email_lower = (user_email or "").strip().lower()
-    existente = db.query(LeadInfoExtra).filter_by(user_email_lower=email_lower, dominio=dominio).first()
+def guardar_info_extra_postgres(
+    user_email: str,
+    dominio: str,
+    email: str,
+    telefono: str,
+    informacion: str,
+    db: Session,
+):
+    user_email_lower = (user_email or "").strip().lower()
+    existente = db.query(LeadInfoExtra).filter_by(
+        user_email_lower=user_email_lower,
+        dominio=dominio,
+    ).first()
     if existente:
         existente.email = email
         existente.telefono = telefono
@@ -774,7 +809,7 @@ def guardar_info_extra_postgres(user_email: str, dominio: str, email: str, telef
             telefono=telefono,
             informacion=informacion,
             user_email=user_email,
-            user_email_lower=email_lower
+            user_email_lower=user_email_lower,
         )
         db.add(nuevo)
     db.commit()
@@ -790,8 +825,8 @@ def obtener_info_extra(user_email: str, dominio: str):
             "informacion": row[2] if row else ""
         }
 def obtener_info_extra_postgres(user_email: str, dominio: str, db: Session):
-    email_lower = (user_email or "").strip().lower()
-    info = db.query(LeadInfoExtra).filter_by(user_email_lower=email_lower, dominio=dominio).first()
+    user_email_lower = (user_email or "").strip().lower()
+    info = db.query(LeadInfoExtra).filter_by(user_email_lower=user_email_lower, dominio=dominio).first()
     return {
         "email": info.email if info else "",
         "telefono": info.telefono if info else "",

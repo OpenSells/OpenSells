@@ -12,7 +12,7 @@ STEPS = [
     ALTER TABLE leads_extraidos ADD COLUMN IF NOT EXISTS user_email_lower TEXT;
     ALTER TABLE lead_tarea ADD COLUMN IF NOT EXISTS user_email_lower TEXT;
     ALTER TABLE lead_historial ADD COLUMN IF NOT EXISTS user_email_lower TEXT;
-    ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS email_lower TEXT;
+    ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS user_email_lower TEXT;
     ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS user_email_lower TEXT;
     """,
     # 2.2 Backfill idempotente
@@ -23,8 +23,8 @@ STEPS = [
     WHERE user_email_lower IS NULL AND email IS NOT NULL;
     UPDATE lead_historial SET user_email_lower = LOWER(email)
     WHERE user_email_lower IS NULL AND email IS NOT NULL;
-    UPDATE lead_nota SET email_lower = LOWER(email)
-    WHERE email_lower IS NULL AND email IS NOT NULL;
+    UPDATE lead_nota SET user_email_lower = LOWER(email)
+    WHERE user_email_lower IS NULL AND email IS NOT NULL;
     UPDATE lead_info_extra SET user_email_lower = LOWER(user_email)
     WHERE user_email_lower IS NULL AND user_email IS NOT NULL;
     """,
@@ -33,7 +33,7 @@ STEPS = [
     CREATE INDEX IF NOT EXISTS ix_leads_user_lower ON leads_extraidos (user_email_lower);
     CREATE INDEX IF NOT EXISTS ix_tareas_user_lower ON lead_tarea (user_email_lower);
     CREATE INDEX IF NOT EXISTS ix_hist_user_lower ON lead_historial (user_email_lower);
-    CREATE INDEX IF NOT EXISTS ix_nota_email_lower ON lead_nota (email_lower);
+    CREATE INDEX IF NOT EXISTS ix_nota_user_lower ON lead_nota (user_email_lower);
     CREATE INDEX IF NOT EXISTS ix_info_user_lower ON lead_info_extra (user_email_lower);
     """,
 ]

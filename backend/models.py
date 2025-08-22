@@ -90,14 +90,14 @@ class LeadNota(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, nullable=False)
-    email_lower = Column(String, index=True, nullable=False)
+    user_email_lower = Column(String, index=True, nullable=False)
     url = Column(String, nullable=False)
     nota = Column(Text, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     @validates("email")
     def _set_lower(self, key, value):
-        self.email_lower = (value or "").strip().lower()
+        self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
 
