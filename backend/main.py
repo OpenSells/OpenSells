@@ -177,13 +177,24 @@ def login(
     email = normalizar_email(form_data.username)
     user = obtener_usuario_por_email(email, db)
     if not user:
-        user = Usuario(email=email, hashed_password=hashear_password(form_data.password), plan="free")
+        user = Usuario(
+            email=email,
+            hashed_password=hashear_password(form_data.password),
+            plan="free",
+        )
         db.add(user)
         db.commit()
+        db.refresh(user)
     elif not verificar_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    else:
+        db.refresh(user)
     token = crear_token({"sub": email})
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "plan": user.plan or "free",
+    }
 
 
 @app.get("/usuario_actual")
@@ -1165,25 +1176,58 @@ def debug_user_snapshot(
     try:
         email_lower = usuario.email_lower
         info = db_info()
-        nichos_count = db.query(Nicho).filter(Nicho.user_email_lower == email_lower).count()
-        leads_count = db.query(LeadExtraido).filter(
-            LeadExtraido.user_email_lower == email_lower
-        ).count()
-        tareas_count = db.query(LeadTarea).filter(
-            LeadTarea.user_email_lower == email_lower
-        ).count()
+        nichos_count = (
+            db.query(Nicho)
+            .filter(Nicho.user_email_lower == email_lower)
+            .count()
+        )
+        leads_count = (
+            db.query(LeadExtraido)
+            .filter(LeadExtraido.user_email_lower == email_lower)
+            .count()
+        )
+        tareas_count = (
+            db.query(LeadTarea)
+            .filter(LeadTarea.user_email_lower == email_lower)
+            .count()
+        )
+        usuarios_total = db.query(Usuario).count()
+        nichos_sin_user = (
+            db.query(Nicho)
+            .filter((Nicho.user_email_lower == None) | (Nicho.user_email_lower == ""))
+            .count()
+        )
+        leads_sin_user = (
+            db.query(LeadExtraido)
+            .filter(
+                (LeadExtraido.user_email_lower == None)
+                | (LeadExtraido.user_email_lower == "")
+            )
+            .count()
+        )
+        leads_sin_nicho = (
+            db.query(LeadExtraido)
+            .filter((LeadExtraido.nicho == None) | (LeadExtraido.nicho == ""))
+            .count()
+        )
         return {
             "ok": True,
             "user_email_lower": email_lower,
             "db_backend": info["driver"],
             "db_url_redacted": f"{info['host']}/{info['database']}",
             "counts": {
+                "usuarios": usuarios_total,
                 "nichos": nichos_count,
                 "leads": leads_count,
                 "tareas": tareas_count,
             },
             "plan": usuario.plan or "free",
             "suscripcion_activa": tiene_suscripcion_activa(email_lower, db),
+            "inconsistencias": {
+                "nichos_sin_user_email_lower": nichos_sin_user,
+                "leads_sin_user_email_lower": leads_sin_user,
+                "leads_sin_nicho": leads_sin_nicho,
+            },
         }
     except Exception as e:
         return {"ok": False, "detail": str(e)}

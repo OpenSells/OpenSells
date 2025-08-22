@@ -11,6 +11,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import validates
 
 from backend.database import Base
+from backend.utils import normalizar_dominio
 
 
 # Tabla de usuarios
@@ -124,19 +125,25 @@ class LeadExtraido(Base):
     id = Column(Integer, primary_key=True)
     user_email = Column(String, nullable=False)
     user_email_lower = Column(String, index=True, nullable=False)
-    url = Column(String, nullable=False)
+    url = Column(String, nullable=True)
+    dominio = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     nicho = Column(String, nullable=False)  # Normalizado
     nicho_original = Column(String, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("user_email_lower", "url", name="uq_user_url"),
+        UniqueConstraint("user_email_lower", "dominio", name="uq_user_dominio"),
     )
 
     @validates("user_email")
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
+    @validates("url")
+    def _set_dominio(self, key, value):
+        self.dominio = normalizar_dominio(value)
+        return value
 
 
 class Suscripcion(Base):

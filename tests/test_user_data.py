@@ -30,6 +30,7 @@ def _seed_data():
             user_email=user.email_lower,
             user_email_lower=user.email_lower,
             url="https://a.com",
+            dominio="a.com",
             nicho="marketing",
             nicho_original="Marketing",
         )
@@ -37,6 +38,7 @@ def _seed_data():
             user_email=user.email_lower,
             user_email_lower=user.email_lower,
             url="https://b.com",
+            dominio="b.com",
             nicho="marketing",
             nicho_original="Marketing",
         )
@@ -65,6 +67,7 @@ def test_login_creates_user_with_free_plan(client):
         "/login", data={"username": "nuevo@example.com", "password": "pw"}
     )
     assert resp.status_code == 200
+    assert resp.json()["plan"] == "free"
     with SessionLocal() as db:
         user = db.query(Usuario).filter_by(email_lower="nuevo@example.com").first()
         assert user is not None
@@ -78,12 +81,31 @@ def test_mis_nichos(client, token):
     assert data["nichos"][0]["total_leads"] == 2
 
 
+def test_leads_por_nicho(client, token):
+    resp = client.get(
+        "/leads_por_nicho",
+        params={"nicho": "marketing"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["leads"]) == 2
+
+
 def test_tareas_pendientes(client, token):
     resp = client.get(
         "/tareas_pendientes", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 200
     assert len(resp.json()["tareas"]) >= 1
+
+
+def test_me_includes_plan(client, token):
+    resp = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["plan"] == "free"
+    assert data["email"] == "test@example.com"
 
 
 def test_debug_user_snapshot(client, token):
@@ -93,5 +115,10 @@ def test_debug_user_snapshot(client, token):
     assert resp.status_code == 200
     data = resp.json()
     assert data["counts"]["leads"] == 2
+    assert data["counts"]["nichos"] == 1
     assert data["plan"] == "free"
     assert data["db_backend"]
+    inc = data.get("inconsistencias", {})
+    assert inc.get("nichos_sin_user_email_lower") == 0
+    assert inc.get("leads_sin_user_email_lower") == 0
+    assert inc.get("leads_sin_nicho") == 0

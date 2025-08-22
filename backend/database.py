@@ -7,6 +7,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import inspect, text
+import logging
+from backend.utils import normalizar_nicho, normalizar_dominio
+logger = logging.getLogger(__name__)
 
 # Load environment variables as early as possible
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -89,7 +92,7 @@ def bootstrap_database():
         # Ensure user_email_lower columns and uniqueness
         table_sources = {
             "nichos": ("email", "uq_user_nicho", "nicho"),
-            "leads_extraidos": ("user_email", "uq_user_url", "url"),
+            "leads_extraidos": ("user_email", "uq_user_dominio", "dominio"),
             "lead_tarea": ("email", None, None),
             "lead_historial": ("email", None, None),
             "lead_info_extra": ("user_email", None, None),
@@ -116,4 +119,66 @@ def bootstrap_database():
                     conn.execute(text(
                         f"ALTER TABLE {table} ADD CONSTRAINT {uq_name} UNIQUE (user_email_lower, {uq_col})"
                     ))
+
+        # Normalize nichos
+        if "nichos" in inspector.get_table_names():
+            rows = conn.execute(
+                text("SELECT id, nicho, nicho_original FROM nichos")
+            ).fetchall()
+            for row in rows:
+                original = row.nicho_original or row.nicho or ""
+                norm = normalizar_nicho(original)
+                if not row.nicho or row.nicho != norm:
+                    conn.execute(
+                        text("UPDATE nichos SET nicho=:n WHERE id=:id"),
+                        {"n": norm, "id": row.id},
+                    )
+            conn.execute(
+                text(
+                    "UPDATE nichos SET nicho_original = nicho WHERE nicho_original IS NULL OR nicho_original = ''",
+                )
+            )
+            conn.execute(text("ALTER TABLE nichos ALTER COLUMN nicho SET NOT NULL"))
+            conn.execute(
+                text("ALTER TABLE nichos ALTER COLUMN nicho_original SET NOT NULL")
+            )
+
+        # Normalize leads
+        if "leads_extraidos" in inspector.get_table_names():
+            lcols = {c["name"] for c in inspector.get_columns("leads_extraidos")}
+            if "dominio" not in lcols:
+                logger.info("Adding dominio column to leads_extraidos")
+                conn.execute(text("ALTER TABLE leads_extraidos ADD COLUMN dominio VARCHAR"))
+            rows = conn.execute(
+                text(
+                    "SELECT id, url, dominio, nicho, nicho_original FROM leads_extraidos"
+                )
+            ).fetchall()
+            for row in rows:
+                dom = normalizar_dominio(row.url or row.dominio or "")
+                nicho_norm = normalizar_nicho(row.nicho_original or row.nicho or "")
+                updates = {}
+                if not row.dominio or row.dominio != dom:
+                    updates["dominio"] = dom
+                if not row.nicho or row.nicho != nicho_norm:
+                    updates["nicho"] = nicho_norm
+                if updates:
+                    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+                    conn.execute(
+                        text(f"UPDATE leads_extraidos SET {set_clause} WHERE id = :id"),
+                        {**updates, "id": row.id},
+                    )
+            conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN dominio SET NOT NULL"))
+            conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN nicho SET NOT NULL"))
+            conn.execute(text("ALTER TABLE leads_extraidos ALTER COLUMN nicho_original SET NOT NULL"))
+            uexisting = {
+                uc["name"] for uc in inspector.get_unique_constraints("leads_extraidos")
+            }
+            if "uq_user_dominio" not in uexisting:
+                logger.info("Creating unique constraint uq_user_dominio")
+                conn.execute(
+                    text(
+                        "ALTER TABLE leads_extraidos ADD CONSTRAINT uq_user_dominio UNIQUE (user_email_lower, dominio)",
+                    )
+                )
 
