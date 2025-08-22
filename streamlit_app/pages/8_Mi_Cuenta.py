@@ -1,7 +1,6 @@
 # 8_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os
-import requests
 import pandas as pd
 import io
 import streamlit as st
@@ -9,9 +8,10 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, get_backend_url
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
 
@@ -22,15 +22,14 @@ st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
 user, token = ensure_session(require_auth=True)
-plan = (user or {}).get("plan", "free")
+plan_resp = cached_get("mi_plan", st.session_state.token)
+plan = plan_resp.get("plan", "free") if plan_resp else "free"
 
 if "email" not in st.session_state and user:
     st.session_state.email = user.get("email")
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
-
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 
 # -------------------- Sección principal --------------------
@@ -79,7 +78,7 @@ st.subheader("📊 Estadísticas de uso")
 
 resp_nichos = cached_get("mis_nichos", st.session_state.token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
-leads_resp = requests.get(f"{get_backend_url()}/exportar_todos_mis_leads", headers=headers)
+leads_resp = http_client.get("/exportar_todos_mis_leads")
 total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
@@ -139,12 +138,7 @@ with col1:
         if st.button("💳 Iniciar suscripción"):
             price_id = planes[plan_elegido]
             try:
-                r = requests.post(
-                    f"{get_backend_url()}/crear_portal_pago",
-                    headers=headers,
-                    params={"plan": price_id},
-                    timeout=30,
-                )
+                r = http_client.post("/crear_portal_pago", params={"plan": price_id})
                 if r.status_code == 200:
                     try:
                         data = r.json()
@@ -166,20 +160,18 @@ with st.expander("Debug sesión/DB"):
     st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
     st.write("Usuario:", st.session_state.get("user"))
     try:
-        dbg_db = requests.get(f"{get_backend_url()}/debug-db").json()
+        dbg_db = http_client.get("/debug-db").json()
     except Exception:
         dbg_db = {}
     try:
-        dbg_snapshot = requests.get(
-            f"{get_backend_url()}/debug-user-snapshot", headers=headers
-        ).json()
+        dbg_snapshot = http_client.get("/debug-user-snapshot").json()
     except Exception:
         dbg_snapshot = {}
-    st.write("Email /me:", dbg_snapshot.get("email_me"))
-    st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
+    st.write("Email:", dbg_snapshot.get("email"))
+    st.write("Email lower:", dbg_snapshot.get("user_email_lower"))
     st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
     st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
-    st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
+    st.write("# Leads:", dbg_snapshot.get("leads_count"))
 
 with col2:
     if plan not in ["basico", "premium"]:
@@ -187,11 +179,7 @@ with col2:
     else:
         if st.button("🧾 Gestionar suscripción"):
             try:
-                r = requests.post(
-                    f"{get_backend_url()}/crear_portal_cliente",
-                    headers=headers,
-                    timeout=30,
-                )
+                r = http_client.post("/crear_portal_cliente")
                 if r.status_code == 200:
                     data = r.json()
                     url_portal = data.get("url")

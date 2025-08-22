@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import obtener_plan, tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
 from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
 from streamlit_app.utils import http_client
@@ -145,7 +145,7 @@ PAGES = {
     "cuenta": "8_Mi_Cuenta.py",
 }
 
-plan = (user or {}).get("plan", "free")
+plan = obtener_plan(token) if token else "free"
 suscripcion_activa = tiene_suscripcion_activa(plan)
 
 nichos = cached_get("mis_nichos", st.session_state.token) or {}

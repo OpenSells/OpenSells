@@ -2,12 +2,12 @@
 
 import os
 import streamlit as st
-import requests
 from dotenv import load_dotenv
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, get_backend_url
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
 
@@ -66,11 +66,9 @@ with cols[1]:
     if st.button("Suscribirme al Básico"):
         if price_basico:
             try:
-                r = requests.post(
-                    f"{get_backend_url()}/crear_portal_pago",
-                    headers={"Authorization": f"Bearer {st.session_state.token}"},
+                r = http_client.post(
+                    "/crear_portal_pago",
                     params={"plan": price_basico},
-                    timeout=30,
                 )
                 if r.status_code == 200:
                     url = r.json().get("url")
@@ -98,11 +96,9 @@ with cols[2]:
     if st.button("Suscribirme al Premium"):
         if price_premium:
             try:
-                r = requests.post(
-                    f"{get_backend_url()}/crear_portal_pago",
-                    headers={"Authorization": f"Bearer {st.session_state.token}"},
+                r = http_client.post(
+                    "/crear_portal_pago",
                     params={"plan": price_premium},
-                    timeout=30,
                 )
                 if r.status_code == 200:
                     url = r.json().get("url")

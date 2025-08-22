@@ -59,7 +59,7 @@ def obtener_plan(token: str) -> str:
     """Devuelve el plan actual del usuario o ``free`` si no se puede determinar."""
 
     try:
-        data = cached_get("protegido", token, nocache_key=time.time())
+        data = cached_get("mi_plan", token, nocache_key=time.time())
         if data:
             return (data.get("plan") or "free").strip().lower()
     except Exception:

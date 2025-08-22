@@ -4,7 +4,8 @@ from sqlalchemy import inspect, text
 
 from backend.main import app
 from backend.database import Base, engine, SessionLocal, bootstrap_database
-from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea
+from datetime import datetime, timedelta
+from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea, Suscripcion
 from backend.auth import hashear_password
 
 
@@ -115,15 +116,38 @@ def test_debug_user_snapshot(client, token):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["counts"]["leads"] == 2
-    assert data["counts"]["nichos"] == 1
+    assert data["leads_count"] == 2
+    assert data["nichos_count"] == 1
     assert data["plan"] == "free"
-    assert data["db_backend"]
+    assert data["db_vendor"]
     inc = data.get("inconsistencias", {})
     assert inc.get("nichos_sin_user_email_lower") == 0
     assert inc.get("leads_sin_user_email_lower") == 0
     assert inc.get("leads_sin_nicho") == 0
     assert inc.get("leads_sin_dominio") == 0
+
+
+def test_mi_plan_active_subscription(client):
+    with SessionLocal() as db:
+        user = Usuario(email="pro@example.com", hashed_password=hashear_password("pw"), plan="pro")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        sus = Suscripcion(
+            user_email_lower=user.email_lower,
+            status="active",
+            current_period_end=datetime.utcnow() + timedelta(days=1),
+        )
+        db.add(sus)
+        db.commit()
+    resp = client.post(
+        "/login", data={"username": "pro@example.com", "password": "pw"}
+    )
+    assert resp.status_code == 200
+    token = resp.json()["access_token"]
+    resp = client.get("/mi_plan", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["plan"] == "pro"
 
 
 def test_bootstrap_backfills_legacy_leads(client):

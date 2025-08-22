@@ -86,10 +86,10 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
     db.add(nueva_tarea)
     db.commit()
 
-def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
+def obtener_todas_tareas_pendientes_postgres(filtro: dict, db: Session):
     tareas = (
         db.query(LeadTarea)
-        .filter(LeadTarea.user_email_lower == email)
+        .filter_by(**filtro)
         .order_by(
             LeadTarea.completado.asc(),
             LeadTarea.prioridad.asc(),
@@ -223,7 +223,7 @@ def obtener_historial(user_email: str):
         rows = cursor.fetchall()
         return [{"filename": row[0], "timestamp": row[1]} for row in rows]
 
-def obtener_nichos_usuario(user_email: str, db: Session):
+def obtener_nichos_usuario(filtro: dict, db: Session):
     resultados = (
         db.query(
             Nicho.nicho,
@@ -235,7 +235,7 @@ def obtener_nichos_usuario(user_email: str, db: Session):
             (LeadExtraido.user_email_lower == Nicho.user_email_lower)
             & (LeadExtraido.nicho == Nicho.nicho),
         )
-        .filter(Nicho.user_email_lower == user_email)
+        .filter_by(**filtro)
         .group_by(Nicho.nicho, Nicho.nicho_original)
         .order_by(func.max(LeadExtraido.timestamp).desc())
         .all()
@@ -249,10 +249,11 @@ def obtener_nichos_usuario(user_email: str, db: Session):
         for row in resultados
     ]
 
-def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session):
+def obtener_leads_por_nicho(filtro: dict, nicho: str, db: Session):
     resultados = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
+        .filter_by(**filtro)
+        .filter(LeadExtraido.nicho == nicho)
         .order_by(LeadExtraido.timestamp.desc())
         .all()
     )
@@ -280,23 +281,24 @@ def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
     ).delete(synchronize_session=False)
     db.commit()
 
-def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
+def obtener_urls_extraidas_por_nicho(filtro: dict, nicho: str, db: Session):
     resultados = (
         db.query(LeadExtraido.url)
-        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
+        .filter_by(**filtro)
+        .filter(LeadExtraido.nicho == nicho)
         .all()
     )
     return [row[0] for row in resultados]
 
 
-def tiene_suscripcion_activa(email_lower: str, db: Session) -> bool:
+def tiene_suscripcion_activa(filtro: dict, db: Session) -> bool:
     """Comprueba si el usuario tiene una suscripción activa."""
     now = datetime.utcnow()
     sus = (
         db.query(Suscripcion)
+        .filter_by(**filtro)
         .filter(
-            Suscripcion.user_email_lower == email_lower,
-            Suscripcion.status == "active",
+            Suscripcion.status.in_(["active", "trialing"]),
             Suscripcion.current_period_end >= now,
         )
         .order_by(Suscripcion.current_period_end.desc())

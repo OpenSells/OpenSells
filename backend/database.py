@@ -157,6 +157,17 @@ def bootstrap_database():
                         f"ALTER TABLE {table} ADD CONSTRAINT {uq_name} UNIQUE (user_email_lower, {uq_col})"
                     ))
 
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_leads_user_email_lower ON leads_extraidos(user_email_lower)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_nichos_user_email_lower ON nichos(user_email_lower)"
+            )
+        )
+
         # Normalize nichos
         if "nichos" in inspector.get_table_names():
             rows = conn.execute(

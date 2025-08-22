@@ -69,13 +69,14 @@ from backend.auth import (
     obtener_usuario_por_email,
     get_current_user,
 )
+from backend.tenant import get_tenant_filter, resolve_user_plan
 
 from fastapi import Depends
 
 def validar_suscripcion(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     if os.getenv("ALLOW_ANON_USER") == "1":
         return usuario
-    if not tiene_suscripcion_activa(usuario.email_lower, db):
+    if not tiene_suscripcion_activa(get_tenant_filter(usuario), db):
         raise HTTPException(
             status_code=403,
             detail="Debes tener una suscripción activa para usar esta función.",
@@ -190,30 +191,37 @@ def login(
     else:
         db.refresh(user)
     token = crear_token({"sub": email})
+    plan = resolve_user_plan(user, db)
     return {
         "access_token": token,
         "token_type": "bearer",
-        "plan": user.plan or "free",
+        "plan": plan,
     }
 
 
 @app.get("/usuario_actual")
 @app.get("/me")
-def usuario_actual(usuario=Depends(get_current_user)):
+def usuario_actual(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """Devuelve los datos básicos del usuario autenticado."""
     return {
         "id": usuario.id,
         "email": usuario.email_lower,
-        "plan": usuario.plan or "free",
+        "plan": resolve_user_plan(usuario, db),
         "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
     }
 
+
+@app.get("/mi_plan")
+def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Devuelve el plan resuelto del usuario."""
+    return {"plan": resolve_user_plan(usuario, db)}
+
 @app.get("/protegido")
-async def protegido(usuario = Depends(get_current_user)):
+async def protegido(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     return {
         "mensaje": f"Bienvenido, {usuario.email_lower}",
         "email": usuario.email_lower,
-        "plan": usuario.plan or "free"
+        "plan": resolve_user_plan(usuario, db),
     }
 
 @app.get("/")
@@ -465,13 +473,13 @@ def ver_historial(usuario = Depends(get_current_user)):
 # 📂 Ver nichos del usuario
 @app.get("/mis_nichos")
 def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    email_lower = usuario.email_lower
-    nichos = obtener_nichos_usuario(email_lower, db)
+    filtro = get_tenant_filter(usuario)
+    nichos = obtener_nichos_usuario(filtro, db)
     if DEBUG_DIAGNOSTICO:
         logger.info(
             "/mis_nichos email=%s lower=%s count=%d",
             usuario.email,
-            email_lower,
+            usuario.email_lower,
             len(nichos),
         )
     return {"nichos": nichos}
@@ -479,15 +487,15 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
 def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = usuario.email_lower
+    filtro = get_tenant_filter(usuario)
     nicho_original = nicho
     nicho_norm = normalizar_nicho(nicho)
-    leads = obtener_leads_por_nicho(email, nicho_norm, db)
+    leads = obtener_leads_por_nicho(filtro, nicho_norm, db)
     if DEBUG_DIAGNOSTICO:
         logger.info(
             "/leads_por_nicho email=%s lower=%s nicho=%s nicho_norm=%s count=%d",
             usuario.email,
-            email,
+            usuario.email_lower,
             nicho_original,
             nicho_norm,
             len(leads),
@@ -496,7 +504,7 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
             logger.warning(
                 "/leads_por_nicho sin resultados email=%s lower=%s nicho=%s nicho_norm=%s",
                 usuario.email,
-                email,
+                usuario.email_lower,
                 nicho_original,
                 nicho_norm,
             )
@@ -507,17 +515,17 @@ def exportar_leads_nicho(
     nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ):
     start = perf_counter()
-    email = usuario.email_lower
+    filtro = get_tenant_filter(usuario)
     nicho_norm = normalizar_nicho(nicho)
     # validar que el nicho pertenece al usuario
     existe = (
         db.query(Nicho)
-        .filter(Nicho.user_email_lower == email, Nicho.nicho == nicho_norm)
+        .filter_by(**filtro, nicho=nicho_norm)
         .first()
     )
     if not existe:
         raise HTTPException(status_code=404, detail="Nicho no encontrado")
-    leads = obtener_leads_por_nicho(email, nicho_norm, db)
+    leads = obtener_leads_por_nicho(filtro, nicho_norm, db)
     if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
@@ -560,7 +568,7 @@ class FiltrarUrlsRequest(BaseModel):
 @app.post("/filtrar_urls")
 def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     payload.nicho = normalizar_nicho(payload.nicho)
-    urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email_lower, payload.nicho, db)
+    urls_guardadas = obtener_urls_extraidas_por_nicho(get_tenant_filter(usuario), payload.nicho, db)
 
     dominios_guardados = set(normalizar_dominio(url) for url in urls_guardadas)
     urls_filtradas = [url for url in payload.urls if normalizar_dominio(url) not in dominios_guardados]
@@ -571,10 +579,11 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
 def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     start = perf_counter()
     from backend.models import LeadExtraido
+    filtro = get_tenant_filter(usuario)
 
     leads = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
+        .filter_by(**filtro)
         .order_by(LeadExtraido.timestamp.desc())
         .all()
     )
@@ -805,7 +814,7 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
 
 @app.get("/tareas_pendientes")
 def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    tareas = obtener_todas_tareas_pendientes(usuario.email_lower, db)
+    tareas = obtener_todas_tareas_pendientes(get_tenant_filter(usuario), db)
     return {"tareas": tareas}
 
 @app.get("/historial_lead")
@@ -1174,23 +1183,11 @@ def debug_user_snapshot(
     usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ):
     try:
-        email_lower = usuario.email_lower
+        filtro = get_tenant_filter(usuario)
         info = db_info()
-        nichos_count = (
-            db.query(Nicho)
-            .filter(Nicho.user_email_lower == email_lower)
-            .count()
-        )
-        leads_count = (
-            db.query(LeadExtraido)
-            .filter(LeadExtraido.user_email_lower == email_lower)
-            .count()
-        )
-        tareas_count = (
-            db.query(LeadTarea)
-            .filter(LeadTarea.user_email_lower == email_lower)
-            .count()
-        )
+        nichos_count = db.query(Nicho).filter_by(**filtro).count()
+        leads_count = db.query(LeadExtraido).filter_by(**filtro).count()
+        tareas_count = db.query(LeadTarea).filter_by(**filtro).count()
         usuarios_total = db.query(Usuario).count()
         nichos_sin_user = (
             db.query(Nicho)
@@ -1217,17 +1214,14 @@ def debug_user_snapshot(
         )
         return {
             "ok": True,
-            "user_email_lower": email_lower,
-            "db_backend": info["driver"],
-            "db_url_redacted": f"{info['host']}/{info['database']}",
-            "counts": {
-                "usuarios": usuarios_total,
-                "nichos": nichos_count,
-                "leads": leads_count,
-                "tareas": tareas_count,
-            },
-            "plan": usuario.plan or "free",
-            "suscripcion_activa": tiene_suscripcion_activa(email_lower, db),
+            "email": usuario.email,
+            "user_email_lower": usuario.email_lower,
+            "user_id": usuario.id,
+            "plan": resolve_user_plan(usuario, db),
+            "db_vendor": info["driver"],
+            "nichos_count": nichos_count,
+            "leads_count": leads_count,
+            "tareas_count": tareas_count,
             "inconsistencias": {
                 "nichos_sin_user_email_lower": nichos_sin_user,
                 "leads_sin_user_email_lower": leads_sin_user,

@@ -15,6 +15,8 @@
 - **Gestión de sesión y rutas unificada:** refactor para centralizar manejo de tokens y paths en toda la app.
 - **Clave multi-tenant unificada:** todos los datos se filtran por `user_email_lower` y se añadió `/debug-user-snapshot` para diagnosticar sesión y base de datos.
 - **Validación de `DATABASE_URL`:** el backend avisa al arrancar si apunta a SQLite o falta la variable.
+- **Resolución de plan unificada:** función `resolve_user_plan` y endpoint `/mi_plan` para mostrar badge correcto según suscripción.
+- **Cliente HTTP centralizado:** todas las llamadas del frontend usan `utils/http_client.py` con cabecera `Authorization` y manejo de `401`.
 
 ## 📊 Estado del proyecto
 
