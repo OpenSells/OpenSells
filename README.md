@@ -14,6 +14,7 @@
 - **Aviso de leads duplicados más discreto:** se reemplazó el warning por una nota sutil.
 - **Gestión de sesión y rutas unificada:** refactor para centralizar manejo de tokens y paths en toda la app.
 - **Clave multi-tenant unificada:** todos los datos se filtran por `user_email_lower` y se añadió `/debug-user-snapshot` para diagnosticar sesión y base de datos.
+- **Esquema multi-tenant armonizado:** las tablas `lead_nota`, `lead_tarea` y asociadas incluyen ahora `user_email_lower` no nulo, se añadieron índices compuestos y el conteo de leads se realiza por dominio distinto vía `/conteo_leads`.
 - **Validación de `DATABASE_URL`:** el backend avisa al arrancar si apunta a SQLite o falta la variable.
 
 ## 📊 Estado del proyecto
@@ -22,14 +23,15 @@
 - **Frontend:** Streamlit multipágina con generación de leads, gestión de nichos, tareas, asistente virtual, exportaciones y control de acceso por plan.
 - **Autenticación:** JWT persistido en cookies, helper `utils/auth_utils.py` para restaurar sesión y auto-logout.
 - **Multi-tenant:** la clave es `user_email_lower`; hay endpoint `/debug-user-snapshot` para verificar sesión y prefijo de la base de datos.
-- **Pruebas:** `pytest` devuelve 4 fallos (401) y 1 test pasa; el código compila con `python -m py_compile`.
+- **Pruebas:** `pytest` pasa todas las pruebas y el código compila con `python -m py_compile`.
 
 ## 🛠️ Ejecución local
 
-1. Instala dependencias:
+1. Instala dependencias y herramientas de migración:
 
 ```bash
 pip install -r requirements.txt
+alembic upgrade head
 ```
 
 2. Inicia el backend:

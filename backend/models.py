@@ -18,7 +18,7 @@ class LeadTarea(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, nullable=False)
-    user_email_lower = Column(String, index=True)
+    user_email_lower = Column(String, index=True, nullable=False)
     dominio = Column(String)
     texto = Column(Text, nullable=False)
     fecha = Column(String)
@@ -39,7 +39,7 @@ class LeadHistorial(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, nullable=False)
-    user_email_lower = Column(String, index=True)
+    user_email_lower = Column(String, index=True, nullable=False)
     dominio = Column(String, nullable=False)
     tipo = Column(String, nullable=False)
     descripcion = Column(Text, nullable=False)
@@ -56,14 +56,14 @@ class LeadNota(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, nullable=False)
-    email_lower = Column(String, index=True)
+    user_email_lower = Column(String, index=True, nullable=False)
     url = Column(String, nullable=False)
     nota = Column(Text, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     @validates("email")
     def _set_lower(self, key, value):
-        self.email_lower = (value or "").strip().lower()
+        self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
 class LeadInfoExtra(Base):
@@ -75,7 +75,7 @@ class LeadInfoExtra(Base):
     telefono = Column(String)
     informacion = Column(Text)
     user_email = Column(String)
-    user_email_lower = Column(String, index=True)
+    user_email_lower = Column(String, index=True, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     @validates("user_email")

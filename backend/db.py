@@ -9,7 +9,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 
-from sqlalchemy import func
+from sqlalchemy import func, and_
 import sqlite3
 from datetime import datetime
 
@@ -86,32 +86,42 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
     db.commit()
 
 def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
-    tareas = (
-        db.query(LeadTarea)
+    filas = (
+        db.query(LeadTarea, LeadExtraido)
+        .outerjoin(
+            LeadExtraido,
+            and_(
+                LeadTarea.dominio == LeadExtraido.url,
+                LeadTarea.user_email_lower == LeadExtraido.user_email_lower,
+            ),
+        )
         .filter(LeadTarea.user_email_lower == email)
         .order_by(
             LeadTarea.completado.asc(),
             LeadTarea.prioridad.asc(),
             LeadTarea.fecha.is_(None),
             LeadTarea.fecha.asc(),
-            LeadTarea.timestamp.desc()
+            LeadTarea.timestamp.desc(),
         )
         .all()
     )
 
     resultado = []
-    for t in tareas:
-        resultado.append({
-            "id": t.id,
-            "dominio": t.dominio,
-            "texto": t.texto,
-            "fecha": t.fecha,
-            "completado": t.completado,
-            "timestamp": t.timestamp,
-            "tipo": t.tipo,
-            "nicho": t.nicho,
-            "prioridad": t.prioridad,
-        })
+    for t, lead in filas:
+        resultado.append(
+            {
+                "id": t.id,
+                "dominio": t.dominio,
+                "texto": t.texto,
+                "fecha": t.fecha,
+                "completado": t.completado,
+                "timestamp": t.timestamp,
+                "tipo": t.tipo,
+                "nicho": t.nicho,
+                "prioridad": t.prioridad,
+                "lead_url": lead.url if lead else None,
+            }
+        )
 
     return resultado
 
@@ -302,7 +312,7 @@ from backend.models import LeadNota
 
 def guardar_nota_lead_postgres(email: str, url: str, nota: str, db: Session):
     email_lower = (email or "").strip().lower()
-    existente = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
+    existente = db.query(LeadNota).filter_by(user_email_lower=email_lower, url=url).first()
     if existente:
         existente.nota = nota
     else:
@@ -321,7 +331,7 @@ def obtener_nota_lead(email: str, url: str) -> str:
 
 def obtener_nota_lead_postgres(email: str, url: str, db: Session) -> str:
     email_lower = (email or "").strip().lower()
-    nota = db.query(LeadNota).filter_by(email_lower=email_lower, url=url).first()
+    nota = db.query(LeadNota).filter_by(user_email_lower=email_lower, url=url).first()
     return nota.nota if nota else ""
 
 def buscar_leads_global(email: str, query: str):
@@ -349,7 +359,7 @@ def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[st
         db.query(LeadExtraido.url)
         .outerjoin(
             LeadNota,
-            (LeadNota.url == LeadExtraido.url) & (LeadNota.email_lower == LeadExtraido.user_email_lower)
+            (LeadNota.url == LeadExtraido.url) & (LeadNota.user_email_lower == LeadExtraido.user_email_lower)
         )
         .filter(
             LeadExtraido.user_email_lower == email,

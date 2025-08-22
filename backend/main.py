@@ -49,6 +49,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from fastapi.security import OAuth2PasswordRequestForm
 from backend.database import engine, Base, get_db
 from backend.models import (
@@ -676,6 +677,16 @@ def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: 
 def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     resultados = buscar_leads_global_postgres(usuario.email_lower, query, db)
     return {"resultados": resultados}
+
+
+@app.get("/conteo_leads")
+def conteo_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    total = (
+        db.query(func.count(func.distinct(LeadExtraido.url)))
+        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
+        .scalar()
+    )
+    return {"total_leads_distintos": total}
 
 from pydantic import BaseModel
 from typing import Optional
