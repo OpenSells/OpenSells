@@ -1,11 +1,19 @@
 import io
 import pandas as pd
 from fastapi.testclient import TestClient
+import pytest
 from backend.main import app
+from backend.database import Base, engine
 
-client = TestClient(app)
 
-def test_exportar_csv_limpeza():
+@pytest.fixture()
+def client():
+    Base.metadata.create_all(bind=engine)
+    with TestClient(app) as c:
+        yield c
+    Base.metadata.drop_all(bind=engine)
+
+def test_exportar_csv_limpeza(client):
     payload = {
         "urls": [
             "https://www.wikipedia.org/",

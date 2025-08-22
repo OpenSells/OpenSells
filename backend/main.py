@@ -12,6 +12,11 @@ from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completa
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
 from backend.db import buscar_leads_global_postgres
 from backend.utils import normalizar_nicho, normalizar_dominio, normalizar_email
+from backend.services.export_utils import (
+    normalize_nicho_py,
+    dataframe_from_leads,
+    dataframe_to_csv_response,
+)
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,9 +27,9 @@ import logging
 import re
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from io import BytesIO
 import asyncio
 from time import perf_counter
@@ -434,23 +439,22 @@ def exportar_csv(
 ):
     start = perf_counter()
     nicho_original = payload.nicho
-    nicho_normalizado = normalizar_nicho(nicho_original)
+    nicho_normalizado = normalize_nicho_py(nicho_original)
 
-    # Obtener dominios únicos normalizados
     dominios_unicos = list(set(normalizar_dominio(url) for url in payload.urls))
 
-    # Crear filas solo con dominio y fecha
-    filas = [{
-        "Dominio": dominio,
-        "Fecha": datetime.now().strftime("%Y-%m-%d")
-    } for dominio in dominios_unicos]
+    now = datetime.now(timezone.utc)
+    leads = [
+        {
+            "dominio": dominio,
+            "timestamp": now,
+            "nicho": nicho_normalizado,
+            "nicho_original": nicho_original,
+        }
+        for dominio in dominios_unicos
+    ]
 
-    df = pd.DataFrame(filas)
-    df = df.drop_duplicates(subset="Dominio", keep="first")
-    df = df.dropna(how="all")
-
-    # No se guarda un CSV permanente. Se generará al vuelo para la descarga.
-    df_combinado = df
+    df_combinado = dataframe_from_leads(leads)
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
@@ -464,13 +468,20 @@ def exportar_csv(
 
     # Ya no se mantiene un CSV global. Solo se guardan en la base de datos.
 
-    buffer = BytesIO()
-    df_combinado.to_csv(buffer, index=False, encoding="utf-8-sig")
-    buffer.seek(0)
-    logger.info(
-        "exportar_csv %s -> %d dominios en %.2fs", nicho_normalizado, len(dominios_unicos), perf_counter() - start
+    csv_text, filename = dataframe_to_csv_response(
+        df_combinado, f"leads_{nicho_normalizado}_{now.date().isoformat()}"
     )
-    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nicho_original}.csv"})
+    logger.info(
+        "exportar_csv %s -> %d dominios en %.2fs",
+        nicho_normalizado,
+        len(dominios_unicos),
+        perf_counter() - start,
+    )
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 # 📜 Historial de exportaciones
 @app.get("/historial")
@@ -538,41 +549,50 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
 
 @app.get("/exportar_leads_nicho")
 def exportar_leads_nicho(
-    nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+    nicho: str,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    if not nicho:
+        raise HTTPException(status_code=400, detail="Parámetro 'nicho' requerido")
     start = perf_counter()
     filtro = get_tenant_filter(usuario)
-    nicho_norm = normalizar_nicho(nicho)
-    # validar que el nicho pertenece al usuario
-    existe = (
-        db.query(Nicho)
-        .filter_by(**filtro, nicho=nicho_norm)
-        .first()
+    nicho_norm = normalize_nicho_py(nicho)
+
+    leads = (
+        db.query(LeadExtraido)
+        .filter_by(**filtro)
+        .filter(
+            (LeadExtraido.nicho == nicho_norm)
+            | (LeadExtraido.nicho_original == nicho)
+        )
+        .all()
     )
-    if not existe:
-        raise HTTPException(status_code=404, detail="Nicho no encontrado")
-    leads = obtener_leads_por_nicho(filtro, nicho_norm, db)
-    if not leads:
-        raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
-    df = pd.DataFrame([
-        {"Dominio": l["url"], "Fecha": l["timestamp"][:10] if l.get("timestamp") else ""}
-        for l in leads
-    ])
+    leads_dicts = [
+        {
+            "dominio": getattr(x, "dominio", None),
+            "url": getattr(x, "url", None),
+            "timestamp": getattr(x, "timestamp", None),
+            "nicho": getattr(x, "nicho", None),
+            "nicho_original": getattr(x, "nicho_original", None),
+        }
+        for x in leads
+    ]
 
-    buffer = BytesIO()
-    df.to_csv(buffer, index=False, encoding="utf-8-sig")
-    buffer.seek(0)
+    df = dataframe_from_leads(leads_dicts)
+    filename_base = f"leads_{nicho_norm}_{datetime.now(timezone.utc).date().isoformat()}"
+    csv_text, filename = dataframe_to_csv_response(df, filename_base)
     logger.info(
         "exportar_leads_nicho %s -> %d leads en %.2fs",
         nicho_norm,
         len(df),
         perf_counter() - start,
     )
-    return StreamingResponse(
-        buffer,
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={nicho}.csv"},
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 # 🗑️ Eliminar un nicho
@@ -614,27 +634,31 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
         .all()
     )
 
-    if not leads:
-        raise HTTPException(status_code=404, detail="No hay leads para exportar")
-
-    df_total = pd.DataFrame([
+    leads_dicts = [
         {
-            "Dominio": lead.url,
-            "Nicho": lead.nicho_original,
-            "Fecha": str(lead.timestamp)[:10],
+            "dominio": getattr(lead, "dominio", None) or getattr(lead, "url", None),
+            "url": getattr(lead, "url", None),
+            "timestamp": getattr(lead, "timestamp", None),
+            "nicho": getattr(lead, "nicho", None),
+            "nicho_original": getattr(lead, "nicho_original", None),
         }
         for lead in leads
-    ])
+    ]
 
-    buffer = BytesIO()
-    df_total.to_csv(buffer, index=False, encoding="utf-8-sig")
-    buffer.seek(0)
+    df_total = dataframe_from_leads(leads_dicts)
 
-    nombre_archivo = f"leads_totales_{usuario.email_lower}.csv"
+    nombre_archivo_base = f"leads_totales_{usuario.email_lower}"
+    csv_text, filename = dataframe_to_csv_response(df_total, nombre_archivo_base)
     logger.info(
-        "exportar_todos_mis_leads %d leads en %.2fs", len(df_total), perf_counter() - start
+        "exportar_todos_mis_leads %d leads en %.2fs",
+        len(df_total),
+        perf_counter() - start,
     )
-    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 class EstadoDominioRequest(BaseModel):
     dominio: str
