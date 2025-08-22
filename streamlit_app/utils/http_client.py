@@ -1,7 +1,8 @@
 import requests
 import streamlit as st
-
 from .auth_utils import get_backend_url, handle_401_and_redirect
+
+BACKEND_URL = get_backend_url()
 
 
 def _session_with_auth():
@@ -13,29 +14,28 @@ def _session_with_auth():
     return s
 
 
-def _url(path: str) -> str:
-    return f"{get_backend_url()}/{path.lstrip('/')}"
-
-
 def api_get(path: str, **kwargs) -> requests.Response:
+    url = f"{BACKEND_URL}/{path.lstrip('/')}"
     with _session_with_auth() as s:
-        resp = s.get(_url(path), timeout=30, **kwargs)
+        resp = s.get(url, timeout=30, **kwargs)
     if resp.status_code == 401:
         handle_401_and_redirect()
     return resp
 
 
 def api_post(path: str, json=None, data=None, params=None, **kwargs) -> requests.Response:
+    url = f"{BACKEND_URL}/{path.lstrip('/')}"
     with _session_with_auth() as s:
-        resp = s.post(_url(path), json=json, data=data, params=params, timeout=30, **kwargs)
+        resp = s.post(url, json=json, data=data, params=params, timeout=30, **kwargs)
     if resp.status_code == 401:
         handle_401_and_redirect()
     return resp
 
 
 def api_delete(path: str, params=None, **kwargs) -> requests.Response:
+    url = f"{BACKEND_URL}/{path.lstrip('/')}"
     with _session_with_auth() as s:
-        resp = s.delete(_url(path), params=params, timeout=30, **kwargs)
+        resp = s.delete(url, params=params, timeout=30, **kwargs)
     if resp.status_code == 401:
         handle_401_and_redirect()
     return resp
@@ -59,4 +59,3 @@ def health_ok() -> bool:
         return r.status_code < 500
     except Exception:
         return False
-
