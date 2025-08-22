@@ -8,6 +8,7 @@ from backend.database import Base, engine, SessionLocal, bootstrap_database
 from datetime import datetime, timedelta
 from backend.models import Usuario, Nicho, LeadExtraido, LeadTarea, LeadNota, Suscripcion
 from backend.auth import hashear_password
+from backend.utils import normalizar_nicho
 
 
 @pytest.fixture()
@@ -24,11 +25,6 @@ def _seed_data():
         db.add(user)
         db.commit()
         db.refresh(user)
-        nicho = Nicho(
-            user_email_lower=user.email_lower,
-            nicho="marketing",
-            nicho_original="Marketing",
-        )
         lead1 = LeadExtraido(
             user_email=user.email_lower,
             user_email_lower=user.email_lower,
@@ -62,7 +58,7 @@ def _seed_data():
             status="active",
             current_period_end=datetime.utcnow() + timedelta(days=1),
         )
-        db.add_all([nicho, lead1, lead2, tarea, nota, sus])
+        db.add_all([lead1, lead2, tarea, nota, sus])
         db.commit()
 
 
@@ -95,12 +91,45 @@ def test_mis_nichos(client, token):
     assert data["nichos"][0]["total_leads"] == 2
 
 
+def test_mis_nichos_fallback_from_leads(client, token):
+    # remove nichos to force fallback
+    with SessionLocal() as db:
+        db.query(Nicho).delete()
+        db.commit()
+    resp = client.get("/mis_nichos", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nichos"][0]["nicho"] == "marketing"
+
+
 def test_mis_leads(client, token):
     resp = client.get("/mis_leads", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     data = resp.json()
     emails = {lead["user_email_lower"] for lead in data["leads"]}
     assert emails == {"test@example.com"}
+
+
+def test_insert_lead_creates_nicho(client, token):
+    with SessionLocal() as db:
+        db.query(Nicho).filter_by(user_email_lower="test@example.com", nicho="salud_dental").delete()
+        db.commit()
+        lead = LeadExtraido(
+            user_email="test@example.com",
+            user_email_lower="test@example.com",
+            url="https://c.com",
+            dominio="c.com",
+            nicho="salud_dental",
+            nicho_original="Salud dental",
+        )
+        db.add(lead)
+        db.commit()
+        count = (
+            db.query(Nicho)
+            .filter_by(user_email_lower="test@example.com", nicho="salud_dental")
+            .count()
+        )
+        assert count == 1
 
 
 def test_requires_auth(client):
@@ -267,3 +296,7 @@ def test_bootstrap_backfills_legacy_leads(client):
         inspector = inspect(conn)
         ucs = {uc["name"] for uc in inspector.get_unique_constraints("leads_extraidos")}
         assert "uq_user_dominio" in ucs
+
+
+def test_normalizar_nicho_equivalence():
+    assert normalizar_nicho("Dentistas Madrid") == normalizar_nicho("dentístas-madrid")

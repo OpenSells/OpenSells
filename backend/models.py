@@ -7,6 +7,8 @@ from sqlalchemy import (
     Boolean,
     func,
     UniqueConstraint,
+    event,
+    text,
 )
 from sqlalchemy.orm import validates
 
@@ -144,6 +146,22 @@ class LeadExtraido(Base):
     def _set_dominio(self, key, value):
         self.dominio = normalizar_dominio(value)
         return value
+
+
+@event.listens_for(LeadExtraido, "after_insert")
+def _upsert_nicho_from_lead(mapper, connection, target):
+    """Ensure a Nicho row exists whenever a lead is inserted."""
+    connection.execute(
+        text(
+            "INSERT INTO nichos (user_email_lower, nicho, nicho_original) "
+            "VALUES (:u, :n, :o) ON CONFLICT(user_email_lower, nicho) DO NOTHING"
+        ),
+        {
+            "u": (target.user_email_lower or "").lower(),
+            "n": target.nicho,
+            "o": target.nicho_original,
+        },
+    )
 
 
 class Suscripcion(Base):

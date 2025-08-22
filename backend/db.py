@@ -9,7 +9,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 import sqlite3
 from datetime import datetime
 from backend.utils import normalizar_dominio
@@ -240,14 +240,57 @@ def obtener_nichos_usuario(filtro: dict, db: Session):
         .order_by(func.max(LeadExtraido.timestamp).desc())
         .all()
     )
-    return [
-        {
-            "nicho": row.nicho,
-            "nicho_original": row.nicho_original,
-            "total_leads": row.total_leads,
-        }
-        for row in resultados
-    ]
+    if resultados:
+        return [
+            {
+                "nicho": row.nicho,
+                "nicho_original": row.nicho_original,
+                "total_leads": row.total_leads,
+            }
+            for row in resultados
+        ]
+    # fallback to leads view if nichos table empty
+    user_email_lower = filtro.get("user_email_lower")
+    try:
+        fallback = db.execute(
+            text(
+                """
+                SELECT nicho, nicho_original, total_leads
+                FROM v_nichos_usuario
+                WHERE user_email_lower = :u
+                ORDER BY nicho
+                """
+            ),
+            {"u": user_email_lower},
+        ).fetchall()
+        return [
+            {
+                "nicho": row.nicho,
+                "nicho_original": row.nicho_original,
+                "total_leads": row.total_leads,
+            }
+            for row in fallback
+        ]
+    except Exception:
+        # Fallback purely from leads if view is unavailable
+        rows = (
+            db.query(
+                LeadExtraido.nicho.label("nicho"),
+                func.min(LeadExtraido.nicho_original).label("nicho_original"),
+                func.count(LeadExtraido.id).label("total_leads"),
+            )
+            .filter_by(**filtro)
+            .group_by(LeadExtraido.nicho)
+            .all()
+        )
+        return [
+            {
+                "nicho": r.nicho,
+                "nicho_original": r.nicho_original,
+                "total_leads": r.total_leads,
+            }
+            for r in rows
+        ]
 
 def obtener_leads_por_nicho(filtro: dict, nicho: str, db: Session):
     resultados = (
