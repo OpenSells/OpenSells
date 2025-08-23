@@ -20,12 +20,27 @@ _adapter = HTTPAdapter(max_retries=_retries, pool_connections=10, pool_maxsize=2
 _session.mount("http://", _adapter)
 _session.mount("https://", _adapter)
 
+_extra_headers: dict[str, str] = {}
+
 # timeouts: (connect_timeout, read_timeout)
 DEFAULT_TIMEOUT = (5, 60)  # conectar rápido; dar margen al backend "cold start"
 LONG_TIMEOUT = (5, 120)    # para /login si Render está frío
 
 def _url(path: str) -> str:
     return urljoin(BACKEND_URL + "/", path.lstrip("/"))
+
+
+def set_extra_headers(headers: dict[str, str] | None):
+    """Define headers que se incluirán por defecto en todas las peticiones."""
+    global _extra_headers
+    _extra_headers = headers or {}
+
+
+def _merge_headers(headers: dict | None) -> dict:
+    combined = dict(_extra_headers)
+    if headers:
+        combined.update(headers)
+    return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
@@ -37,18 +52,21 @@ def _handle_401(resp):
 
 def get(path: str, **kwargs):
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    resp = _session.get(_url(path), timeout=timeout, **kwargs)
+    headers = _merge_headers(kwargs.pop("headers", None))
+    resp = _session.get(_url(path), headers=headers, timeout=timeout, **kwargs)
     return _handle_401(resp)
 
 def post(path: str, **kwargs):
     timeout = kwargs.pop("timeout", LONG_TIMEOUT)
-    resp = _session.post(_url(path), timeout=timeout, **kwargs)
+    headers = _merge_headers(kwargs.pop("headers", None))
+    resp = _session.post(_url(path), headers=headers, timeout=timeout, **kwargs)
     return _handle_401(resp)
 
 
 def delete(path: str, **kwargs):
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    resp = _session.delete(_url(path), timeout=timeout, **kwargs)
+    headers = _merge_headers(kwargs.pop("headers", None))
+    resp = _session.delete(_url(path), headers=headers, timeout=timeout, **kwargs)
     return _handle_401(resp)
 
 def health_ok() -> bool:
