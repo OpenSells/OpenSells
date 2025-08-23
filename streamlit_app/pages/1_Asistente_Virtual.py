@@ -51,6 +51,31 @@ st.divider()
 
 plan = (user or {}).get("plan", "free")
 
+EXTRAER_LEADS_MSG = (
+    "🚧 Esta funcionalidad desde el asistente estará disponible próximamente. "
+    "Mientras tanto, puedes usar la página de Búsqueda para generar leads."
+)
+
+
+def es_intencion_extraer_leads(texto: str) -> bool:
+    """Determina si el usuario solicita extraer leads."""
+    palabras = [
+        "extraer",
+        "scrap",
+        "scrapear",
+        "conseguir leads",
+        "generar leads",
+        "exportar",
+        "descargar",
+    ]
+    t = texto.lower()
+    return any(p in t for p in palabras)
+
+
+def _respuesta_extraccion_no_disponible():
+    """Respuesta unificada cuando la extracción no está disponible."""
+    return {"error": EXTRAER_LEADS_MSG}
+
 
 def _auth_headers():
     token = st.session_state.get("token")
@@ -220,42 +245,13 @@ def api_buscar_variantes_seleccionadas(variantes: list[str]):
 
 
 def api_extraer_multiples(urls: list[str], pais: str = "ES"):
-    try:
-        r = http_client.post(
-            "/extraer_multiples",
-            headers=_auth_headers(),
-            json={"urls": urls, "pais": pais},
-        )
-        if r.status_code == 200:
-            return r.json()
-        if r.status_code == 403:
-            st.warning("Tu plan no permite extraer leads.")
-            subscription_cta()
-        return {"error": r.text, "status": r.status_code}
-    except Exception as e:
-        return {"error": str(e)}
+    """Stub de extracción para evitar llamadas reales al backend."""
+    return _respuesta_extraccion_no_disponible()
 
 
 def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
-    try:
-        r = http_client.post(
-            "/exportar_csv",
-            headers=_auth_headers(),
-            json={"urls": urls, "pais": pais, "nicho": nicho},
-        )
-        if r.status_code == 200:
-            st.session_state["csv_bytes"] = r.content
-            st.session_state["csv_filename"] = f"{nicho or 'leads'}.csv"
-            st.success("Leads guardados en la base de datos")
-            return {"ok": True, "filename": st.session_state["csv_filename"]}
-        if r.status_code == 403:
-            st.warning("Tu plan no permite exportar leads.")
-            subscription_cta()
-        else:
-            st.error(f"No se pudo exportar: {r.text}")
-        return {"ok": False, "error": r.text, "status": r.status_code}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    """Exportar CSV deshabilitado mientras la extracción no está disponible."""
+    return _respuesta_extraccion_no_disponible()
 
 
 def api_leads_por_nicho(nicho: str):
@@ -804,42 +800,30 @@ pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 if pregunta:
     st.session_state.pop("csv_bytes", None)
     st.session_state.pop("csv_filename", None)
-    if not tiene_suscripcion_activa(plan):
-        st.info(
-            "Puedes chatear y gestionar información básica. Para EXTRAER o EXPORTAR leads necesitas un plan activo."
-        )
-        subscription_cta()
     st.session_state.chat.append({"role": "user", "content": pregunta})
     with st.chat_message("user"):
         st.markdown(pregunta)
 
-    contexto = build_system_prompt()
-    keywords = ["extraer", "conseguir", "buscar", "crear nicho", "exportar"]
-    if any(k in pregunta.lower() for k in keywords):
-        contexto += f"\nObjetivo del usuario: {pregunta}"
-    messages = [{"role": "system", "content": contexto}] + st.session_state.chat
-
-    with st.spinner("Pensando..."):
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                tools=tool_defs,
-                tool_choice="auto",
+    if es_intencion_extraer_leads(pregunta):
+        content = EXTRAER_LEADS_MSG
+        st.session_state.chat.append({"role": "assistant", "content": content})
+        with st.chat_message("assistant"):
+            st.markdown(content)
+    else:
+        if not tiene_suscripcion_activa(plan):
+            st.info(
+                "Puedes chatear y gestionar información básica. Para EXTRAER o EXPORTAR leads necesitas un plan activo."
             )
-            msg = response.choices[0].message
-            while getattr(msg, "tool_calls", None):
-                st.session_state.chat.append(
-                    {"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls}
-                )
-                for tc in msg.tool_calls:
-                    func = TOOLS.get(tc.function.name)
-                    args = json.loads(tc.function.arguments or "{}")
-                    resultado = func(**args) if func else {"error": f"Tool {tc.function.name} no disponible"}
-                    st.session_state.chat.append(
-                        {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(resultado, ensure_ascii=False)}
-                    )
-                messages = [{"role": "system", "content": contexto}] + st.session_state.chat
+            subscription_cta()
+
+        contexto = build_system_prompt()
+        keywords = ["extraer", "conseguir", "buscar", "crear nicho", "exportar"]
+        if any(k in pregunta.lower() for k in keywords):
+            contexto += f"\nObjetivo del usuario: {pregunta}"
+        messages = [{"role": "system", "content": contexto}] + st.session_state.chat
+
+        with st.spinner("Pensando..."):
+            try:
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
@@ -847,21 +831,40 @@ if pregunta:
                     tool_choice="auto",
                 )
                 msg = response.choices[0].message
-        except Exception:
-            st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
-            st.stop()
+                while getattr(msg, "tool_calls", None):
+                    st.session_state.chat.append(
+                        {"role": "assistant", "content": msg.content or "", "tool_calls": msg.tool_calls}
+                    )
+                    for tc in msg.tool_calls:
+                        func = TOOLS.get(tc.function.name)
+                        args = json.loads(tc.function.arguments or "{}")
+                        resultado = func(**args) if func else {"error": f"Tool {tc.function.name} no disponible"}
+                        st.session_state.chat.append(
+                            {"role": "tool", "tool_call_id": tc.id, "content": json.dumps(resultado, ensure_ascii=False)}
+                        )
+                    messages = [{"role": "system", "content": contexto}] + st.session_state.chat
+                    response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                        tools=tool_defs,
+                        tool_choice="auto",
+                    )
+                    msg = response.choices[0].message
+            except Exception:
+                st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
+                st.stop()
 
-    content = msg.content or ""
-    st.session_state.chat.append({"role": "assistant", "content": content})
-    with st.chat_message("assistant"):
-        st.markdown(content)
-        _render_lead_actions()
-        if st.session_state.get("csv_bytes"):
-            st.download_button(
-                "⬇️ Descargar CSV",
-                st.session_state.get("csv_bytes"),
-                file_name=st.session_state.get("csv_filename", "leads.csv"),
-                mime="text/csv",
-                use_container_width=True,
-            )
+        content = msg.content or ""
+        st.session_state.chat.append({"role": "assistant", "content": content})
+        with st.chat_message("assistant"):
+            st.markdown(content)
+            _render_lead_actions()
+            if st.session_state.get("csv_bytes"):
+                st.download_button(
+                    "⬇️ Descargar CSV",
+                    st.session_state.get("csv_bytes"),
+                    file_name=st.session_state.get("csv_filename", "leads.csv"),
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
