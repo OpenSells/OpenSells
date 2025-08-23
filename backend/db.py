@@ -2,6 +2,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import create_engine
 import os
 from dotenv import load_dotenv
+from backend.utils import normalizar_nicho
 
 load_dotenv()
 
@@ -629,7 +630,6 @@ def normalizar_dominio(url: str) -> str:
     return dominio.split("/")[0]  # Elimina todo lo que haya después de /
 
 def editar_nombre_nicho(email: str, nicho_actual: str, nuevo_nombre: str):
-    from .main import normalizar_nicho
     with sqlite3.connect(DB_PATH) as db:
         db.execute("""
             UPDATE leads_extraidos

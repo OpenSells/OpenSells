@@ -94,11 +94,13 @@ from backend.db import guardar_estado_lead, obtener_estado_lead
 from sqlalchemy.orm import Session
 from backend.db import obtener_nichos_para_url
 from backend.webhook import router as webhook_router
+from backend.routers.asistente import router as asistente_router
 
 load_dotenv()
 
 app = FastAPI()
 app.include_router(webhook_router)
+app.include_router(asistente_router)
 
 @app.get("/health")
 def health():
