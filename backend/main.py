@@ -5,7 +5,7 @@ from fastapi import UploadFile
 from backend.db import normalizar_dominio
 from backend.db import guardar_info_extra, obtener_info_extra
 from backend.db import eliminar_lead_de_nicho
-from backend.db import guardar_memoria_usuario, obtener_memoria_usuario
+from backend.db import guardar_memoria_usuario_pg, obtener_memoria_usuario_pg
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
 # Utilidad para buscar leads guardados en la base de datos PostgreSQL
@@ -229,7 +229,8 @@ async def generar_variantes_cliente_ideal(
 
     # 1. Si no hay contexto manual ni forzar_variantes, intenta cargar memoria automáticamente
     if not forzar_variantes and not contexto_extra:
-        memoria = obtener_memoria_usuario(usuario.email_lower)
+        email_lower = (usuario.email or "").strip().lower()
+        memoria = obtener_memoria_usuario_pg(email_lower)
         if memoria:
             contexto_extra = f"El usuario indicó esto sobre su negocio: {memoria}"
 
@@ -808,7 +809,8 @@ def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session 
 @app.post("/mi_memoria")
 def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
     try:
-        guardar_memoria_usuario(usuario.email_lower, request.descripcion.strip())
+        email_lower = (usuario.email or "").strip().lower()
+        guardar_memoria_usuario_pg(email_lower, request.descripcion.strip())
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar memoria: {str(e)}")
@@ -816,7 +818,8 @@ def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user)):
     try:
-        memoria = obtener_memoria_usuario(usuario.email_lower)
+        email_lower = (usuario.email or "").strip().lower()
+        memoria = obtener_memoria_usuario_pg(email_lower)
         return {"memoria": memoria or ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")

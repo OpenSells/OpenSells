@@ -98,3 +98,12 @@ class LeadExtraido(Base):
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
+
+# Memoria de usuario almacenada en PostgreSQL
+class UsuarioMemoria(Base):
+    __tablename__ = "usuario_memoria"
+
+    email_lower = Column(String, primary_key=True, index=True)
+    descripcion = Column(Text)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

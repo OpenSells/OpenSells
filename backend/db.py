@@ -1,19 +1,39 @@
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import create_engine
 import os
+import sqlite3
+import logging
+from datetime import datetime
 from dotenv import load_dotenv
+
+from sqlalchemy import func, and_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import Session
+
+from backend.database import SessionLocal
+from backend.models import LeadTarea, UsuarioMemoria
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL)
-Base = declarative_base()
-
-from sqlalchemy import func, and_
-import sqlite3
-from datetime import datetime
-
 DB_PATH = "backend/historial.db"
+
+# Advertir si existe memoria de usuario en el archivo SQLite obsoleto
+if os.path.exists(DB_PATH):
+    try:
+        with sqlite3.connect(DB_PATH) as _db:
+            cur = _db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='usuario_memoria'"
+            )
+            if cur.fetchone():
+                count = _db.execute("SELECT COUNT(*) FROM usuario_memoria").fetchone()[0]
+                if count > 0:
+                    logging.warning(
+                        "Se detectó 'usuario_memoria' en %s con %d registros. "
+                        "Ejecuta scripts/migrar_memoria_sqlite_a_postgres.py; esta tabla ya no se usa.",
+                        DB_PATH,
+                        count,
+                    )
+    except sqlite3.Error:
+        pass
 
 def crear_tablas_si_no_existen():
     with sqlite3.connect(DB_PATH) as db:
@@ -63,8 +83,6 @@ def crear_tablas_si_no_existen():
         db.commit()
 
 from datetime import datetime
-from sqlalchemy.orm import Session
-from backend.models import LeadTarea
 
 def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, dominio: str = None,
                                  tipo: str = "lead", nicho: str = None, prioridad: str = "media",
@@ -166,8 +184,6 @@ def guardar_exportacion(user_email: str, filename: str):
         )
         db.commit()
 
-from datetime import datetime
-from sqlalchemy.orm import Session
 from backend.models import LeadExtraido
 
 def guardar_leads_extraidos(
@@ -506,38 +522,35 @@ def obtener_tarea_por_id_postgres(email: str, tarea_id: int, db: Session):
     return None
 
 
-
-def guardar_memoria_usuario(email: str, descripcion: str):
-    timestamp = datetime.utcnow().isoformat()
-    with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS usuario_memoria (
-                email TEXT PRIMARY KEY,
-                descripcion TEXT,
-                timestamp TEXT
+def guardar_memoria_usuario_pg(email_lower: str, descripcion: str) -> None:
+    """Guarda o actualiza la memoria del usuario en PostgreSQL."""
+    email_lower = (email_lower or "").strip().lower()
+    with SessionLocal() as db:
+        UsuarioMemoria.__table__.create(bind=db.bind, checkfirst=True)
+        insert_fn = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+        stmt = (
+            insert_fn(UsuarioMemoria)
+            .values(email_lower=email_lower, descripcion=descripcion, updated_at=func.now())
+            .on_conflict_do_update(
+                index_elements=[UsuarioMemoria.email_lower],
+                set_={"descripcion": descripcion, "updated_at": func.now()},
             )
-        """)
-        db.execute("""
-            INSERT INTO usuario_memoria (email, descripcion, timestamp)
-            VALUES (?, ?, ?)
-            ON CONFLICT(email) DO UPDATE SET
-                descripcion = excluded.descripcion,
-                timestamp = excluded.timestamp
-        """, (email, descripcion, timestamp))
+        )
+        db.execute(stmt)
         db.commit()
 
-def obtener_memoria_usuario(email: str) -> str:
-    with sqlite3.connect(DB_PATH) as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS usuario_memoria (
-                email TEXT PRIMARY KEY,
-                descripcion TEXT,
-                timestamp TEXT
-            )
-        """)
-        cursor = db.execute("SELECT descripcion FROM usuario_memoria WHERE email = ?", (email,))
-        row = cursor.fetchone()
-        return row[0] if row else ""
+
+def obtener_memoria_usuario_pg(email_lower: str) -> str | None:
+    """Obtiene la memoria del usuario desde PostgreSQL."""
+    email_lower = (email_lower or "").strip().lower()
+    with SessionLocal() as db:
+        UsuarioMemoria.__table__.create(bind=db.bind, checkfirst=True)
+        memoria = (
+            db.query(UsuarioMemoria.descripcion)
+            .filter(UsuarioMemoria.email_lower == email_lower)
+            .scalar()
+        )
+        return memoria
 
 def obtener_historial_por_tipo(email: str, tipo: str):
     with sqlite3.connect(DB_PATH) as db:
