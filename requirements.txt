@@ -4,7 +4,6 @@ uvicorn[standard]
 python-dotenv
 sqlalchemy
 alembic
-aiosqlite
 passlib[bcrypt]
 python-jose
 python-multipart

@@ -6,6 +6,7 @@ from backend.models import (
     LeadNota,
     LeadInfoExtra,
     LeadExtraido,
+    UsuarioMemoria,
 )
 
 if __name__ == "__main__":
