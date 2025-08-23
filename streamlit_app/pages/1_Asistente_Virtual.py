@@ -9,8 +9,17 @@ from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
 from streamlit_app.utils import http_client
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.assistant_api import (
+    ASSISTANT_EXTRACTION_ENABLED,
+    EXTRAER_LEADS_MSG,
+    api_buscar,
+    api_buscar_variantes_seleccionadas,
+)
 
 init_cookie_manager_mount()
+
+# Identifica las peticiones provenientes del asistente
+http_client.set_extra_headers({"X-Client-Source": "assistant"})
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
@@ -50,11 +59,6 @@ st.write(
 st.divider()
 
 plan = (user or {}).get("plan", "free")
-
-EXTRAER_LEADS_MSG = (
-    "🚧 Esta funcionalidad desde el asistente estará disponible próximamente. "
-    "Mientras tanto, puedes usar la página de Búsqueda para generar leads."
-)
 
 
 def es_intencion_extraer_leads(texto: str) -> bool:
@@ -227,21 +231,12 @@ def guardar_memoria(descripcion: str):
         return {"error": str(e)}
 
 
-# --- Nuevas herramientas conectadas al backend ---
-
-def api_buscar(cliente_ideal: str, forzar_variantes: bool = False, contexto_extra: str | None = None):
-    payload = {"cliente_ideal": cliente_ideal, "forzar_variantes": forzar_variantes, "contexto_extra": contexto_extra}
-    r = http_client.post("/buscar", json=payload, headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+def _tool_api_buscar(cliente_ideal: str, forzar_variantes: bool = False, contexto_extra: str | None = None):
+    return api_buscar(cliente_ideal, forzar_variantes=forzar_variantes, contexto_extra=contexto_extra, headers=_auth_headers())
 
 
-def api_buscar_variantes_seleccionadas(variantes: list[str]):
-    r = http_client.post(
-        "/buscar_variantes_seleccionadas",
-        json={"variantes": variantes},
-        headers=_auth_headers(),
-    )
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+def _tool_api_buscar_variantes_seleccionadas(variantes: list[str]):
+    return api_buscar_variantes_seleccionadas(variantes, headers=_auth_headers())
 
 
 def api_extraer_multiples(urls: list[str], pais: str = "ES"):
@@ -402,8 +397,8 @@ def _render_lead_actions():
 
 TOOLS = {
     "buscar_leads": buscar_leads,
-    "api_buscar": api_buscar,
-    "api_buscar_variantes_seleccionadas": api_buscar_variantes_seleccionadas,
+    "api_buscar": _tool_api_buscar,
+    "api_buscar_variantes_seleccionadas": _tool_api_buscar_variantes_seleccionadas,
     "api_extraer_multiples": api_extraer_multiples,
     "api_exportar_csv": api_exportar_csv,
     "obtener_estado_lead": obtener_estado_lead,
@@ -804,11 +799,12 @@ if pregunta:
     with st.chat_message("user"):
         st.markdown(pregunta)
 
-    if es_intencion_extraer_leads(pregunta):
+    if es_intencion_extraer_leads(pregunta) and not ASSISTANT_EXTRACTION_ENABLED:
         content = EXTRAER_LEADS_MSG
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
+        st.stop()
     else:
         if not tiene_suscripcion_activa(plan):
             st.info(

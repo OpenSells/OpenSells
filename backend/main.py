@@ -31,6 +31,7 @@ import asyncio
 from time import perf_counter
 import csv
 from scraper.extractor import extraer_datos_desde_url
+from backend.deps import guard_assistant_extraction
 
 # Cargar variables de entorno antes de usar Stripe
 load_dotenv()
@@ -217,6 +218,7 @@ class BuscarRequest(BaseModel):
 @app.post("/buscar")
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
+    _=Depends(guard_assistant_extraction),
     usuario=Depends(get_current_user)
 ):
     if openai_client is None:
@@ -274,7 +276,7 @@ Dado el nicho o búsqueda "{prompt_base}", genera exactamente 6 palabras clave o
     }
 
 @app.post("/buscar_variantes_seleccionadas")
-def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest):
+def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest, _=Depends(guard_assistant_extraction)):
     variantes = payload.variantes[:3]
 
     if openai_client is None:
