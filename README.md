@@ -1,11 +1,13 @@
 # OpenSells
 
-*Actualizado el 21/08/2025*
+*Actualizado el 23/08/2025*
 
 **OpenSells** es un SaaS para generación y gestión de leads apoyado en un backend FastAPI y una interfaz multipágina en Streamlit.
 
 ## 🆕 Novedades recientes
 
+- **Memoria del asistente en PostgreSQL:** las interacciones se persisten en una tabla multi-tenant; se incluye script `scripts/migrar_memoria_sqlite_a_postgres.py` para migrar datos previos.
+- **Extracción de leads desde el asistente deshabilitada:** se añadió un guard que bloquea estas llamadas para evitar uso no deseado.
 - **Autenticación integrada en Home:** formulario combinado de inicio de sesión y registro con botones de ancho completo.
 - **Persistencia de sesión y cierre por inactividad:** los JWT se guardan en `localStorage` y se restauran al refrescar; las sesiones expiran tras 20 minutos sin actividad.
 - **Control de acceso uniforme:** todas las páginas excepto Home verifican sesión y muestran enlace a Home si el usuario no ha iniciado sesión.
@@ -23,6 +25,7 @@
 - **Frontend:** Streamlit multipágina con generación de leads, gestión de nichos, tareas, asistente virtual, exportaciones y control de acceso por plan.
 - **Autenticación:** JWT persistido en cookies, helper `utils/auth_utils.py` para restaurar sesión y auto-logout.
 - **Multi-tenant:** la clave es `user_email_lower`; hay endpoint `/debug-user-snapshot` para verificar sesión y prefijo de la base de datos.
+- **Memoria del asistente:** conversaciones almacenadas en PostgreSQL, con soporte de migración desde SQLite.
 - **Pruebas:** `pytest` pasa todas las pruebas y el código compila con `python -m py_compile`.
 
 ## 🛠️ Ejecución local
@@ -65,4 +68,4 @@ OpenSells sigue evolucionando hacia un servicio estable de generación de leads 
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 21/08/2025.)*
+*(Generado automáticamente el 23/08/2025.)*
