@@ -6,7 +6,11 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import (
+    ensure_session,
+    logout_and_redirect,
+    require_auth_or_prompt,
+)
 from streamlit_app.utils import http_client
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.assistant_api import (
@@ -15,6 +19,7 @@ from streamlit_app.assistant_api import (
     api_buscar,
     api_buscar_variantes_seleccionadas,
 )
+from streamlit_app.utils.assistant_guard import violates_policy, sanitize_output
 
 init_cookie_manager_mount()
 
@@ -23,8 +28,11 @@ http_client.set_extra_headers({"X-Client-Source": "assistant"})
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
-
-user, token = ensure_session(require_auth=True)
+if not require_auth_or_prompt():
+    st.stop()
+user, token = ensure_session()
+if not token:
+    st.stop()
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
@@ -51,10 +59,14 @@ if client is None:
     st.error("El asistente no está disponible: falta OPENAI_API_KEY en el entorno.")
     st.stop()
 
-st.title("🤖 Tu Asistente Virtual")
-st.write(
-    "Desde este asistente puedes **extraer leads**, **crear tareas**, **gestionar nichos** y consultar información. "
-    "Usa el chat para pedir acciones concretas (p. ej., “busca dentistas en Madrid y crea un nicho”)."
+st.markdown(
+    """
+    <div style="text-align:center; margin-top: 0.5rem; margin-bottom: 0.5rem;">
+        <h2 style="margin-bottom:0.25rem;">Asistente Virtual (Beta)</h2>
+        <p>Usa el chat para pedir acciones concretas y consejos. Por Ejemplo: Crea una tarea para no olvidarme de contactar al Lead Opensells.com y escribe un email para contactarle.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 st.divider()
 
@@ -793,6 +805,10 @@ for entrada in st.session_state.chat:
 pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 
 if pregunta:
+    blocked, msg_pol = violates_policy(pregunta)
+    if blocked:
+        st.warning(msg_pol)
+        st.stop()
     st.session_state.pop("csv_bytes", None)
     st.session_state.pop("csv_filename", None)
     st.session_state.chat.append({"role": "user", "content": pregunta})
@@ -850,17 +866,21 @@ if pregunta:
                 st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
                 st.stop()
 
-        content = msg.content or ""
+        content = sanitize_output(msg.content or "")
+        blocked_out, msg_pol_out = violates_policy(content)
+        if blocked_out:
+            content = msg_pol_out
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
-            _render_lead_actions()
-            if st.session_state.get("csv_bytes"):
-                st.download_button(
-                    "⬇️ Descargar CSV",
-                    st.session_state.get("csv_bytes"),
-                    file_name=st.session_state.get("csv_filename", "leads.csv"),
-                    mime="text/csv",
-                    use_container_width=True,
-                )
+            if not blocked_out:
+                _render_lead_actions()
+                if st.session_state.get("csv_bytes"):
+                    st.download_button(
+                        "⬇️ Descargar CSV",
+                        st.session_state.get("csv_bytes"),
+                        file_name=st.session_state.get("csv_filename", "leads.csv"),
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 

@@ -14,6 +14,7 @@
 import os
 import streamlit as st
 import hashlib
+import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -24,7 +25,7 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -48,8 +49,24 @@ def _safe_secret(name: str, default=None):
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
+st.markdown(
+    """
+    <style>
+    .badge {padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;}
+    .badge-warn {background-color:#fff3cd;color:#664d03;}
+    .badge-info {background-color:#cfe2ff;color:#084298;}
+    .badge-ok {background-color:#d1e7dd;color:#0f5132;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-user, token = ensure_session(require_auth=True)
+
+if not require_auth_or_prompt():
+    st.stop()
+user, token = ensure_session()
+if not token:
+    st.stop()
 plan = (user or {}).get("plan", "free")
 
 if st.sidebar.button("Cerrar sesión"):
@@ -73,6 +90,25 @@ def normalizar_dominio(url: str) -> str:
 
 def md5(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
+
+
+def render_estado_badge(estado: str) -> str:
+    if estado == "no_contactado":
+        return '<span class="badge badge-warn">No contactado</span>'
+    if estado == "en_proceso":
+        return '<span class="badge badge-info">En proceso</span>'
+    return '<span class="badge badge-ok">Contactado</span>'
+
+
+def _cambiar_estado(key: str, dominio: str):
+    nuevo = st.session_state.get(key)
+    cached_post(
+        "leads/estado_contacto",
+        st.session_state.token,
+        payload={"dominio": dominio, "estado_contacto": nuevo},
+    )
+    st.session_state["forzar_recarga"] += 1
+    st.rerun()
 
 # ── Forzar Recarga Caché ─────────────────────────────
 if "forzar_recarga" not in st.session_state:
@@ -174,10 +210,13 @@ for n in nichos_visibles:
 
         # ── Descargar CSV ───────────────────────────
         try:
+            params_export = {"nicho": n["nicho"]}
+            if estado_filtro != "todos":
+                params_export["estado_contacto"] = estado_filtro
             resp = requests.get(
                 f"{BACKEND_URL}/exportar_leads_nicho",
                 headers={"Authorization": f"Bearer {st.session_state.token}"},
-                params={"nicho": n["nicho"]},
+                params=params_export,
             )
             if resp.status_code == 200:
                 cols[0].download_button(
@@ -207,12 +246,19 @@ for n in nichos_visibles:
                 else:
                     st.error("Error al eliminar el nicho")
 
-        # ── Cargar leads del nicho ───────────────────
+        estado_filtro = st.selectbox(
+            "Estado de contacto",
+            ["todos", "no_contactado", "en_proceso", "contactado"],
+            key=f"estado_filtro_{n['nicho']}",
+        )
+        query_params = {"nicho": n["nicho"]}
+        if estado_filtro != "todos":
+            query_params["estado_contacto"] = estado_filtro
         resp_leads = cached_get(
             "leads_por_nicho",
             st.session_state.token,
-            query={"nicho": n["nicho"]},
-            nocache_key=st.session_state["forzar_recarga"]
+            query=query_params,
+            nocache_key=st.session_state["forzar_recarga"],
         )
         leads = resp_leads.get("leads", []) if resp_leads else []
 
@@ -296,12 +342,26 @@ for n in nichos_visibles:
 
         for i, l in enumerate(leads):
             dominio = normalizar_dominio(l["url"])
+            estado_actual = l.get("estado_contacto", "no_contactado")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
-            cols_row = st.columns([4, 1, 1, 1])
-            cols_row[0].markdown(f"- 🌐 [**{dominio}**](https://{dominio})", unsafe_allow_html=True)
+            cols_row = st.columns([3, 2, 1, 1, 1])
+            cols_row[0].markdown(
+                f"- 🌐 [**{dominio}**](https://{dominio})",
+                unsafe_allow_html=True,
+            )
+            cols_row[1].markdown(render_estado_badge(estado_actual), unsafe_allow_html=True)
+            sel_key = f"estado_sel_{clave_base}"
+            cols_row[1].selectbox(
+                "",
+                ["no_contactado", "en_proceso", "contactado"],
+                index=["no_contactado", "en_proceso", "contactado"].index(estado_actual),
+                key=sel_key,
+                on_change=_cambiar_estado,
+                args=(sel_key, dominio),
+            )
 
             # Botón eliminar
-            if cols_row[1].button("🗑️", key=f"btn_borrar_{clave_base}"):
+            if cols_row[2].button("🗑️", key=f"btn_borrar_{clave_base}"):
                 if not tiene_suscripcion_activa(plan):
                     st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                     subscription_cta()
@@ -323,8 +383,8 @@ for n in nichos_visibles:
                     else:
                         st.error("❌ Error al eliminar el lead")
 
-                        # Botón Mover compacto
-            if cols_row[2].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
+            # Botón Mover compacto
+            if cols_row[3].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
                 st.session_state["lead_a_mover"] = clave_base
 
             # Formulario de mover lead si está activo
@@ -356,7 +416,7 @@ for n in nichos_visibles:
                             st.error("Error al mover lead")
 
             # Botón Información extra
-            if cols_row[3].button("📝", key=f"btn_info_{clave_base}"):
+            if cols_row[4].button("📝", key=f"btn_info_{clave_base}"):
                 st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
 
             # Formulario de info extra si está activado

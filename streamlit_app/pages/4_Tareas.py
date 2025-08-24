@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -33,7 +33,11 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
 
-user, token = ensure_session(require_auth=True)
+if not require_auth_or_prompt():
+    st.stop()
+user, token = ensure_session()
+if not token:
+    st.stop()
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()

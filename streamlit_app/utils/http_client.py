@@ -44,9 +44,13 @@ def _merge_headers(headers: dict | None) -> dict:
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
+        if st.session_state.get("token"):
+            st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
         clear_session()
-        st.error("La sesión ha caducado. Por favor, inicia sesión de nuevo.")
-        st.rerun()
+        try:
+            st.switch_page("streamlit/Home.py")
+        except Exception:
+            st.rerun()
     return resp
 
 
