@@ -10,7 +10,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from backend.database import SessionLocal
-from backend.models import LeadTarea, UsuarioMemoria
+from backend.models import LeadTarea, UsuarioMemoria, LeadExtraido
 
 load_dotenv()
 
@@ -184,8 +184,6 @@ def guardar_exportacion(user_email: str, filename: str):
         )
         db.commit()
 
-from backend.models import LeadExtraido
-
 def guardar_leads_extraidos(
     user_email: str, dominios: list[str], nicho: str, nicho_original: str, db: Session
 ):
@@ -197,6 +195,7 @@ def guardar_leads_extraidos(
 
     user_email_lower = (user_email or "").strip().lower()
     nuevos = []
+    auto_task_enabled = os.getenv("AUTO_CONTACT_TASK_ENABLED", "true").lower() == "true"
     for dominio in dominios:
         existe = (
             db.query(LeadExtraido)
@@ -210,9 +209,37 @@ def guardar_leads_extraidos(
                 url=dominio,
                 nicho=nicho,
                 nicho_original=nicho_original,
+                estado_contacto="no_contactado",
             )
             db.add(nuevo)
             nuevos.append(nuevo)
+
+            if auto_task_enabled:
+                titulo = f"Contactar lead: {dominio}"
+                existe_tarea = (
+                    db.query(LeadTarea)
+                    .filter(
+                        LeadTarea.user_email_lower == user_email_lower,
+                        LeadTarea.dominio == dominio,
+                        LeadTarea.texto == titulo,
+                        LeadTarea.auto.is_(True),
+                        LeadTarea.completado.is_(False),
+                    )
+                    .first()
+                )
+                if not existe_tarea:
+                    tarea = LeadTarea(
+                        email=user_email,
+                        user_email_lower=user_email_lower,
+                        dominio=dominio,
+                        texto=titulo,
+                        completado=False,
+                        tipo="lead",
+                        nicho=nicho,
+                        prioridad="media",
+                        auto=True,
+                    )
+                    db.add(tarea)
 
     if dominios and not nuevos:
         raise ValueError("No se guardaron leads nuevos")
@@ -246,14 +273,22 @@ def obtener_nichos_usuario(user_email: str, db: Session):
     )
     return [{"nicho": row.nicho, "nicho_original": row.nicho_original} for row in subquery]
 
-def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session):
-    resultados = (
+def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session, estado_contacto: str | None = None):
+    query = (
         db.query(LeadExtraido)
         .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
-        .order_by(LeadExtraido.timestamp.desc())
-        .all()
     )
-    return [{"url": lead.url, "timestamp": lead.timestamp} for lead in resultados]
+    if estado_contacto:
+        query = query.filter(LeadExtraido.estado_contacto == estado_contacto)
+    resultados = query.order_by(LeadExtraido.timestamp.desc()).all()
+    return [
+        {
+            "url": lead.url,
+            "timestamp": str(lead.timestamp) if lead.timestamp else "",
+            "estado_contacto": lead.estado_contacto,
+        }
+        for lead in resultados
+    ]
 
 def eliminar_nicho(user_email: str, nicho: str):
     with sqlite3.connect(DB_PATH) as db:

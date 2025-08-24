@@ -1,6 +1,13 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
 from sqlalchemy.orm import validates
 from backend.database import Base
+import enum
+
+
+class LeadEstadoContacto(enum.Enum):
+    no_contactado = "no_contactado"
+    en_proceso = "en_proceso"
+    contactado = "contactado"
 
 # Tabla de usuarios
 class Usuario(Base):
@@ -27,6 +34,7 @@ class LeadTarea(Base):
     tipo = Column(String, default="lead")
     nicho = Column(String)
     prioridad = Column(String, default="media")
+    auto = Column(Boolean, nullable=False, server_default="false")
 
     @validates("email")
     def _set_lower(self, key, value):
@@ -93,6 +101,7 @@ class LeadExtraido(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     nicho = Column(String, nullable=False)  # Normalizado
     nicho_original = Column(String, nullable=False)
+    estado_contacto = Column(String, nullable=False, server_default="no_contactado", index=True)
 
     @validates("user_email")
     def _set_lower(self, key, value):

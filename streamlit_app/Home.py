@@ -23,19 +23,15 @@ init_cookie_manager_mount()
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
 
-user, token = ensure_session(require_auth=False)
+user, token = ensure_session()
 
-st.markdown("### ✨ Opensells")
-st.markdown(
-    '<div class="home-subtitle">IA de generación y gestión de leads para multiplicar x1000 tus ventas.</div>',
-    unsafe_allow_html=True,
-)
 st.markdown(
     """
-<style>
-.home-subtitle { font-size:1.05rem; opacity:.9; margin:-0.25rem 0 0.75rem 0; }
-</style>
-""",
+    <div style="text-align:center; margin-top: 1rem; margin-bottom: 1rem;">
+        <h1 style="margin-bottom:0.25rem;">✨ Opensells</h1>
+        <p style="font-size:1.1rem; margin-top:0;">IA de generación y gestión de leads para multiplicar x1000 tus ventas.</p>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -97,7 +93,7 @@ if not user:
                 set_auth_token(token)
             except Exception:
                 st.warning("No se pudieron guardar las cookies de sesión")
-            ensure_session(require_auth=True)
+            ensure_session()
             st.success("¡Sesión iniciada!")
             try:
                 st.switch_page("streamlit/Home.py")
@@ -156,8 +152,10 @@ num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado"
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    st.subheader("🗨️ Modo Asistente Virtual")
-    st.write("Chat interactivo que permite buscar leads, gestionar tareas, notas y estados.")
+    st.subheader("🗨️ Modo Asistente Virtual (Beta)")
+    st.caption(
+        "Interactúa por chat para pedir acciones y consejos. (La búsqueda de leads desde el asistente llegará más adelante)"
+    )
     st.button(
         "🗨️ Asistente Virtual",
         use_container_width=True,
@@ -169,6 +167,7 @@ with col1:
 
 with col2:
     st.subheader("📊 Modo Clásico")
+    st.caption("Genera Leads únicos con cada búsqueda.")
     st.write("Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones.")
     st.button(
         "🔎 Búsqueda de Leads",
