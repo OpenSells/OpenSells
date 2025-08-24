@@ -7,5 +7,5 @@ from streamlit_app.utils.assistant_guard import violates_policy
     "Explica el scraping"
 ])
 def test_violates_policy(prompt):
-    blocked, _ = violates_policy(prompt)
+    blocked, _ = violates_policy(prompt, context="project")
     assert blocked

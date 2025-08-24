@@ -131,8 +131,8 @@ def go(page_file: str):
 
 
 PAGES = {
-    "assistant": "1_Asistente_Virtual.py",
-    "busqueda": "2_Busqueda.py",
+    "assistant": "2_Asistente_Virtual.py",
+    "busqueda": "1_Busqueda.py",
     "nichos": "3_Mis_Nichos.py",
     "tareas": "4_Tareas.py",
     "export": "5_Exportaciones.py",
@@ -153,7 +153,7 @@ num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado"
 col1, col2 = st.columns(2, gap="large")
 with col1:
     st.subheader("🗨️ Modo Asistente Virtual (Beta)")
-    st.caption(
+    st.markdown(
         "Interactúa por chat para pedir acciones y consejos. (La búsqueda de leads desde el asistente llegará más adelante)"
     )
     st.button(
@@ -167,8 +167,7 @@ with col1:
 
 with col2:
     st.subheader("📊 Modo Clásico")
-    st.caption("Genera Leads únicos con cada búsqueda.")
-    st.write("Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones.")
+    st.markdown("Genera leads únicos con cada búsqueda.")
     st.button(
         "🔎 Búsqueda de Leads",
         use_container_width=True,

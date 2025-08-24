@@ -73,7 +73,8 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
         st.subheader(f"{nombre} — {prices.get(nombre, '')}")
         if plan_actual == nombre.lower():
             st.caption("✅ Plan actual")
-        st.markdown("\n".join(f"• {f}" for f in feats))
+        for f in feats:
+            st.markdown(f"- {f}")
         if nombre.lower() == "free":
             st.button("Elegir Gratis", disabled=(plan_actual == "free"))
         elif nombre.lower() == "pro":

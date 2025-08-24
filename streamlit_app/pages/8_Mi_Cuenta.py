@@ -31,7 +31,13 @@ def _safe_secret(name: str, default=None):
 
 
 def is_debug_ui_enabled():
-    return os.getenv("DEBUG_UI", "").lower() == "true" or bool(st.secrets.get("DEBUG_UI", False))
+    env_ok = os.getenv("DEBUG_UI", "").strip().lower() == "true"
+    secrets_ok = False
+    try:
+        secrets_ok = bool(st.secrets.get("DEBUG_UI", False))
+    except Exception:
+        secrets_ok = False
+    return env_ok or secrets_ok
 
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")

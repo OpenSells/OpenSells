@@ -805,9 +805,11 @@ for entrada in st.session_state.chat:
 pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
 
 if pregunta:
-    blocked, msg_pol = violates_policy(pregunta)
+    blocked, msg_pol = violates_policy(pregunta, context="project")
     if blocked:
-        st.warning(msg_pol)
+        with st.chat_message("assistant"):
+            st.write(msg_pol)
+        st.session_state.chat.append({"role": "assistant", "content": msg_pol})
         st.stop()
     st.session_state.pop("csv_bytes", None)
     st.session_state.pop("csv_filename", None)
@@ -866,8 +868,8 @@ if pregunta:
                 st.warning("El servidor de IA está ocupado. Inténtalo de nuevo en unos segundos.")
                 st.stop()
 
-        content = sanitize_output(msg.content or "")
-        blocked_out, msg_pol_out = violates_policy(content)
+        content = sanitize_output(msg.content or "", context="project")
+        blocked_out, msg_pol_out = violates_policy(content, context="project")
         if blocked_out:
             content = msg_pol_out
         st.session_state.chat.append({"role": "assistant", "content": content})
