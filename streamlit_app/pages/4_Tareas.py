@@ -51,6 +51,19 @@ elif "nicho" in params:
 if "tarea_seccion_activa" not in st.session_state:
     st.session_state["tarea_seccion_activa"] = "⏳ Pendientes"
 
+# ────────────────── Layout ──────────────────────────
+st.title("📋 Tareas")
+titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
+
+seccion = st.radio(
+    "Secciones",
+    titles,
+    key="tarea_seccion_activa",
+    index=titles.index(st.session_state["tarea_seccion_activa"]),
+    label_visibility="collapsed",
+    horizontal=True,
+)
+
 # ────────────────── Helpers ─────────────────────────
 def _hash(v):
     return md5(str(v).encode()).hexdigest()
@@ -65,7 +78,8 @@ def norm_dom(url: str) -> str:
 
 # ────────────────── Datos base ──────────────────────
 datos_tareas = cached_get("tareas_pendientes", st.session_state.token, nocache_key=time.time())
-todos = [t for t in (datos_tareas.get("tareas") if datos_tareas else []) if not t.get("completado", False)]
+datos_tareas = datos_tareas or {"tareas": []}
+todos = [t for t in datos_tareas.get("tareas", []) if not t.get("completado", False)]
 datos_nichos = cached_get("mis_nichos", st.session_state.token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
@@ -170,20 +184,6 @@ def render_list(items: list[dict], key_pref: str):
             if c5.button("❌", key=f"cerrar_edit_{unique_key}"):
                 st.session_state[f"editando_{unique_key}"] = False
                 st.rerun()
-
-# ────────────────── Layout ──────────────────────────
-
-st.title("📋 Tareas")
-titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
-
-seccion = st.radio(
-    "Secciones",
-    titles,
-    key="tarea_seccion_activa",
-    index=titles.index(st.session_state["tarea_seccion_activa"]),
-    label_visibility="collapsed",
-    horizontal=True,
-)
 
 if seccion == titles[0]:
     st.subheader("⏳ Todas las pendientes")

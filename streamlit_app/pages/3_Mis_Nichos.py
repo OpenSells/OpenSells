@@ -195,6 +195,12 @@ for n in nichos_visibles:
     ):
         cols = st.columns([1, 1])
 
+        estado_filtro = st.selectbox(
+            "Estado de contacto",
+            ["todos", "no_contactado", "en_proceso", "contactado"],
+            key=f"estado_filtro_{n['nicho']}",
+        )
+
         # ── Descargar CSV ───────────────────────────
         try:
             params_export = {"nicho": n["nicho"]}
@@ -231,12 +237,6 @@ for n in nichos_visibles:
                     st.rerun()
                 else:
                     st.error("Error al eliminar el nicho")
-
-        estado_filtro = st.selectbox(
-            "Estado de contacto",
-            ["todos", "no_contactado", "en_proceso", "contactado"],
-            key=f"estado_filtro_{n['nicho']}",
-        )
         query_params = {"nicho": n["nicho"]}
         if estado_filtro != "todos":
             query_params["estado_contacto"] = estado_filtro
