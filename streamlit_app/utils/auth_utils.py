@@ -7,6 +7,10 @@ from streamlit_app.utils.cookies_utils import (
     clear_auth_token,
 )
 
+# Inyecta el token existente al cliente HTTP al cargar el módulo
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
+
 
 def require_auth_or_prompt() -> bool:
     """Check for a session token and prompt login when absent."""
@@ -24,6 +28,7 @@ def clear_session():
         clear_auth_token()
     except Exception:
         pass
+    http_client.set_auth_token(None)
 
 
 def ensure_session() -> Tuple[Optional[dict], Optional[str]]:
@@ -33,7 +38,8 @@ def ensure_session() -> Tuple[Optional[dict], Optional[str]]:
         return None, None
 
     st.session_state["token"] = token
-    resp = http_client.get("/me", headers={"Authorization": f"Bearer {token}"})
+    http_client.set_auth_token(token)
+    resp = http_client.get("/me")
     if getattr(resp, "status_code", None) == 200:
         user = resp.json()
         st.session_state["user"] = user

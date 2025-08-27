@@ -2,14 +2,14 @@
 
 import os
 import streamlit as st
-import requests
+from requests import Response
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 
 from streamlit_app.utils import http_client
 
-from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
+from streamlit_app.cache_utils import cached_get, get_openai_client, limpiar_cache
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -18,7 +18,9 @@ init_cookie_manager_mount()
 
 load_dotenv()
 
-BACKEND_URL = http_client.BACKEND_URL
+# Inyectar token existente en el cliente HTTP
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 if not require_auth_or_prompt():
@@ -42,7 +44,7 @@ def normalizar_dominio(url):
     u = url if url.startswith("http") else f"http://{url}"
     return urlparse(u).netloc.replace("www.", "").split("/")[0]
 
-def safe_json(resp: requests.Response) -> dict:
+def safe_json(resp: Response) -> dict:
     try:
         return resp.json()
     except JSONDecodeError:
@@ -58,9 +60,6 @@ for flag, valor in {
     "mostrar_resultado": False,
 }.items():
     st.session_state.setdefault(flag, valor)
-
-headers = auth_headers(st.session_state.token)
-
 
 # -------------------- Popup --------------------
 
@@ -94,10 +93,9 @@ def procesar_extraccion():
     # 1. Buscar dominios --------------------------------------------------
     if fase == "buscando":
         st.session_state.estado_actual = "Buscando dominios"
-        r = requests.post(
-            f"{BACKEND_URL}/buscar_variantes_seleccionadas",
+        r = http_client.post(
+            "/buscar_variantes_seleccionadas",
             json={"variantes": st.session_state.seleccionadas},
-            headers=headers,
         )
         if r.status_code == 200:
             data = safe_json(r)
@@ -116,10 +114,9 @@ def procesar_extraccion():
             st.session_state.extraccion_realizada = True
             st.rerun()
 
-        r = requests.post(
-            f"{BACKEND_URL}/extraer_multiples",
+        r = http_client.post(
+            "/extraer_multiples",
             json={"urls": [f"https://{d}" for d in st.session_state.dominios], "pais": "ES"},
-            headers=headers,
         )
         if r.status_code == 200:
             data = safe_json(r)
@@ -149,9 +146,7 @@ def procesar_extraccion():
 
         # Ejecutar exportación solo una vez
         if not st.session_state.get("export_realizado"):
-            r = requests.post(
-                f"{BACKEND_URL}/exportar_csv", json=st.session_state.payload_export, headers=headers
-            )
+            r = http_client.post("/exportar_csv", json=st.session_state.payload_export)
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
 
@@ -258,7 +253,7 @@ if st.button("🚀 Buscar variantes"):
     else:
         payload = {"cliente_ideal": f"{cliente_ideal}. {memoria}".strip('.')}
         with st.spinner("Generando variantes con IA..."):
-            r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
+            r = http_client.post("/buscar", json=payload)
         if r.status_code == 200:
             data = safe_json(r)
             if "pregunta_sugerida" in data:
@@ -279,7 +274,7 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
             "forzar_variantes": True,
         }
         with st.spinner("Generando variantes con contexto adicional..."):
-            r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
+            r = http_client.post("/buscar", json=payload)
         if r.status_code == 200:
             st.session_state.pregunta_sugerida = None
             st.session_state.variantes = safe_json(r).get("variantes_generadas", [])
@@ -309,9 +304,8 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
             if not price_id:
                 st.error("Falta configurar el price_id del plan Básico.")
                 st.stop()
-            r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
-                headers=headers,
+            r_checkout = http_client.post(
+                "/crear_checkout",
                 params={"plan": price_id}
             )
             if r_checkout.ok:

@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 from hashlib import md5
 from urllib.parse import urlparse
@@ -16,19 +15,8 @@ init_cookie_manager_mount()
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
@@ -43,8 +31,6 @@ if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
 
 plan = (user or {}).get("plan", "free")
-
-HDR = {"Authorization": f"Bearer {st.session_state.token}"}
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()

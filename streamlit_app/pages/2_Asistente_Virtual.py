@@ -26,6 +26,9 @@ init_cookie_manager_mount()
 # Identifica las peticiones provenientes del asistente
 http_client.set_extra_headers({"X-Client-Source": "assistant"})
 
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
+
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
 if not require_auth_or_prompt():
@@ -40,19 +43,6 @@ if st.sidebar.button("Cerrar sesión"):
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 client = get_openai_client()
 
 if client is None:
@@ -93,11 +83,6 @@ def _respuesta_extraccion_no_disponible():
     return {"error": EXTRAER_LEADS_MSG}
 
 
-def _auth_headers():
-    token = st.session_state.get("token")
-    return {"Authorization": f"Bearer {token}"} if token else {}
-
-
 def _handle_resp(r):
     """Gestiona respuestas 401/403 mostrando mensajes adecuados."""
     if r.status_code == 403:
@@ -109,7 +94,7 @@ def _handle_resp(r):
 # ────────────────── Funciones de herramientas ─────────────────────
 def buscar_leads(query: str):
     try:
-        r = http_client.get("/buscar_leads", headers=_auth_headers(), params={"query": query})
+        r = http_client.get("/buscar_leads", params={"query": query})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -122,7 +107,7 @@ def buscar_leads(query: str):
 def obtener_estado_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/estado_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/estado_lead", params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -133,7 +118,7 @@ def obtener_estado_lead(dominio: str):
 def actualizar_estado_lead(dominio: str, estado: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.post("/estado_lead", headers=_auth_headers(), json={"dominio": dominio, "estado": estado})
+        r = http_client.post("/estado_lead", json={"dominio": dominio, "estado": estado})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -144,7 +129,7 @@ def actualizar_estado_lead(dominio: str, estado: str):
 def obtener_nota_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/nota_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/nota_lead", params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -155,7 +140,7 @@ def obtener_nota_lead(dominio: str):
 def actualizar_nota_lead(dominio: str, nota: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.post("/nota_lead", headers=_auth_headers(), json={"dominio": dominio, "nota": nota})
+        r = http_client.post("/nota_lead", json={"dominio": dominio, "nota": nota})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -166,7 +151,7 @@ def actualizar_nota_lead(dominio: str, nota: str):
 def obtener_tareas_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/tareas_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/tareas_lead", params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -181,7 +166,7 @@ def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "me
             datetime.fromisoformat(fecha)
         except ValueError:
             return {"error": "fecha_invalida"}
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None})
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
@@ -193,13 +178,13 @@ def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str
         except ValueError:
             return {"error": "fecha_invalida"}
     st.session_state["lead_actual"] = dominio
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None})
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
 def completar_tarea(tarea_id: int):
     try:
-        r = http_client.post("/tarea_completada", headers=_auth_headers(), params={"tarea_id": tarea_id})
+        r = http_client.post("/tarea_completada", params={"tarea_id": tarea_id})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -210,7 +195,7 @@ def completar_tarea(tarea_id: int):
 def historial_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/historial_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/historial_lead", params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -219,13 +204,13 @@ def historial_lead(dominio: str):
 
 
 def api_mis_nichos():
-    r = http_client.get("/mis_nichos", headers=_auth_headers())
+    r = http_client.get("/mis_nichos")
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
 def obtener_memoria():
     try:
-        r = http_client.get("/mi_memoria", headers=_auth_headers())
+        r = http_client.get("/mi_memoria")
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -235,7 +220,7 @@ def obtener_memoria():
 
 def guardar_memoria(descripcion: str):
     try:
-        r = http_client.post("/mi_memoria", headers=_auth_headers(), json={"descripcion": descripcion})
+        r = http_client.post("/mi_memoria", json={"descripcion": descripcion})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -244,11 +229,11 @@ def guardar_memoria(descripcion: str):
 
 
 def _tool_api_buscar(cliente_ideal: str, forzar_variantes: bool = False, contexto_extra: str | None = None):
-    return api_buscar(cliente_ideal, forzar_variantes=forzar_variantes, contexto_extra=contexto_extra, headers=_auth_headers())
+    return api_buscar(cliente_ideal, forzar_variantes=forzar_variantes, contexto_extra=contexto_extra)
 
 
 def _tool_api_buscar_variantes_seleccionadas(variantes: list[str]):
-    return api_buscar_variantes_seleccionadas(variantes, headers=_auth_headers())
+    return api_buscar_variantes_seleccionadas(variantes)
 
 
 def api_extraer_multiples(urls: list[str], pais: str = "ES"):
@@ -262,7 +247,7 @@ def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
 
 
 def api_leads_por_nicho(nicho: str):
-    r = http_client.get(f"/leads_por_nicho?nicho={nicho}", headers=_auth_headers())
+    r = http_client.get(f"/leads_por_nicho?nicho={nicho}")
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
@@ -271,7 +256,6 @@ def mover_lead(dominio: str, origen: str, destino: str):
     try:
         r = http_client.post(
             "/mover_lead",
-            headers=_auth_headers(),
             json={"dominio": dominio, "origen": origen, "destino": destino},
         )
         if r.status_code == 200:
@@ -285,7 +269,6 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
     try:
         r = http_client.post(
             "/editar_nicho",
-            headers=_auth_headers(),
             json={"nicho_actual": nicho_actual, "nuevo_nombre": nuevo_nombre},
         )
         if r.status_code == 200:
@@ -299,7 +282,6 @@ def eliminar_nicho(nicho: str):
     try:
         r = http_client.delete(
             "/eliminar_nicho",
-            headers=_auth_headers(),
             params={"nicho": nicho},
         )
         if r.status_code == 200:
@@ -315,7 +297,7 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
     if nicho:
         params["nicho"] = nicho
     try:
-        r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
+        r = http_client.delete("/eliminar_lead", params=params)
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -328,7 +310,7 @@ def historial_tareas(tipo: str = "general", nicho: str | None = None):
     if nicho:
         params["nicho"] = nicho
     try:
-        r = http_client.get("/historial_tareas", headers=_auth_headers(), params=params)
+        r = http_client.get("/historial_tareas", params=params)
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -337,7 +319,7 @@ def historial_tareas(tipo: str = "general", nicho: str | None = None):
 
 
 def api_tareas_pendientes():
-    r = http_client.get("/tareas_pendientes", headers=_auth_headers())
+    r = http_client.get("/tareas_pendientes")
     if r.status_code == 200:
         return r.json()
     if r.status_code == 403:

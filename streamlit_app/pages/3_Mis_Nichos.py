@@ -11,10 +11,8 @@
 #      reruns innecesarios.
 #   4. Limpieza y tipado ligero.
 
-import os
 import streamlit as st
 import hashlib
-import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -34,19 +32,8 @@ init_cookie_manager_mount()
 # ── Config ───────────────────────────────────────────
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
-
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
 st.set_page_config(page_title="Mis Nichos", page_icon="📁")
 
 st.markdown(
@@ -213,9 +200,8 @@ for n in nichos_visibles:
             params_export = {"nicho": n["nicho"]}
             if estado_filtro != "todos":
                 params_export["estado_contacto"] = estado_filtro
-            resp = requests.get(
-                f"{BACKEND_URL}/exportar_leads_nicho",
-                headers={"Authorization": f"Bearer {st.session_state.token}"},
+            resp = http_client.get(
+                "/exportar_leads_nicho",
                 params=params_export,
             )
             if resp.status_code == 200:

@@ -2,7 +2,6 @@
 
 import os
 import streamlit as st
-import requests
 from dotenv import load_dotenv
 
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
@@ -15,6 +14,9 @@ init_cookie_manager_mount()
 
 load_dotenv()
 
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
+
 
 def _safe_secret(name: str, default=None):
     """Safely retrieve configuration from env or Streamlit secrets."""
@@ -26,8 +28,6 @@ def _safe_secret(name: str, default=None):
     except Exception:
         return default
 
-
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
@@ -81,9 +81,8 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
             if st.button("Suscribirme al Pro"):
                 if price_basico:
                     try:
-                        r = requests.post(
-                            f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {st.session_state.token}"},
+                        r = http_client.post(
+                            "/crear_portal_pago",
                             params={"plan": price_basico},
                             timeout=30,
                         )
@@ -104,9 +103,8 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
             if st.button("Suscribirme al Business"):
                 if price_premium:
                     try:
-                        r = requests.post(
-                            f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {st.session_state.token}"},
+                        r = http_client.post(
+                            "/crear_portal_pago",
                             params={"plan": price_premium},
                             timeout=30,
                         )

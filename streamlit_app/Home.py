@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from requests import ReadTimeout, ConnectTimeout
 from requests.exceptions import ConnectionError
@@ -21,6 +22,13 @@ from streamlit_app.common_paths import APP_DIR, PAGES_DIR
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
+
+# Inyectar token existente en el cliente HTTP al cargar la página
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
+
+if os.getenv("WRAPPER_DEV_MODE", "false").lower() == "true":
+    st.caption(f"🛠️ Dev: usando BACKEND_URL = {http_client.BACKEND_URL}")
 
 
 user, token = ensure_session()
@@ -93,6 +101,7 @@ if not user:
                 set_auth_token(token)
             except Exception:
                 st.warning("No se pudieron guardar las cookies de sesión")
+            http_client.set_auth_token(token)
             ensure_session()
             st.success("¡Sesión iniciada!")
             try:

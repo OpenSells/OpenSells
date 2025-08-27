@@ -14,10 +14,18 @@ import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils import http_client
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
+
+# Inyectar token existente y mostrar badge en modo desarrollo
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
+
+if os.getenv("WRAPPER_DEV_MODE", "false").lower() == "true":
+    st.caption(f"🛠️ Dev: usando BACKEND_URL = {http_client.BACKEND_URL}")
 
 
 if not require_auth_or_prompt():

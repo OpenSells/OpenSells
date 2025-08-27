@@ -1,7 +1,6 @@
 # 8_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os
-import requests
 import pandas as pd
 import io
 import streamlit as st
@@ -18,16 +17,8 @@ init_cookie_manager_mount()
 
 load_dotenv()
 
-
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
-    try:
-        return st.secrets.get(name, default)
-    except Exception:
-        return default
+if "token" in st.session_state and st.session_state["token"]:
+    http_client.set_auth_token(st.session_state["token"])
 
 
 def is_debug_ui_enabled():
@@ -40,7 +31,6 @@ def is_debug_ui_enabled():
     return env_ok or secrets_ok
 
 
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
@@ -56,8 +46,6 @@ if "email" not in st.session_state and user:
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
-
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 
 # -------------------- Sección principal --------------------
@@ -106,7 +94,7 @@ st.subheader("📊 Estadísticas de uso")
 
 resp_nichos = cached_get("mis_nichos", st.session_state.token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
-leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
+leads_resp = http_client.get("/exportar_todos_mis_leads")
 total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
@@ -166,9 +154,8 @@ with col1:
         if st.button("💳 Iniciar suscripción"):
             price_id = planes[plan_elegido]
             try:
-                r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_pago",
-                    headers=headers,
+                r = http_client.post(
+                    "/crear_portal_pago",
                     params={"plan": price_id},
                     timeout=30,
                 )
@@ -194,12 +181,12 @@ if is_debug_ui_enabled():
         st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
         st.write("Usuario:", st.session_state.get("user"))
         try:
-            dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
+            dbg_db = http_client.get("/debug-db").json()
         except Exception:
             dbg_db = {}
         try:
-            dbg_snapshot = requests.get(
-                f"{BACKEND_URL}/debug-user-snapshot", headers=headers
+            dbg_snapshot = http_client.get(
+                "/debug-user-snapshot"
             ).json()
         except Exception:
             dbg_snapshot = {}
@@ -215,9 +202,8 @@ with col2:
     else:
         if st.button("🧾 Gestionar suscripción"):
             try:
-                r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_cliente",
-                    headers=headers,
+                r = http_client.post(
+                    "/crear_portal_cliente",
                     timeout=30,
                 )
                 if r.status_code == 200:
