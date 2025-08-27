@@ -8,6 +8,15 @@ from streamlit_app.utils.cookies_utils import (
 )
 
 
+def require_auth_or_prompt() -> bool:
+    """Check for a session token and prompt login when absent."""
+    token = st.session_state.get("token")
+    if not token:
+        st.info("Inicia sesión para obtener acceso.")
+        return False
+    return True
+
+
 def clear_session():
     for k in ("token", "user", "csv_bytes", "csv_filename", "lead_actual"):
         st.session_state.pop(k, None)
@@ -17,13 +26,10 @@ def clear_session():
         pass
 
 
-def ensure_session(require_auth: bool = False) -> Tuple[Optional[dict], Optional[str]]:
+def ensure_session() -> Tuple[Optional[dict], Optional[str]]:
     """Devuelve (user, token). Restaura desde cookie, valida con /me y sincroniza estado."""
     token = st.session_state.get("token") or get_auth_token()
     if not token:
-        if require_auth:
-            st.error("Token inválido o expirado. Inicia sesión nuevamente.")
-            st.stop()
         return None, None
 
     st.session_state["token"] = token
@@ -36,9 +42,6 @@ def ensure_session(require_auth: bool = False) -> Tuple[Optional[dict], Optional
 
     # token inválido
     clear_session()
-    if require_auth:
-        st.error("Token inválido o expirado. Inicia sesión nuevamente.")
-        st.stop()
     return None, None
 
 

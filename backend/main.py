@@ -470,11 +470,16 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
-def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session = Depends(get_db)):
+def leads_por_nicho(
+    nicho: str,
+    estado_contacto: str | None = None,
+    usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     email = usuario.email_lower
     nicho_original = nicho
     nicho_norm = normalizar_nicho(nicho)
-    leads = obtener_leads_por_nicho(email, nicho_norm, db)
+    leads = obtener_leads_por_nicho(email, nicho_norm, db, estado_contacto)
     if DEBUG_DIAGNOSTICO:
         logger.info(
             "/leads_por_nicho email=%s lower=%s nicho=%s nicho_norm=%s count=%d",
@@ -495,17 +500,26 @@ def leads_por_nicho(nicho: str, usuario = Depends(get_current_user), db: Session
     return {"nicho": nicho_norm, "leads": leads}
 
 @app.get("/exportar_leads_nicho")
-def exportar_leads_nicho(nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def exportar_leads_nicho(
+    nicho: str,
+    estado_contacto: str | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     start = perf_counter()
     email = usuario.email_lower
     nicho_norm = normalizar_nicho(nicho)
-    leads = obtener_leads_por_nicho(email, nicho_norm, db)
+    leads = obtener_leads_por_nicho(email, nicho_norm, db, estado_contacto)
 
     if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
     df = pd.DataFrame([
-        {"Dominio": l["url"], "Fecha": l["timestamp"][:10] if l.get("timestamp") else ""}
+        {
+            "Dominio": l["url"],
+            "Fecha": l["timestamp"][:10] if l.get("timestamp") else "",
+            "Estado_contacto": l.get("estado_contacto", ""),
+        }
         for l in leads
     ])
 
@@ -550,6 +564,30 @@ def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user),
 
     return {"urls_filtradas": urls_filtradas}
 
+
+class EstadoContactoPayload(BaseModel):
+    dominio: str
+    estado_contacto: str
+
+
+@app.post("/leads/estado_contacto")
+def actualizar_estado_contacto(
+    payload: EstadoContactoPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio = normalizar_dominio(payload.dominio.strip())
+    lead = (
+        db.query(LeadExtraido)
+        .filter_by(user_email_lower=usuario.email_lower, url=dominio)
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
+    lead.estado_contacto = payload.estado_contacto
+    db.commit()
+    return {"ok": True, "estado_contacto": lead.estado_contacto}
+
 @app.get("/exportar_todos_mis_leads")
 def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     start = perf_counter()
@@ -570,6 +608,7 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
             "Dominio": lead.url,
             "Nicho": lead.nicho_original,
             "Fecha": str(lead.timestamp)[:10],
+            "Estado_contacto": lead.estado_contacto,
         }
         for lead in leads
     ])

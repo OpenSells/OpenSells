@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -30,11 +30,25 @@ def _safe_secret(name: str, default=None):
         return default
 
 
+def is_debug_ui_enabled():
+    env_ok = os.getenv("DEBUG_UI", "").strip().lower() == "true"
+    secrets_ok = False
+    try:
+        secrets_ok = bool(st.secrets.get("DEBUG_UI", False))
+    except Exception:
+        secrets_ok = False
+    return env_ok or secrets_ok
+
+
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
-user, token = ensure_session(require_auth=True)
+if not require_auth_or_prompt():
+    st.stop()
+user, token = ensure_session()
+if not token:
+    st.stop()
 plan = (user or {}).get("plan", "free")
 
 if "email" not in st.session_state and user:
@@ -175,24 +189,25 @@ with col1:
             except Exception as e:
                 st.error(f"Error: {e}")
 
-with st.expander("Debug sesión/DB"):
-    st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
-    st.write("Usuario:", st.session_state.get("user"))
-    try:
-        dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
-    except Exception:
-        dbg_db = {}
-    try:
-        dbg_snapshot = requests.get(
-            f"{BACKEND_URL}/debug-user-snapshot", headers=headers
-        ).json()
-    except Exception:
-        dbg_snapshot = {}
-    st.write("Email /me:", dbg_snapshot.get("email_me"))
-    st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
-    st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
-    st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
-    st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
+if is_debug_ui_enabled():
+    with st.expander("Debug sesión"):
+        st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
+        st.write("Usuario:", st.session_state.get("user"))
+        try:
+            dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
+        except Exception:
+            dbg_db = {}
+        try:
+            dbg_snapshot = requests.get(
+                f"{BACKEND_URL}/debug-user-snapshot", headers=headers
+            ).json()
+        except Exception:
+            dbg_snapshot = {}
+        st.write("Email /me:", dbg_snapshot.get("email_me"))
+        st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
+        st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
+        st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
+        st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
 
 with col2:
     if plan not in ["basico", "premium"]:

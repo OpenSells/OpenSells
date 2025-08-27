@@ -1,4 +1,4 @@
-# 2_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
+# 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
 import os
 import streamlit as st
@@ -10,7 +10,7 @@ from json import JSONDecodeError
 from streamlit_app.utils import http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
 from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
@@ -21,8 +21,11 @@ load_dotenv()
 BACKEND_URL = http_client.BACKEND_URL
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
-
-user, token = ensure_session(require_auth=True)
+if not require_auth_or_prompt():
+    st.stop()
+user, token = ensure_session()
+if not token:
+    st.stop()
 
 plan = (user or {}).get("plan", "free")
 
@@ -178,11 +181,11 @@ st.markdown(
 
 with st.expander("❓ Consejos para obtener mejores leads", expanded=False):
     st.markdown(
+        "- **Los leads no se repiten, prueba varias veces la misma búsqueda para obtener más resultados.**\n"
         "- Usa palabras clave específicas + ciudad.\n"
         "- Evita términos genéricos (ej. \"mejor\", \"barato\") sin contexto.\n"
         "- Prueba 2–3 variantes por nicho.\n"
-        "- Filtra dominios repetidos y revisa emails sospechosos.\n"
-        "- Combina búsqueda web con Google Maps."
+        "- Filtra dominios repetidos y revisa emails sospechosos."
     )
 
 memoria_data = cached_get("mi_memoria", st.session_state.token)
