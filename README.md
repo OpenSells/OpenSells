@@ -1,6 +1,6 @@
 # OpenSells
 
-*Actualizado el 23/08/2025*
+*Actualizado el 27/08/2025*
 
 **OpenSells** es un SaaS para generación y gestión de leads apoyado en un backend FastAPI y una interfaz multipágina en Streamlit.
 
@@ -27,6 +27,11 @@
 - **Multi-tenant:** la clave es `user_email_lower`; hay endpoint `/debug-user-snapshot` para verificar sesión y prefijo de la base de datos.
 - **Memoria del asistente:** conversaciones almacenadas en PostgreSQL, con soporte de migración desde SQLite.
 - **Pruebas:** `pytest` pasa todas las pruebas y el código compila con `python -m py_compile`.
+
+## 💻 Requisitos previos
+
+- Python 3.11+ (ver \`runtime.txt\`)
+- pip
 
 ## 🛠️ Ejecución local
 
@@ -57,6 +62,14 @@ Copia `.env.example` a `.env` y completa las claves necesarias (PostgreSQL, Stri
 cp .env.example .env
 ```
 
+## 🧪 Pruebas
+
+Para ejecutar la batería de pruebas:
+
+```bash
+pytest
+```
+
 ## 🚀 Próximos pasos
 
 - Configurar autenticación en el entorno de pruebas para que `pytest` se ejecute correctamente.
@@ -68,4 +81,4 @@ OpenSells sigue evolucionando hacia un servicio estable de generación de leads 
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 23/08/2025.)*
+*(Generado automáticamente el 27/08/2025.)*
