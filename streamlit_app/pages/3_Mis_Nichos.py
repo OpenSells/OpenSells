@@ -93,8 +93,8 @@ def md5(s: str) -> str:
 
 
 def render_estado_badge(estado: str) -> str:
-    if estado == "no_contactado":
-        return '<span class="badge badge-warn">No contactado</span>'
+    if estado == "pendiente":
+        return '<span class="badge badge-warn">Pendiente</span>'
     if estado == "en_proceso":
         return '<span class="badge badge-info">En proceso</span>'
     return '<span class="badge badge-ok">Contactado</span>'
@@ -248,7 +248,7 @@ for n in nichos_visibles:
 
         estado_filtro = st.selectbox(
             "Estado de contacto",
-            ["todos", "no_contactado", "en_proceso", "contactado"],
+            ["todos", "pendiente", "en_proceso", "contactado"],
             key=f"estado_filtro_{n['nicho']}",
         )
         query_params = {"nicho": n["nicho"]}
@@ -342,7 +342,7 @@ for n in nichos_visibles:
 
         for i, l in enumerate(leads):
             dominio = normalizar_dominio(l["url"])
-            estado_actual = l.get("estado_contacto", "no_contactado")
+            estado_actual = l.get("estado_contacto", "pendiente")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
             cols_row = st.columns([3, 2, 1, 1, 1])
             cols_row[0].markdown(
@@ -353,8 +353,8 @@ for n in nichos_visibles:
             sel_key = f"estado_sel_{clave_base}"
             cols_row[1].selectbox(
                 "",
-                ["no_contactado", "en_proceso", "contactado"],
-                index=["no_contactado", "en_proceso", "contactado"].index(estado_actual),
+                ["pendiente", "en_proceso", "contactado"],
+                index=["pendiente", "en_proceso", "contactado"].index(estado_actual),
                 key=sel_key,
                 on_change=_cambiar_estado,
                 args=(sel_key, dominio),

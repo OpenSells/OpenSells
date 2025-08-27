@@ -8,9 +8,17 @@ from sqlalchemy import func, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import ProgrammingError, OperationalError
+
+try:  # pragma: no cover - dependency availability
+    from psycopg2.errors import UndefinedColumn
+except Exception:  # pragma: no cover
+    class UndefinedColumn(Exception):
+        pass
 
 from backend.database import SessionLocal
 from backend.models import LeadTarea, UsuarioMemoria, LeadExtraido
+from backend.startup_migrations import ensure_estado_contacto_column
 
 load_dotenv()
 
@@ -34,6 +42,8 @@ if os.path.exists(DB_PATH):
                     )
     except sqlite3.Error:
         pass
+
+logger = logging.getLogger(__name__)
 
 def crear_tablas_si_no_existen():
     with sqlite3.connect(DB_PATH) as db:
@@ -209,7 +219,7 @@ def guardar_leads_extraidos(
                 url=dominio,
                 nicho=nicho,
                 nicho_original=nicho_original,
-                estado_contacto="no_contactado",
+                estado_contacto="pendiente",
             )
             db.add(nuevo)
             nuevos.append(nuevo)
@@ -261,26 +271,60 @@ def obtener_historial(user_email: str):
         return [{"filename": row[0], "timestamp": row[1]} for row in rows]
 
 def obtener_nichos_usuario(user_email: str, db: Session):
-    subquery = (
-        db.query(
-            LeadExtraido.nicho,
-            func.max(LeadExtraido.nicho_original).label("nicho_original")
+    def _query():
+        return (
+            db.query(
+                LeadExtraido.nicho,
+                func.max(LeadExtraido.nicho_original).label("nicho_original"),
+            )
+            .filter(LeadExtraido.user_email_lower == user_email)
+            .group_by(LeadExtraido.nicho)
+            .order_by(func.max(LeadExtraido.timestamp).desc())
+            .all()
         )
-        .filter(LeadExtraido.user_email_lower == user_email)
-        .group_by(LeadExtraido.nicho)
-        .order_by(func.max(LeadExtraido.timestamp).desc())
-        .all()
-    )
+
+    try:
+        subquery = _query()
+    except (ProgrammingError, OperationalError) as e:
+        if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(
+            getattr(e, "orig", "")
+        ):
+            logger.warning(
+                "columna estado_contacto ausente; intentando autocompletar migración"
+            )
+            ensure_estado_contacto_column(db.get_bind())
+            subquery = _query()
+        else:
+            raise
+
     return [{"nicho": row.nicho, "nicho_original": row.nicho_original} for row in subquery]
 
-def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session, estado_contacto: str | None = None):
-    query = (
-        db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
-    )
-    if estado_contacto:
-        query = query.filter(LeadExtraido.estado_contacto == estado_contacto)
-    resultados = query.order_by(LeadExtraido.timestamp.desc()).all()
+def obtener_leads_por_nicho(
+    user_email: str, nicho: str, db: Session, estado_contacto: str | None = None
+):
+    def _query():
+        query = (
+            db.query(LeadExtraido)
+            .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
+        )
+        if estado_contacto:
+            query = query.filter(LeadExtraido.estado_contacto == estado_contacto)
+        return query.order_by(LeadExtraido.timestamp.desc()).all()
+
+    try:
+        resultados = _query()
+    except (ProgrammingError, OperationalError) as e:
+        if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(
+            getattr(e, "orig", "")
+        ):
+            logger.warning(
+                "columna estado_contacto ausente; intentando autocompletar migración"
+            )
+            ensure_estado_contacto_column(db.get_bind())
+            resultados = _query()
+        else:
+            raise
+
     return [
         {
             "url": lead.url,
