@@ -50,9 +50,10 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from fastapi.security import OAuth2PasswordRequestForm
-from backend.database import engine, Base, get_db
+from sqlalchemy.exc import ProgrammingError
+from backend.database import engine, Base, get_db, SessionLocal
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -118,6 +119,14 @@ async def startup():
     logger.warning("SQLAlchemy engine: %s", engine.url)
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT auto FROM lead_tarea LIMIT 1"))
+    except ProgrammingError as e:
+        if "column" in str(e).lower() and "auto" in str(e).lower():
+            logger.warning(
+                "WARNING: 'lead_tarea.auto' no existe. Ejecuta scripts/sql/20250827_add_lead_tarea_auto.sql"
+            )
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()

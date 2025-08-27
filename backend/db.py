@@ -5,6 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from sqlalchemy import func, and_
+from backend.utils import normalizar_nicho
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -104,13 +105,23 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
     db.commit()
 
 def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
+    if db.bind.dialect.name == "sqlite":
+        dominio_url = LeadExtraido.url
+    else:
+        dominio_url = func.lower(
+            func.regexp_replace(
+                func.regexp_replace(LeadExtraido.url, r'^https?://', ''),
+                r'/.*$', ''
+            )
+        )
+
     filas = (
         db.query(LeadTarea, LeadExtraido)
         .outerjoin(
             LeadExtraido,
             and_(
-                LeadTarea.dominio == LeadExtraido.url,
                 LeadTarea.user_email_lower == LeadExtraido.user_email_lower,
+                LeadTarea.dominio == dominio_url,
             ),
         )
         .filter(LeadTarea.user_email_lower == email)
@@ -274,9 +285,13 @@ def obtener_nichos_usuario(user_email: str, db: Session):
     return [{"nicho": row.nicho, "nicho_original": row.nicho_original} for row in subquery]
 
 def obtener_leads_por_nicho(user_email: str, nicho: str, db: Session, estado_contacto: str | None = None):
+    nicho_busqueda = normalizar_nicho(nicho or "")
     query = (
         db.query(LeadExtraido)
-        .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
+        .filter(
+            LeadExtraido.user_email_lower == user_email,
+            func.lower(func.trim(LeadExtraido.nicho)) == nicho_busqueda,
+        )
     )
     if estado_contacto:
         query = query.filter(LeadExtraido.estado_contacto == estado_contacto)
