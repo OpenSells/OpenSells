@@ -63,7 +63,7 @@ elif "nicho" in params:
     st.query_params.clear()
 
 if "tarea_seccion_activa" not in st.session_state:
-    st.session_state["tarea_seccion_activa"] = "⏳ Pendientes"
+    st.session_state["tarea_seccion_activa"] = "🧠 General"
 
 # ────────────────── Helpers ─────────────────────────
 def _hash(v):
@@ -82,11 +82,11 @@ datos_nichos = cached_get("mis_nichos", st.session_state.token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
 @st.cache_data(ttl=30)
-def fetch_tareas(tipo: str, solo_pendientes: bool):
+def fetch_tareas_pendientes(tipo: str):
     resp = http_client.get(
         "/tareas_pendientes",
         headers=HDR,
-        params={"tipo": tipo, "solo_pendientes": str(solo_pendientes).lower()},
+        params={"tipo": tipo, "solo_pendientes": "true"},
     )
     if resp.status_code == 200:
         return resp.json()
@@ -210,35 +210,31 @@ def render_list(items: list[dict], key_pref: str):
 
 # ────────────────── Layout ──────────────────────────
 
-st.title("📋 Tareas")
-col_f1, col_f2 = st.columns([1, 4])
-with col_f1:
-    solo_pend = st.checkbox("Pendientes", value=True, key="tareas_solo_pend")
-with col_f2:
-    titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
-    seccion = st.radio(
-        "Secciones",
-        titles,
-        key="tarea_seccion_activa",
-        index=titles.index(st.session_state["tarea_seccion_activa"]),
-        label_visibility="collapsed",
-        horizontal=True,
-    )
+st.title("📋 Tareas activas")
+titles = ["🧠 General", "📂 Nichos", "🌐 Leads", "📋 Todas"]
+seccion = st.radio(
+    "Secciones",
+    titles,
+    key="tarea_seccion_activa",
+    index=titles.index(st.session_state["tarea_seccion_activa"]),
+    label_visibility="collapsed",
+    horizontal=True,
+)
 
 tipo_map = {
-    "⏳ Pendientes": "todas",
     "🧠 General": "general",
     "📂 Nichos": "nicho",
     "🌐 Leads": "lead",
+    "📋 Todas": "todas",
 }
-todos = fetch_tareas(tipo_map[seccion], solo_pend)
+todos = fetch_tareas_pendientes(tipo_map[seccion])
 
-if seccion == titles[0]:
-    st.subheader("⏳ Todas las pendientes" if solo_pend else "📋 Todas las tareas")
+if seccion == titles[3]:
+    st.subheader("Tareas activas")
     render_list(todos, "all")
 
 # Generales
-elif seccion == titles[1]:
+elif seccion == titles[0]:
     st.subheader("🧠 Tareas generales")
 
     # Toggle para añadir tarea
@@ -297,7 +293,7 @@ elif seccion == titles[1]:
             st.info("No hay tareas completadas.")
 
 # Nichos
-elif seccion == titles[2]:
+elif seccion == titles[1]:
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
@@ -395,7 +391,7 @@ elif seccion == titles[2]:
                     st.info("No hay tareas completadas para este nicho.")
 
 # Leads
-elif seccion == titles[3]:
+elif seccion == titles[2]:
 
     if "lead_seleccionado" not in st.session_state:
         st.session_state["lead_seleccionado"] = None
