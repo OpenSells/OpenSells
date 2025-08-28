@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
@@ -34,7 +34,7 @@ class LeadTarea(Base):
     tipo = Column(String, default="lead")
     nicho = Column(String)
     prioridad = Column(String, default="media")
-    auto = Column(Boolean, nullable=False, server_default="false")
+    auto = Column(Boolean, nullable=False, server_default=text("false"))
 
     @validates("email")
     def _set_lower(self, key, value):

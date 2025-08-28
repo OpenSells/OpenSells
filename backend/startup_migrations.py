@@ -21,3 +21,21 @@ def ensure_estado_contacto_column(engine: Engine) -> None:
             )
         )
     logger.info("Columna estado_contacto creada")
+
+
+def ensure_lead_tarea_auto_column(engine: Engine) -> None:
+    """Ensure lead_tarea.auto exists with safe default."""
+    insp = inspect(engine)
+    columns = [col["name"] for col in insp.get_columns("lead_tarea")]
+    if "auto" in columns:
+        return
+
+    logger.warning("Columna auto ausente; creando en lead_tarea")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE lead_tarea "
+                "ADD COLUMN auto BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
+    logger.info("Columna auto creada")

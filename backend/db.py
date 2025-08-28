@@ -18,7 +18,10 @@ except Exception:  # pragma: no cover
 
 from backend.database import SessionLocal
 from backend.models import LeadTarea, UsuarioMemoria, LeadExtraido
-from backend.startup_migrations import ensure_estado_contacto_column
+from backend.startup_migrations import (
+    ensure_estado_contacto_column,
+    ensure_lead_tarea_auto_column,
+)
 
 load_dotenv()
 
@@ -94,9 +97,17 @@ def crear_tablas_si_no_existen():
 
 from datetime import datetime
 
-def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, dominio: str = None,
-                                 tipo: str = "lead", nicho: str = None, prioridad: str = "media",
-                                 db=None):
+def guardar_tarea_lead_postgres(
+    email: str,
+    texto: str,
+    fecha: str = None,
+    dominio: str = None,
+    tipo: str = "lead",
+    nicho: str = None,
+    prioridad: str = "media",
+    auto: bool = False,
+    db=None,
+):
     timestamp = datetime.utcnow().isoformat()
     nueva_tarea = LeadTarea(
         email=email,
@@ -108,31 +119,43 @@ def guardar_tarea_lead_postgres(email: str, texto: str, fecha: str = None, domin
         timestamp=timestamp,
         tipo=tipo,
         nicho=nicho,
-        prioridad=prioridad
+        prioridad=prioridad,
+        auto=auto,
     )
     db.add(nueva_tarea)
     db.commit()
 
 def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
-    filas = (
-        db.query(LeadTarea, LeadExtraido)
-        .outerjoin(
-            LeadExtraido,
-            and_(
-                LeadTarea.dominio == LeadExtraido.url,
-                LeadTarea.user_email_lower == LeadExtraido.user_email_lower,
-            ),
+    def _query():
+        return (
+            db.query(LeadTarea, LeadExtraido)
+            .outerjoin(
+                LeadExtraido,
+                and_(
+                    LeadTarea.dominio == LeadExtraido.url,
+                    LeadTarea.user_email_lower == LeadExtraido.user_email_lower,
+                ),
+            )
+            .filter(LeadTarea.user_email_lower == email)
+            .order_by(
+                LeadTarea.completado.asc(),
+                LeadTarea.prioridad.asc(),
+                LeadTarea.fecha.is_(None),
+                LeadTarea.fecha.asc(),
+                LeadTarea.timestamp.desc(),
+            )
+            .all()
         )
-        .filter(LeadTarea.user_email_lower == email)
-        .order_by(
-            LeadTarea.completado.asc(),
-            LeadTarea.prioridad.asc(),
-            LeadTarea.fecha.is_(None),
-            LeadTarea.fecha.asc(),
-            LeadTarea.timestamp.desc(),
-        )
-        .all()
-    )
+
+    try:
+        filas = _query()
+    except (ProgrammingError, OperationalError) as e:
+        if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(getattr(e, "orig", "")):
+            logger.warning("columna auto ausente; intentando autocompletar migración")
+            ensure_lead_tarea_auto_column(db.get_bind())
+            filas = _query()
+        else:
+            raise
 
     resultado = []
     for t, lead in filas:
@@ -148,18 +171,41 @@ def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
                 "nicho": t.nicho,
                 "prioridad": t.prioridad,
                 "lead_url": lead.url if lead else None,
+                "auto": bool(getattr(t, "auto", False)),
             }
         )
 
+    prio_map = {"alta": 0, "media": 1, "baja": 2}
+    resultado.sort(
+        key=lambda t: (
+            t.get("completado"),
+            prio_map.get(t.get("prioridad"), 999),
+            not t.get("auto", False),
+            t.get("fecha") is None,
+            t.get("fecha"),
+            t.get("timestamp"),
+        )
+    )
     return resultado
 
 def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
-    resultados = (
-        db.query(LeadTarea)
-        .filter(LeadTarea.user_email_lower == email, LeadTarea.dominio == dominio)
-        .order_by(LeadTarea.timestamp.desc())
-        .all()
-    )
+    def _query():
+        return (
+            db.query(LeadTarea)
+            .filter(LeadTarea.user_email_lower == email, LeadTarea.dominio == dominio)
+            .order_by(LeadTarea.timestamp.desc())
+            .all()
+        )
+
+    try:
+        resultados = _query()
+    except (ProgrammingError, OperationalError) as e:
+        if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(getattr(e, "orig", "")):
+            logger.warning("columna auto ausente; intentando autocompletar migración")
+            ensure_lead_tarea_auto_column(db.get_bind())
+            resultados = _query()
+        else:
+            raise
 
     return [
         {
@@ -170,16 +216,28 @@ def obtener_tareas_lead_postgres(email: str, dominio: str, db: Session):
             "timestamp": tarea.timestamp,
             "tipo": tarea.tipo or "lead",
             "prioridad": tarea.prioridad or "media",
-            "dominio": tarea.dominio
+            "dominio": tarea.dominio,
+            "auto": bool(getattr(tarea, "auto", False)),
         }
         for tarea in resultados
     ]
 
 def marcar_tarea_completada_postgres(email: str, tarea_id: int, db: Session):
-    tarea = db.query(LeadTarea).filter(
-        LeadTarea.id == tarea_id,
-        LeadTarea.user_email_lower == email
-    ).first()
+    def _query():
+        return db.query(LeadTarea).filter(
+            LeadTarea.id == tarea_id,
+            LeadTarea.user_email_lower == email
+        ).first()
+
+    try:
+        tarea = _query()
+    except (ProgrammingError, OperationalError) as e:
+        if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(getattr(e, "orig", "")):
+            logger.warning("columna auto ausente; intentando autocompletar migración")
+            ensure_lead_tarea_auto_column(db.get_bind())
+            tarea = _query()
+        else:
+            raise
 
     if tarea:
         tarea.completado = True
@@ -226,17 +284,28 @@ def guardar_leads_extraidos(
 
             if auto_task_enabled:
                 titulo = f"Contactar lead: {dominio}"
-                existe_tarea = (
-                    db.query(LeadTarea)
-                    .filter(
-                        LeadTarea.user_email_lower == user_email_lower,
-                        LeadTarea.dominio == dominio,
-                        LeadTarea.texto == titulo,
-                        LeadTarea.auto.is_(True),
-                        LeadTarea.completado.is_(False),
+                def _query_tarea():
+                    return (
+                        db.query(LeadTarea)
+                        .filter(
+                            LeadTarea.user_email_lower == user_email_lower,
+                            LeadTarea.dominio == dominio,
+                            LeadTarea.texto == titulo,
+                            LeadTarea.auto.is_(True),
+                            LeadTarea.completado.is_(False),
+                        )
+                        .first()
                     )
-                    .first()
-                )
+
+                try:
+                    existe_tarea = _query_tarea()
+                except (ProgrammingError, OperationalError) as e:
+                    if isinstance(getattr(e, "orig", None), UndefinedColumn) or "no such column" in str(getattr(e, "orig", "")):
+                        logger.warning("columna auto ausente; intentando autocompletar migración")
+                        ensure_lead_tarea_auto_column(db.get_bind())
+                        existe_tarea = _query_tarea()
+                    else:
+                        raise
                 if not existe_tarea:
                     tarea = LeadTarea(
                         email=user_email,
@@ -596,7 +665,8 @@ def obtener_tarea_por_id_postgres(email: str, tarea_id: int, db: Session):
             "dominio": tarea.dominio,
             "texto": tarea.texto,
             "tipo": tarea.tipo,
-            "nicho": tarea.nicho
+            "nicho": tarea.nicho,
+            "auto": bool(getattr(tarea, "auto", False)),
         }
     return None
 
@@ -790,6 +860,7 @@ def editar_tarea_existente_postgres(email: str, tarea_id: int, datos, db: Sessio
         tarea.tipo = datos.tipo
         tarea.nicho = datos.nicho
         tarea.dominio = datos.dominio
+        tarea.auto = datos.auto
         db.commit()
 
 def obtener_historial_por_nicho(email: str, nicho: str):

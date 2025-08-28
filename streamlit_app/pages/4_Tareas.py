@@ -85,7 +85,17 @@ map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if
 
 # ────────────────── Render tabla ────────────────────
 def render_list(items: list[dict], key_pref: str):
-    items.sort(key=lambda t: t.get("fecha") or "9999-12-31")
+    prio_map = {"alta": 0, "media": 1, "baja": 2}
+    items.sort(
+        key=lambda t: (
+            t.get("completado", False),
+            prio_map.get(t.get("prioridad"), 999),
+            not t.get("auto", False),
+            t.get("fecha") is None,
+            t.get("fecha"),
+            t.get("timestamp"),
+        )
+    )
     if not items:
         st.info("Sin tareas.")
         return
@@ -121,7 +131,10 @@ def render_list(items: list[dict], key_pref: str):
         prioridad = P_ICON.get(prioridad_raw if prioridad_raw in P_ICON else "media")
 
         cols[0].markdown(f"{tipo}")
-        cols[1].markdown(f"**{texto}**")
+        if t.get("auto", False):
+            cols[1].markdown(f"**{texto}** _(Auto)_")
+        else:
+            cols[1].markdown(f"**{texto}**")
         cols[2].markdown(asignado)  # Enlace solo si es lead o nicho (Markdown puro)
         cols[3].markdown(fecha)
         cols[4].markdown(prioridad)
@@ -172,7 +185,8 @@ def render_list(items: list[dict], key_pref: str):
                             "prioridad": nueva_prioridad,
                             "tipo": t.get("tipo"),
                             "nicho": t.get("nicho"),
-                            "dominio": t.get("dominio")
+                            "dominio": t.get("dominio"),
+                            "auto": t.get("auto", False),
                         },
                         params={"tarea_id": t["id"]}
                     )

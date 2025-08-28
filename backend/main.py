@@ -95,7 +95,10 @@ from backend.db import guardar_estado_lead, obtener_estado_lead
 from sqlalchemy.orm import Session
 from backend.db import obtener_nichos_para_url
 from backend.webhook import router as webhook_router
-from backend.startup_migrations import ensure_estado_contacto_column
+from backend.startup_migrations import (
+    ensure_estado_contacto_column,
+    ensure_lead_tarea_auto_column,
+)
 
 load_dotenv()
 
@@ -120,6 +123,7 @@ async def startup():
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
     ensure_estado_contacto_column(engine)
+    ensure_lead_tarea_auto_column(engine)
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
@@ -743,6 +747,7 @@ class TareaRequest(BaseModel):
     tipo: Optional[str] = "lead"
     nicho: Optional[str] = None
     prioridad: Optional[str] = "media"
+    auto: Optional[bool] = False
 
 from backend.db import guardar_tarea_lead_postgres as guardar_tarea_lead
 from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
@@ -757,6 +762,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
         tipo=payload.tipo,
         nicho=payload.nicho.strip() if payload.nicho else None,
         prioridad=payload.prioridad,
+        auto=payload.auto,
         db=db
     )
 
