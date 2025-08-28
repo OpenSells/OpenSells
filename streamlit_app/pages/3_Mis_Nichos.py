@@ -241,7 +241,7 @@ for n in nichos_visibles:
         f"📂 {n['nicho_original']} ({n['total_leads']} leads)",
         expanded=expanded,
     ):
-        cols = st.columns([1, 1])
+        top_cols = st.columns([8, 2])
 
         # ── Descargar CSV ───────────────────────────
         try:
@@ -254,7 +254,7 @@ for n in nichos_visibles:
                 params=params_export,
             )
             if resp.status_code == 200:
-                cols[0].download_button(
+                top_cols[0].download_button(
                     "📥 Descargar CSV",
                     resp.content,
                     file_name=f"{n['nicho_original']}.csv",
@@ -265,7 +265,7 @@ for n in nichos_visibles:
             pass
 
         # ── Eliminar nicho ──────────────────────────
-        if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
+        if top_cols[1].button("🗑 Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
             if not tiene_suscripcion_activa(plan):
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                 subscription_cta()
@@ -379,7 +379,7 @@ for n in nichos_visibles:
             dominio = normalizar_dominio(l["url"])
             estado_actual = l.get("estado_contacto", "pendiente")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
-            cols_row = st.columns([3, 2, 1, 1, 1, 1])
+            cols_row = st.columns([4, 2, 2, 2, 2, 2])
             cols_row[0].markdown(
                 f"- 🌐 [**{dominio}**](https://{dominio})",
                 unsafe_allow_html=True,
@@ -421,7 +421,7 @@ for n in nichos_visibles:
                             st.warning("La descripción es obligatoria")
 
             # Botón eliminar
-            if cols_row[2].button("🗑️", key=f"btn_borrar_{clave_base}"):
+            if cols_row[2].button("🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False):
                 if not tiene_suscripcion_activa(plan):
                     st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                     subscription_cta()
@@ -444,7 +444,7 @@ for n in nichos_visibles:
                         st.error("❌ Error al eliminar el lead")
 
             # Botón Mover compacto
-            if cols_row[3].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
+            if cols_row[3].button("🔀 Cambiar nicho", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
                 st.session_state["lead_a_mover"] = clave_base
 
             # Formulario de mover lead si está activo
@@ -476,7 +476,7 @@ for n in nichos_visibles:
                             st.error("Error al mover lead")
 
             # Botón Información extra
-            if cols_row[4].button("📝", key=f"btn_info_{clave_base}"):
+            if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
                 st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
 
             # Formulario de info extra si está activado
