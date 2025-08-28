@@ -63,7 +63,7 @@ elif "nicho" in params:
     st.query_params.clear()
 
 if "tarea_seccion_activa" not in st.session_state:
-    st.session_state["tarea_seccion_activa"] = "⏳ Pendientes"
+    st.session_state["tarea_seccion_activa"] = "🧠 General"
 
 # ────────────────── Helpers ─────────────────────────
 def _hash(v):
@@ -78,14 +78,33 @@ def norm_dom(url: str) -> str:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_tareas = cached_get("tareas_pendientes", st.session_state.token, nocache_key=time.time())
-todos = [t for t in (datos_tareas.get("tareas") if datos_tareas else []) if not t.get("completado", False)]
 datos_nichos = cached_get("mis_nichos", st.session_state.token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
+@st.cache_data(ttl=30)
+def fetch_tareas_pendientes(tipo: str):
+    resp = http_client.get(
+        "/tareas_pendientes",
+        headers=HDR,
+        params={"tipo": tipo, "solo_pendientes": "true"},
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
+
 # ────────────────── Render tabla ────────────────────
 def render_list(items: list[dict], key_pref: str):
-    items.sort(key=lambda t: t.get("fecha") or "9999-12-31")
+    prio_map = {"alta": 0, "media": 1, "baja": 2}
+    items.sort(
+        key=lambda t: (
+            t.get("completado", False),
+            prio_map.get(t.get("prioridad"), 999),
+            not t.get("auto", False),
+            t.get("fecha") is None,
+            t.get("fecha"),
+            t.get("timestamp"),
+        )
+    )
     if not items:
         st.info("Sin tareas.")
         return
@@ -121,7 +140,10 @@ def render_list(items: list[dict], key_pref: str):
         prioridad = P_ICON.get(prioridad_raw if prioridad_raw in P_ICON else "media")
 
         cols[0].markdown(f"{tipo}")
-        cols[1].markdown(f"**{texto}**")
+        if t.get("auto", False):
+            cols[1].markdown(f"**{texto}** _(Auto)_")
+        else:
+            cols[1].markdown(f"**{texto}**")
         cols[2].markdown(asignado)  # Enlace solo si es lead o nicho (Markdown puro)
         cols[3].markdown(fecha)
         cols[4].markdown(prioridad)
@@ -172,7 +194,8 @@ def render_list(items: list[dict], key_pref: str):
                             "prioridad": nueva_prioridad,
                             "tipo": t.get("tipo"),
                             "nicho": t.get("nicho"),
-                            "dominio": t.get("dominio")
+                            "dominio": t.get("dominio"),
+                            "auto": t.get("auto", False),
                         },
                         params={"tarea_id": t["id"]}
                     )
@@ -187,9 +210,8 @@ def render_list(items: list[dict], key_pref: str):
 
 # ────────────────── Layout ──────────────────────────
 
-st.title("📋 Tareas")
-titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
-
+st.title("📋 Tareas activas")
+titles = ["🧠 General", "📂 Nichos", "🌐 Leads", "📋 Todas"]
 seccion = st.radio(
     "Secciones",
     titles,
@@ -199,12 +221,20 @@ seccion = st.radio(
     horizontal=True,
 )
 
-if seccion == titles[0]:
-    st.subheader("⏳ Todas las pendientes")
+tipo_map = {
+    "🧠 General": "general",
+    "📂 Nichos": "nicho",
+    "🌐 Leads": "lead",
+    "📋 Todas": "todas",
+}
+todos = fetch_tareas_pendientes(tipo_map[seccion])
+
+if seccion == titles[3]:
+    st.subheader("Tareas activas")
     render_list(todos, "all")
 
 # Generales
-elif seccion == titles[1]:
+elif seccion == titles[0]:
     st.subheader("🧠 Tareas generales")
 
     # Toggle para añadir tarea
@@ -238,7 +268,7 @@ elif seccion == titles[1]:
                     st.warning("La descripción es obligatoria.")
 
     # Tareas activas
-    gen = [t for t in todos if t.get("tipo") == "general" and not t.get("completado", False)]
+    gen = todos
     st.markdown("#### 📋 Tareas activas")
     render_list(gen, "g")
 
@@ -263,7 +293,7 @@ elif seccion == titles[1]:
             st.info("No hay tareas completadas.")
 
 # Nichos
-elif seccion == titles[2]:
+elif seccion == titles[1]:
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
@@ -336,7 +366,7 @@ elif seccion == titles[2]:
                         else:
                             st.warning("La descripción es obligatoria.")
 
-            tareas_n = [t for t in todos if t.get("tipo") == "nicho" and t.get("nicho") == nk["nicho"] and not t.get("completado", False)]
+            tareas_n = [t for t in todos if t.get("nicho") == nk["nicho"]]
             st.markdown("#### 📋 Tareas activas")
             render_list(tareas_n, f"n{nk['nicho']}")
 
@@ -361,7 +391,7 @@ elif seccion == titles[2]:
                     st.info("No hay tareas completadas para este nicho.")
 
 # Leads
-elif seccion == titles[3]:
+elif seccion == titles[2]:
 
     if "lead_seleccionado" not in st.session_state:
         st.session_state["lead_seleccionado"] = None

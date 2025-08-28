@@ -21,7 +21,7 @@ def test_guardar_lead_crea_estado_y_tarea():
 
     lead = session.query(LeadExtraido).first()
     assert lead is not None
-    assert lead.estado_contacto == "no_contactado"
+    assert lead.estado_contacto == "pendiente"
 
     tarea = session.query(LeadTarea).first()
     assert tarea is not None

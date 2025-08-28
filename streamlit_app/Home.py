@@ -147,8 +147,8 @@ suscripcion_activa = tiene_suscripcion_activa(plan)
 nichos = cached_get("mis_nichos", st.session_state.token) or {}
 num_nichos = len(nichos.get("nichos", []))
 
-_tareas = cached_get("tareas_pendientes", st.session_state.token) or {}
-num_tareas = len([t for t in _tareas.get("tareas", []) if not t.get("completado")])
+_tareas = cached_get("tareas_pendientes", st.session_state.token) or []
+num_tareas = len([t for t in _tareas if not t.get("completado")])
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
