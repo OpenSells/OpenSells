@@ -25,7 +25,12 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import (
+    ensure_session,
+    restore_session_if_allowed,
+    is_authenticated,
+    clear_session,
+)
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -62,13 +67,14 @@ st.markdown(
 )
 
 
-if not require_auth_or_prompt():
-    st.stop()
+if not is_authenticated():
+    restore_session_if_allowed()
+if not is_authenticated():
+    st.switch_page("Home.py")
 user, token = ensure_session()
 if not token:
-    st.stop()
+    st.switch_page("Home.py")
 plan = (user or {}).get("plan", "free")
-HDR = {"Authorization": f"Bearer {st.session_state.token}"}
 
 ESTADOS = {
     "pendiente": ("Pendiente", "🟡"),
@@ -93,10 +99,9 @@ def _estado_chip_label(estado:str)->str:
 def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
     antiguo=lead.get("estado_contacto")
     lead["estado_contacto"]=nuevo
-    resp=http_client.patch(
+    resp = http_client.patch(
         f"/leads/{lead_id}/estado_contacto",
-        headers=HDR,
-        json={"estado_contacto":nuevo},
+        json={"estado_contacto": nuevo},
     )
     if not resp or resp.status_code>=400:
         lead["estado_contacto"]=antiguo
@@ -104,8 +109,13 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
     else:
         st.toast("Estado actualizado",icon="✅")
 
-if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
+    clear_session(preserve_logout_flag=True)
+    st.experimental_set_query_params()
+    try:
+        st.switch_page("Home.py")
+    except Exception:
+        st.rerun()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:
@@ -401,7 +411,6 @@ for n in nichos_visibles:
                         if texto.strip():
                             resp = http_client.post(
                                 "/tareas",
-                                headers=HDR,
                                 json={
                                     "texto": texto.strip(),
                                     "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
@@ -444,7 +453,7 @@ for n in nichos_visibles:
                         st.error("❌ Error al eliminar el lead")
 
             # Botón Mover compacto
-            if cols_row[3].button("🔀 Cambiar nicho", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
+            if cols_row[3].button("🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
                 st.session_state["lead_a_mover"] = clave_base
 
             # Formulario de mover lead si está activo

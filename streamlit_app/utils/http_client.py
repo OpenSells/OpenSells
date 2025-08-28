@@ -20,6 +20,7 @@ _adapter = HTTPAdapter(max_retries=_retries, pool_connections=10, pool_maxsize=2
 _session.mount("http://", _adapter)
 _session.mount("https://", _adapter)
 
+# token-aware extra headers
 _extra_headers: dict[str, str] = {}
 
 # timeouts: (connect_timeout, read_timeout)
@@ -40,15 +41,18 @@ def _merge_headers(headers: dict | None) -> dict:
     combined = dict(_extra_headers)
     if headers:
         combined.update(headers)
+    token = st.session_state.get("auth_token") or st.session_state.get("token")
+    if token:
+        combined["Authorization"] = f"Bearer {token}"
     return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
-        if st.session_state.get("token"):
+        if st.session_state.get("auth_token") or st.session_state.get("token"):
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session()
+        clear_session(preserve_logout_flag=False)
         try:
-            st.switch_page("streamlit/Home.py")
+            st.switch_page("Home.py")
         except Exception:
             st.rerun()
     return resp

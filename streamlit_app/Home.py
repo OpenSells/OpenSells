@@ -11,7 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import (
+    save_session,
+    restore_session_if_allowed,
+    clear_session,
+)
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
 from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
@@ -22,8 +26,17 @@ init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
-
-user, token = ensure_session()
+restore_session_if_allowed()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if token and not user:
+    resp = http_client.get("/me")
+    if getattr(resp, "status_code", None) == 200:
+        user = resp.json()
+        st.session_state["user"] = user
+    else:
+        clear_session(preserve_logout_flag=False)
+        token = None
 
 st.markdown(
     """
@@ -87,18 +100,22 @@ if not user:
         if r.status_code == 200:
             data = safe_json(r)
             token = data.get("access_token")
-            st.session_state["token"] = token
-            st.session_state.email = email
-            try:
-                set_auth_token(token)
-            except Exception:
-                st.warning("No se pudieron guardar las cookies de sesión")
-            ensure_session()
-            st.success("¡Sesión iniciada!")
-            try:
-                st.switch_page("streamlit/Home.py")
-            except Exception:
-                st.rerun()
+            if token:
+                save_session(token, email)
+                try:
+                    set_auth_token(token)
+                except Exception:
+                    st.warning("No se pudieron guardar las cookies de sesión")
+                resp_me = http_client.get("/me")
+                if getattr(resp_me, "status_code", None) == 200:
+                    st.session_state["user"] = resp_me.json()
+                st.success("¡Sesión iniciada!")
+                try:
+                    st.switch_page("Home.py")
+                except Exception:
+                    st.rerun()
+            else:
+                st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
         else:
             st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
 
@@ -112,8 +129,13 @@ if not user:
             st.error("Error al registrar usuario.")
     st.stop()
 
-if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
+    clear_session(preserve_logout_flag=True)
+    st.experimental_set_query_params()
+    try:
+        st.switch_page("Home.py")
+    except Exception:
+        st.rerun()
 
 
 def page_exists(name: str) -> bool:
@@ -144,10 +166,10 @@ PAGES = {
 plan = (user or {}).get("plan", "free")
 suscripcion_activa = tiene_suscripcion_activa(plan)
 
-nichos = cached_get("mis_nichos", st.session_state.token) or {}
+nichos = cached_get("mis_nichos", st.session_state.get("auth_token")) or {}
 num_nichos = len(nichos.get("nichos", []))
 
-_tareas = cached_get("tareas_pendientes", st.session_state.token) or []
+_tareas = cached_get("tareas_pendientes", st.session_state.get("auth_token")) or []
 num_tareas = len([t for t in _tareas if not t.get("completado")])
 
 col1, col2 = st.columns(2, gap="large")
