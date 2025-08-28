@@ -78,10 +78,19 @@ def norm_dom(url: str) -> str:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_tareas = cached_get("tareas_pendientes", st.session_state.token, nocache_key=time.time())
-todos = [t for t in (datos_tareas.get("tareas") if datos_tareas else []) if not t.get("completado", False)]
 datos_nichos = cached_get("mis_nichos", st.session_state.token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
+
+@st.cache_data(ttl=30)
+def fetch_tareas(tipo: str, solo_pendientes: bool):
+    resp = http_client.get(
+        "/tareas_pendientes",
+        headers=HDR,
+        params={"tipo": tipo, "solo_pendientes": str(solo_pendientes).lower()},
+    )
+    if resp.status_code == 200:
+        return resp.json()
+    return []
 
 # ────────────────── Render tabla ────────────────────
 def render_list(items: list[dict], key_pref: str):
@@ -202,19 +211,30 @@ def render_list(items: list[dict], key_pref: str):
 # ────────────────── Layout ──────────────────────────
 
 st.title("📋 Tareas")
-titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
+col_f1, col_f2 = st.columns([1, 4])
+with col_f1:
+    solo_pend = st.checkbox("Pendientes", value=True, key="tareas_solo_pend")
+with col_f2:
+    titles = ["⏳ Pendientes", "🧠 General", "📂 Nichos", "🌐 Leads"]
+    seccion = st.radio(
+        "Secciones",
+        titles,
+        key="tarea_seccion_activa",
+        index=titles.index(st.session_state["tarea_seccion_activa"]),
+        label_visibility="collapsed",
+        horizontal=True,
+    )
 
-seccion = st.radio(
-    "Secciones",
-    titles,
-    key="tarea_seccion_activa",
-    index=titles.index(st.session_state["tarea_seccion_activa"]),
-    label_visibility="collapsed",
-    horizontal=True,
-)
+tipo_map = {
+    "⏳ Pendientes": "todas",
+    "🧠 General": "general",
+    "📂 Nichos": "nicho",
+    "🌐 Leads": "lead",
+}
+todos = fetch_tareas(tipo_map[seccion], solo_pend)
 
 if seccion == titles[0]:
-    st.subheader("⏳ Todas las pendientes")
+    st.subheader("⏳ Todas las pendientes" if solo_pend else "📋 Todas las tareas")
     render_list(todos, "all")
 
 # Generales
@@ -252,7 +272,7 @@ elif seccion == titles[1]:
                     st.warning("La descripción es obligatoria.")
 
     # Tareas activas
-    gen = [t for t in todos if t.get("tipo") == "general" and not t.get("completado", False)]
+    gen = todos
     st.markdown("#### 📋 Tareas activas")
     render_list(gen, "g")
 
@@ -350,7 +370,7 @@ elif seccion == titles[2]:
                         else:
                             st.warning("La descripción es obligatoria.")
 
-            tareas_n = [t for t in todos if t.get("tipo") == "nicho" and t.get("nicho") == nk["nicho"] and not t.get("completado", False)]
+            tareas_n = [t for t in todos if t.get("nicho") == nk["nicho"]]
             st.markdown("#### 📋 Tareas activas")
             render_list(tareas_n, f"n{nk['nicho']}")
 

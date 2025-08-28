@@ -125,9 +125,14 @@ def guardar_tarea_lead_postgres(
     db.add(nueva_tarea)
     db.commit()
 
-def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
+def obtener_todas_tareas_pendientes_postgres(
+    email: str,
+    db: Session,
+    tipo: str = "todas",
+    solo_pendientes: bool = True,
+):
     def _query():
-        return (
+        q = (
             db.query(LeadTarea, LeadExtraido)
             .outerjoin(
                 LeadExtraido,
@@ -137,15 +142,25 @@ def obtener_todas_tareas_pendientes_postgres(email: str, db: Session):
                 ),
             )
             .filter(LeadTarea.user_email_lower == email)
-            .order_by(
-                LeadTarea.completado.asc(),
-                LeadTarea.prioridad.asc(),
-                LeadTarea.fecha.is_(None),
-                LeadTarea.fecha.asc(),
-                LeadTarea.timestamp.desc(),
-            )
-            .all()
         )
+
+        if solo_pendientes:
+            q = q.filter(LeadTarea.completado == False)  # noqa: E712
+
+        if tipo == "general":
+            q = q.filter(LeadTarea.tipo == "general")
+        elif tipo == "nicho":
+            q = q.filter(LeadTarea.tipo == "nicho")
+        elif tipo == "lead":
+            q = q.filter(LeadTarea.tipo == "lead")
+
+        return q.order_by(
+            LeadTarea.completado.asc(),
+            LeadTarea.prioridad.asc(),
+            LeadTarea.fecha.is_(None),
+            LeadTarea.fecha.asc(),
+            LeadTarea.timestamp.desc(),
+        ).all()
 
     try:
         filas = _query()

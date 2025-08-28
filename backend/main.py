@@ -15,7 +15,7 @@ from backend.db import buscar_leads_global_postgres
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Literal
 from openai import OpenAI
 import requests
 import logging
@@ -844,9 +844,19 @@ def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_curre
     return {"mensaje": "Tarea editada correctamente"}
 
 @app.get("/tareas_pendientes")
-def tareas_pendientes(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    tareas = obtener_todas_tareas_pendientes(usuario.email_lower, db)
-    return {"tareas": tareas}
+def tareas_pendientes(
+    tipo: Literal["todas", "general", "nicho", "lead"] = "todas",
+    solo_pendientes: bool = True,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tareas = obtener_todas_tareas_pendientes(
+        usuario.email_lower,
+        db,
+        tipo=tipo,
+        solo_pendientes=solo_pendientes,
+    )
+    return tareas
 
 @app.get("/historial_lead")
 def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):

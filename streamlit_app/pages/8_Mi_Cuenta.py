@@ -113,7 +113,7 @@ if leads_resp.status_code == 200:
     total_leads = len(df)
 
 resp_tareas = cached_get("tareas_pendientes", st.session_state.token)
-tareas = resp_tareas.get("tareas", []) if resp_tareas else []
+tareas = resp_tareas or []
 
 st.markdown(
     f"""
