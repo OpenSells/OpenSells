@@ -14,12 +14,13 @@ import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.nav import go, HOME_PAGE
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
 
-ensure_session_or_redirect("Home")
+ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
 if not user:
@@ -31,8 +32,7 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
-    st.query_params.clear()
-    st.switch_page("Home")
+    go(HOME_PAGE)
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(
@@ -76,17 +76,8 @@ except AttributeError:
         st.link_button("💳 Activar suscripción", suscription_page)
     except AttributeError:
         if st.button("🔎 Buscar leads ahora"):
-            try:
-                st.switch_page("pages/1_Busqueda.py")
-            except Exception:
-                pass
+            go("pages/1_Busqueda.py")
         if st.button("📁 Ver mis nichos"):
-            try:
-                st.switch_page("pages/3_Mis_Nichos.py")
-            except Exception:
-                pass
+            go("pages/3_Mis_Nichos.py")
         if st.button("💳 Activar suscripción"):
-            try:
-                st.switch_page(suscription_page)
-            except Exception:
-                pass
+            go(suscription_page)

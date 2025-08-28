@@ -1,6 +1,7 @@
 import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -9,7 +10,7 @@ init_cookie_manager_mount()
 st.set_page_config(page_title="Exportaciones", page_icon="📤")
 
 
-ensure_session_or_redirect("Home")
+ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
 if not user:
@@ -20,8 +21,7 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
-    st.query_params.clear()
-    st.switch_page("Home")
+    go(HOME_PAGE)
 
 st.title("📤 Exportaciones")
 st.info("Esta sección estará disponible pronto.")

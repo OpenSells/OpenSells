@@ -26,6 +26,7 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -62,7 +63,7 @@ st.markdown(
 )
 
 
-ensure_session_or_redirect("Home")
+ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
 if not user:
@@ -107,11 +108,7 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    st.query_params.clear()
-    try:
-        st.switch_page("Home")
-    except Exception:
-        st.rerun()
+    go(HOME_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

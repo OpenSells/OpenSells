@@ -17,6 +17,7 @@ from streamlit_app.cache_utils import cached_get
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 from streamlit_app.common_paths import APP_DIR, PAGES_DIR
+from streamlit_app.utils.nav import go, HOME_PAGE
 
 init_cookie_manager_mount()
 
@@ -102,11 +103,7 @@ if not user:
                 if getattr(resp_me, "status_code", None) == 200:
                     st.session_state["user"] = resp_me.json()
                 st.success("¡Sesión iniciada!")
-                st.query_params.clear()
-                try:
-                    st.switch_page("Búsqueda")
-                except Exception:
-                    st.rerun()
+                go("pages/1_Busqueda.py")
             else:
                 st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
         else:
@@ -124,25 +121,11 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    st.query_params.clear()
-    try:
-        st.switch_page("Home")
-    except Exception:
-        st.rerun()
+    go(HOME_PAGE)
 
 
 def page_exists(name: str) -> bool:
     return (PAGES_DIR / name).exists()
-
-
-def go(page_file: str):
-    if not page_exists(page_file):
-        st.warning("Esta página aún no está disponible.")
-        return
-    try:
-        st.switch_page(f"pages/{page_file}")
-    except Exception:
-        st.page_link(f"pages/{page_file}", label="Abrir página", icon="➡️")
 
 
 PAGES = {
@@ -175,7 +158,7 @@ with col1:
         "🗨️ Asistente Virtual",
         use_container_width=True,
         disabled=not suscripcion_activa,
-        on_click=lambda: go(PAGES["assistant"]),
+        on_click=lambda: go(f"pages/{PAGES['assistant']}")
     )
     if not suscripcion_activa:
         subscription_cta()
@@ -186,7 +169,7 @@ with col2:
     st.button(
         "🔎 Búsqueda de Leads",
         use_container_width=True,
-        on_click=lambda: go(PAGES["busqueda"]),
+        on_click=lambda: go(f"pages/{PAGES['busqueda']}")
     )
 
 st.divider()
@@ -202,7 +185,7 @@ for col, (label, key) in zip(accesos, items):
     page_file = PAGES.get(key)
     if page_file and page_exists(page_file):
         if col.button(label, use_container_width=True):
-            go(page_file)
+            go(f"pages/{page_file}")
 
 with st.expander("Resumen de tu actividad"):
     st.write(f"**Número de nichos:** {num_nichos}")
