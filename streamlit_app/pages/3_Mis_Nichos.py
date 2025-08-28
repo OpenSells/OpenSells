@@ -385,38 +385,40 @@ for n in nichos_visibles:
                 unsafe_allow_html=True,
             )
             estado_label = _estado_chip_label(estado_actual)
-            with cols_row[1].popover(estado_label, key=f"estado_pop_{clave_base}"):
-                for est in ESTADOS.keys():
-                    if st.button(_estado_chip_label(est), key=f"est_{est}_{clave_base}"):
-                        _cambiar_estado_lead(l, l.get("id"), est)
-                        st.rerun()
-
-            with cols_row[5].popover("➕ Tarea", key=f"tarea_pop_{clave_base}"):
-                texto = st.text_area("Descripción", key=f"tarea_txt_{clave_base}")
-                fecha = st.date_input("Fecha", value=None, key=f"tarea_fecha_{clave_base}")
-                prioridad = st.selectbox("Prioridad", ["alta", "media", "baja"], index=1, key=f"tarea_prio_{clave_base}")
-                if st.button("Guardar", key=f"tarea_save_{clave_base}"):
-                    if texto.strip():
-                        resp = http_client.post(
-                            "/tareas",
-                            headers=HDR,
-                            json={
-                                "texto": texto.strip(),
-                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                "prioridad": prioridad,
-                                "tipo": "lead",
-                                "dominio": dominio,
-                                "nicho": n["nicho"],
-                                "auto": False,
-                            },
-                        )
-                        if resp and resp.status_code < 400:
-                            st.toast("Tarea creada", icon="✅")
+            with cols_row[1]:
+                with st.popover(estado_label, help="Cambiar estado", use_container_width=False):
+                    for est in ESTADOS.keys():
+                        if st.button(_estado_chip_label(est), key=f"btn_est_{est}_{clave_base}"):
+                            _cambiar_estado_lead(l, l.get("id"), est)
                             st.rerun()
+
+            with cols_row[5]:
+                with st.popover("➕ Tarea", help="Agregar tarea", use_container_width=False):
+                    texto = st.text_area("Descripción", key=f"tarea_txt_{clave_base}")
+                    fecha = st.date_input("Fecha", value=None, key=f"tarea_fecha_{clave_base}")
+                    prioridad = st.selectbox("Prioridad", ["alta", "media", "baja"], index=1, key=f"tarea_prio_{clave_base}")
+                    if st.button("Guardar", key=f"tarea_save_{clave_base}"):
+                        if texto.strip():
+                            resp = http_client.post(
+                                "/tareas",
+                                headers=HDR,
+                                json={
+                                    "texto": texto.strip(),
+                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                    "prioridad": prioridad,
+                                    "tipo": "lead",
+                                    "dominio": dominio,
+                                    "nicho": n["nicho"],
+                                    "auto": False,
+                                },
+                            )
+                            if resp and resp.status_code < 400:
+                                st.toast("Tarea creada", icon="✅")
+                                st.rerun()
+                            else:
+                                st.toast("No se pudo crear la tarea", icon="⚠️")
                         else:
-                            st.toast("No se pudo crear la tarea", icon="⚠️")
-                    else:
-                        st.warning("La descripción es obligatoria")
+                            st.warning("La descripción es obligatoria")
 
             # Botón eliminar
             if cols_row[2].button("🗑️", key=f"btn_borrar_{clave_base}"):
