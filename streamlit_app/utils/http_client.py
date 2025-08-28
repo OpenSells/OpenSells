@@ -41,18 +41,19 @@ def _merge_headers(headers: dict | None) -> dict:
     combined = dict(_extra_headers)
     if headers:
         combined.update(headers)
-    token = st.session_state.get("auth_token") or st.session_state.get("token")
+    token = st.session_state.get("auth_token")
     if token:
         combined["Authorization"] = f"Bearer {token}"
     return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
-        if st.session_state.get("auth_token") or st.session_state.get("token"):
+        if st.session_state.get("auth_token"):
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session(preserve_logout_flag=False)
+        clear_session(preserve_logout_flag=True)
+        st.query_params.clear()
         try:
-            st.switch_page("Home.py")
+            st.switch_page("Home")
         except Exception:
             st.rerun()
     return resp

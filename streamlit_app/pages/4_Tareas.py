@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -33,18 +33,23 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
 
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect("Home")
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 
 if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+    clear_session(preserve_logout_flag=True)
+    st.query_params.clear()
+    st.switch_page("Home")
 
 plan = (user or {}).get("plan", "free")
 
-HDR = {"Authorization": f"Bearer {st.session_state.token}"}
+HDR = {"Authorization": f"Bearer {token}"}
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()
@@ -77,7 +82,7 @@ def norm_dom(url: str) -> str:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_nichos = cached_get("mis_nichos", st.session_state.token)
+datos_nichos = cached_get("mis_nichos", token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
 @st.cache_data(ttl=30)
@@ -152,7 +157,7 @@ def render_list(items: list[dict], key_pref: str):
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                 subscription_cta()
             else:
-                cached_post("tarea_completada", st.session_state.token, params={"tarea_id": t['id']})
+                cached_post("tarea_completada", token, params={"tarea_id": t['id']})
                 limpiar_cache()  # ✅ Añadir esto
                 st.success(f"Tarea {t['id']} marcada como completada ✅")
                 st.rerun()
@@ -186,7 +191,7 @@ def render_list(items: list[dict], key_pref: str):
                 else:
                     cached_post(
                         "editar_tarea",
-                        st.session_state.token,
+                        token,
                         payload={
                             "texto": nuevo_texto.strip(),
                             "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
@@ -245,7 +250,7 @@ elif seleccion == "General":
                     else:
                         cached_post(
                             "tarea_lead",
-                            st.session_state.token,
+                            token,
                             payload={
                                 "texto": texto.strip(),
                                 "tipo": "general",
@@ -268,7 +273,7 @@ elif seleccion == "General":
     if st.toggle("📜 Ver historial de tareas generales", key="toggle_historial_general"):
         datos_hist = cached_get(
             "historial_tareas",
-            st.session_state.token,
+            token,
             query={"tipo": "general"},
             nocache_key=time.time()
         )
@@ -289,7 +294,7 @@ elif seleccion == "Nichos":
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
-    ln_data = cached_get("mis_nichos", st.session_state.token)
+    ln_data = cached_get("mis_nichos", token)
     ln = ln_data.get("nichos", []) if ln_data else []
 
     if not ln:
@@ -343,7 +348,7 @@ elif seleccion == "Nichos":
                             else:
                                 cached_post(
                                     "tarea_lead",
-                                    st.session_state.token,
+                                    token,
                                     payload={
                                         "texto": texto.strip(),
                                         "tipo": "nicho",
@@ -366,7 +371,7 @@ elif seleccion == "Nichos":
             if st.toggle("📜 Ver historial de tareas de este nicho", key="toggle_historial_nicho"):
                 hist_n = cached_get(
                     "historial_tareas",
-                    st.session_state.token,
+                    token,
                     query={"tipo": "nicho", "nicho": nk["nicho"]},
                     nocache_key=time.time()  # 👈 fuerza recarga de caché
                 )
@@ -398,7 +403,7 @@ elif seleccion == "Leads":
         datos_buscar = (
             cached_get(
                 "buscar_leads",
-                st.session_state.token,
+                token,
                 query=query,
                 nocache_key=time.time(),
             )
@@ -443,7 +448,7 @@ elif seleccion == "Leads":
                         else:
                             cached_post(
                                 "tarea_lead",
-                                st.session_state.token,
+                                token,
                                 payload={
                                     "texto": texto.strip(),
                                     "tipo": "lead",
@@ -461,7 +466,7 @@ elif seleccion == "Leads":
         if st.toggle("📝 Información extra del lead", key="toggle_info"):
             info = cached_get(
                 "info_extra",
-                st.session_state.token,
+                token,
                 query={"dominio": norm},
                 nocache_key=time.time()
             ) or {}
@@ -477,7 +482,7 @@ elif seleccion == "Leads":
                     else:
                         respuesta = cached_post(
                             "guardar_info_extra",
-                            st.session_state.token,
+                            token,
                             payload={
                                 "dominio": norm,
                                 "email": email_nuevo,
@@ -493,7 +498,7 @@ elif seleccion == "Leads":
         st.markdown("#### 📋 Tareas activas")
         tareas_datos = cached_get(
             "tareas_lead",
-            st.session_state.token,
+            token,
             query={"dominio": norm},
             nocache_key=time.time()
         )
@@ -506,7 +511,7 @@ elif seleccion == "Leads":
         st.markdown("#### 📜 Historial")
         hist_datos = cached_get(
             "historial_lead",
-            st.session_state.token,
+            token,
             query={"dominio": norm},
             nocache_key=time.time()
         )

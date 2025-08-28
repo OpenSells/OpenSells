@@ -11,14 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.auth_utils import (
-    save_session,
-    restore_session_if_allowed,
-    clear_session,
-)
+from streamlit_app.utils.auth_utils import save_session, restore_session_if_allowed, clear_session
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
-from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 from streamlit_app.common_paths import APP_DIR, PAGES_DIR
 
@@ -102,16 +98,13 @@ if not user:
             token = data.get("access_token")
             if token:
                 save_session(token, email)
-                try:
-                    set_auth_token(token)
-                except Exception:
-                    st.warning("No se pudieron guardar las cookies de sesión")
                 resp_me = http_client.get("/me")
                 if getattr(resp_me, "status_code", None) == 200:
                     st.session_state["user"] = resp_me.json()
                 st.success("¡Sesión iniciada!")
+                st.query_params.clear()
                 try:
-                    st.switch_page("Home.py")
+                    st.switch_page("Búsqueda")
                 except Exception:
                     st.rerun()
             else:
@@ -131,9 +124,9 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    st.experimental_set_query_params()
+    st.query_params.clear()
     try:
-        st.switch_page("Home.py")
+        st.switch_page("Home")
     except Exception:
         st.rerun()
 

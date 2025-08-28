@@ -12,22 +12,27 @@ if str(ROOT) not in sys.path:
 import os
 import streamlit as st
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
 
-
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect("Home")
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    from streamlit_app.utils import http_client
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 
 if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+    clear_session(preserve_logout_flag=True)
+    st.query_params.clear()
+    st.switch_page("Home")
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(

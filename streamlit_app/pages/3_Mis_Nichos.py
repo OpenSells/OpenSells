@@ -25,12 +25,7 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import (
-    ensure_session,
-    restore_session_if_allowed,
-    is_authenticated,
-    clear_session,
-)
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -67,13 +62,14 @@ st.markdown(
 )
 
 
-if not is_authenticated():
-    restore_session_if_allowed()
-if not is_authenticated():
-    st.switch_page("Home.py")
-user, token = ensure_session()
-if not token:
-    st.switch_page("Home.py")
+ensure_session_or_redirect("Home")
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 plan = (user or {}).get("plan", "free")
 
 ESTADOS = {
@@ -111,9 +107,9 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    st.experimental_set_query_params()
+    st.query_params.clear()
     try:
-        st.switch_page("Home.py")
+        st.switch_page("Home")
     except Exception:
         st.rerun()
 
@@ -149,7 +145,7 @@ def _cambiar_estado(key: str, dominio: str):
     nuevo = st.session_state.get(key)
     cached_post(
         "leads/estado_contacto",
-        st.session_state.token,
+        token,
         payload={"dominio": dominio, "estado_contacto": nuevo},
     )
     st.session_state["forzar_recarga"] += 1
@@ -174,7 +170,7 @@ else:
     busqueda = ""
 
 # ── Cargar nichos del backend ───────────────────────
-resp = cached_get("mis_nichos", st.session_state.token)
+resp = cached_get("mis_nichos", token)
 nichos: list[dict] = []
 if resp:
     nichos = resp.get("nichos", [])
@@ -186,7 +182,7 @@ if not nichos:
 # ── Construir índice rápido de leads (para búsquedas globales) ────
 todos_leads = []
 for n in nichos:
-    datos = cached_get("leads_por_nicho", st.session_state.token, query={"nicho": n["nicho"]})
+    datos = cached_get("leads_por_nicho", token, query={"nicho": n["nicho"]})
     leads = datos.get("leads", []) if datos else []
     n["total_leads"] = len(leads)
 
@@ -260,7 +256,7 @@ for n in nichos_visibles:
                 params_export["estado_contacto"] = estado_filtro
             resp = requests.get(
                 f"{BACKEND_URL}/exportar_leads_nicho",
-                headers={"Authorization": f"Bearer {st.session_state.token}"},
+                headers={"Authorization": f"Bearer {token}"},
                 params=params_export,
             )
             if resp.status_code == 200:
@@ -280,7 +276,7 @@ for n in nichos_visibles:
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                 subscription_cta()
             else:
-                res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
+                res = cached_delete("eliminar_nicho", token, params={"nicho": n["nicho"]})
                 if res:
                     st.success("Nicho eliminado correctamente")
                     if st.session_state.get("solo_nicho_visible") == n["nicho"]:
@@ -301,7 +297,7 @@ for n in nichos_visibles:
             query_params["estado_contacto"] = estado_filtro
         resp_leads = cached_get(
             "leads_por_nicho",
-            st.session_state.token,
+            token,
             query=query_params,
             nocache_key=st.session_state["forzar_recarga"],
         )
@@ -364,7 +360,7 @@ for n in nichos_visibles:
                             else:
                                 res = cached_post(
                                     "añadir_lead_manual",
-                                    st.session_state.token,
+                                    token,
                                     payload={
                                         "dominio": dominio_manual,
                                         "email": email_manual,
@@ -437,7 +433,7 @@ for n in nichos_visibles:
                 else:
                     res = cached_delete(
                         "eliminar_lead",
-                        st.session_state.token,
+                        token,
                         params={
                             "nicho": n["nicho"],
                             "dominio": dominio,
@@ -468,7 +464,7 @@ for n in nichos_visibles:
                     else:
                         res = cached_post(
                             "mover_lead",
-                            st.session_state.token,
+                            token,
                             payload={
                                 "dominio": dominio,
                                 "origen": n["nicho_original"],
@@ -490,7 +486,7 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", st.session_state.token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
+                info = cached_get("info_extra", token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)
@@ -505,7 +501,7 @@ for n in nichos_visibles:
                         else:
                             res = cached_post(
                                 "guardar_info_extra",
-                                st.session_state.token,
+                                token,
                                 payload={
                                     "dominio": dominio,
                                     "email": email_nuevo,
