@@ -73,6 +73,12 @@ def delete(path: str, **kwargs):
     resp = _session.delete(_url(path), headers=headers, timeout=timeout, **kwargs)
     return _handle_401(resp)
 
+def patch(path: str, **kwargs):
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    headers = _merge_headers(kwargs.pop("headers", None))
+    resp = _session.patch(_url(path), headers=headers, timeout=timeout, **kwargs)
+    return _handle_401(resp)
+
 def health_ok() -> bool:
     try:
         # Intenta /health y, si no existe, cae a /

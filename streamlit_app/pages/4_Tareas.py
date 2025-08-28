@@ -54,16 +54,15 @@ params = st.query_params
 
 if "lead" in params:
     st.session_state["lead_seleccionado"] = params["lead"]
-    st.session_state["tarea_seccion_activa"] = "🌐 Leads"
+    st.session_state["tareas_tipo_ui"] = "Leads"
     st.query_params.clear()
-
 elif "nicho" in params:
     st.session_state["nicho_seleccionado"] = params["nicho"]
-    st.session_state["tarea_seccion_activa"] = "📂 Nichos"
+    st.session_state["tareas_tipo_ui"] = "Nichos"
     st.query_params.clear()
 
-if "tarea_seccion_activa" not in st.session_state:
-    st.session_state["tarea_seccion_activa"] = "🧠 General"
+if "tareas_tipo_ui" not in st.session_state:
+    st.session_state["tareas_tipo_ui"] = "Pendientes"
 
 # ────────────────── Helpers ─────────────────────────
 def _hash(v):
@@ -211,30 +210,23 @@ def render_list(items: list[dict], key_pref: str):
 # ────────────────── Layout ──────────────────────────
 
 st.title("📋 Tareas activas")
-titles = ["🧠 General", "📂 Nichos", "🌐 Leads", "📋 Todas"]
-seccion = st.radio(
-    "Secciones",
-    titles,
-    key="tarea_seccion_activa",
-    index=titles.index(st.session_state["tarea_seccion_activa"]),
+opciones_ui = ["Pendientes", "General", "Nichos", "Leads"]
+seleccion = st.radio(
+    "Vista",
+    options=opciones_ui,
+    key="tareas_tipo_ui",
     label_visibility="collapsed",
     horizontal=True,
 )
+label_to_tipo = {"Pendientes": "todas", "General": "general", "Nichos": "nicho", "Leads": "lead"}
+todos = fetch_tareas_pendientes(label_to_tipo[seleccion])
 
-tipo_map = {
-    "🧠 General": "general",
-    "📂 Nichos": "nicho",
-    "🌐 Leads": "lead",
-    "📋 Todas": "todas",
-}
-todos = fetch_tareas_pendientes(tipo_map[seccion])
-
-if seccion == titles[3]:
-    st.subheader("Tareas activas")
+if seleccion == "Pendientes":
+    st.subheader("Pendientes")
     render_list(todos, "all")
 
 # Generales
-elif seccion == titles[0]:
+elif seleccion == "General":
     st.subheader("🧠 Tareas generales")
 
     # Toggle para añadir tarea
@@ -293,7 +285,7 @@ elif seccion == titles[0]:
             st.info("No hay tareas completadas.")
 
 # Nichos
-elif seccion == titles[1]:
+elif seleccion == "Nichos":
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
@@ -391,7 +383,7 @@ elif seccion == titles[1]:
                     st.info("No hay tareas completadas para este nicho.")
 
 # Leads
-elif seccion == titles[2]:
+elif seleccion == "Leads":
 
     if "lead_seleccionado" not in st.session_state:
         st.session_state["lead_seleccionado"] = None

@@ -68,6 +68,41 @@ user, token = ensure_session()
 if not token:
     st.stop()
 plan = (user or {}).get("plan", "free")
+HDR = {"Authorization": f"Bearer {st.session_state.token}"}
+
+ESTADOS = {
+    "pendiente": ("Pendiente", "🟡"),
+    "contactado": ("Contactado", "🟦"),
+    "cerrado": ("Cerrado", "🟢"),
+    "fallido": ("Fallido", "🔴"),
+}
+
+st.markdown(
+    """
+<style>
+.estado-chip{display:inline-block;padding:.25rem .5rem;border-radius:999px;font-weight:600;border:1px solid #F2E5A3;background:#FFF7D1;color:#7A5B00;cursor:pointer;}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+def _estado_chip_label(estado:str)->str:
+    label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
+    return f"{icon} {label}"
+
+def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
+    antiguo=lead.get("estado_contacto")
+    lead["estado_contacto"]=nuevo
+    resp=http_client.patch(
+        f"/leads/{lead_id}/estado_contacto",
+        headers=HDR,
+        json={"estado_contacto":nuevo},
+    )
+    if not resp or resp.status_code>=400:
+        lead["estado_contacto"]=antiguo
+        st.toast("No se pudo actualizar el estado",icon="⚠️")
+    else:
+        st.toast("Estado actualizado",icon="✅")
 
 if st.sidebar.button("Cerrar sesión"):
     logout_and_redirect()
@@ -344,21 +379,44 @@ for n in nichos_visibles:
             dominio = normalizar_dominio(l["url"])
             estado_actual = l.get("estado_contacto", "pendiente")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
-            cols_row = st.columns([3, 2, 1, 1, 1])
+            cols_row = st.columns([3, 2, 1, 1, 1, 1])
             cols_row[0].markdown(
                 f"- 🌐 [**{dominio}**](https://{dominio})",
                 unsafe_allow_html=True,
             )
-            cols_row[1].markdown(render_estado_badge(estado_actual), unsafe_allow_html=True)
-            sel_key = f"estado_sel_{clave_base}"
-            cols_row[1].selectbox(
-                "",
-                ["pendiente", "en_proceso", "contactado"],
-                index=["pendiente", "en_proceso", "contactado"].index(estado_actual),
-                key=sel_key,
-                on_change=_cambiar_estado,
-                args=(sel_key, dominio),
-            )
+            estado_label = _estado_chip_label(estado_actual)
+            with cols_row[1].popover(estado_label, key=f"estado_pop_{clave_base}"):
+                for est in ESTADOS.keys():
+                    if st.button(_estado_chip_label(est), key=f"est_{est}_{clave_base}"):
+                        _cambiar_estado_lead(l, l.get("id"), est)
+                        st.rerun()
+
+            with cols_row[5].popover("➕ Tarea", key=f"tarea_pop_{clave_base}"):
+                texto = st.text_area("Descripción", key=f"tarea_txt_{clave_base}")
+                fecha = st.date_input("Fecha", value=None, key=f"tarea_fecha_{clave_base}")
+                prioridad = st.selectbox("Prioridad", ["alta", "media", "baja"], index=1, key=f"tarea_prio_{clave_base}")
+                if st.button("Guardar", key=f"tarea_save_{clave_base}"):
+                    if texto.strip():
+                        resp = http_client.post(
+                            "/tareas",
+                            headers=HDR,
+                            json={
+                                "texto": texto.strip(),
+                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                "prioridad": prioridad,
+                                "tipo": "lead",
+                                "dominio": dominio,
+                                "nicho": n["nicho"],
+                                "auto": False,
+                            },
+                        )
+                        if resp and resp.status_code < 400:
+                            st.toast("Tarea creada", icon="✅")
+                            st.rerun()
+                        else:
+                            st.toast("No se pudo crear la tarea", icon="⚠️")
+                    else:
+                        st.warning("La descripción es obligatoria")
 
             # Botón eliminar
             if cols_row[2].button("🗑️", key=f"btn_borrar_{clave_base}"):
