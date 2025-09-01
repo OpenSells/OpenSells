@@ -185,6 +185,7 @@ else:
             data = safe_json(r)
             token = data.get("access_token")
             if token:
+                set_session(token)
                 resp_me = http_client.get("/me")
                 user = resp_me.json() if getattr(resp_me, "status_code", None) == 200 else None
                 set_session(token, user)

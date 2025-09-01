@@ -50,6 +50,7 @@ def clear_session() -> None:
     st.session_state.pop("auth_token", None)
     st.session_state.pop("user", None)
     st.session_state.pop(RESTORE_FLAG, None)
+    st.session_state.pop("_handling_401", None)
     _ls_rm(LS_TOKEN_KEY)
     clear_auth_token()
 

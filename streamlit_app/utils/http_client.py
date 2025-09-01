@@ -37,21 +37,25 @@ def set_extra_headers(headers: dict[str, str] | None):
     _extra_headers = headers or {}
 
 
+def _auth_headers() -> dict[str, str]:
+    token = get_token()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _merge_headers(headers: dict | None) -> dict:
     combined = dict(_extra_headers)
+    combined.update(_auth_headers())
     if headers:
         combined.update(headers)
-    token = get_token()
-    if token:
-        combined["Authorization"] = f"Bearer {token}"
     return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
-        if get_token():
-            st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session()
-        st.rerun()
+        if not st.session_state.get("_handling_401"):
+            st.session_state["_handling_401"] = True
+            clear_session()
+            st.rerun()
+        return None
     return resp
 
 
