@@ -63,7 +63,7 @@ if "auth_email" not in st.session_state and user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session()
-    st.experimental_rerun()
+    st.rerun()
 
 headers = {"Authorization": f"Bearer {token}"}
 

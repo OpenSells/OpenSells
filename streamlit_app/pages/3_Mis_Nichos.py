@@ -7,7 +7,7 @@
 #        • borrar un lead
 #        • usar el filtro interno de ese nicho
 #      (solo desaparece al pulsar “Volver a todos los nichos” o al borrar el nicho completo).
-#   3. Eliminado el bloque duplicado de `st.experimental_rerun()` que provocaba
+#   3. Eliminado el bloque duplicado de `st.rerun()` que provocaba
 #      reruns innecesarios.
 #   4. Limpieza y tipado ligero.
 
@@ -110,7 +110,7 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session()
-    st.experimental_rerun()
+    st.rerun()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

@@ -47,7 +47,7 @@ user = get_user()
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session()
-    st.experimental_rerun()
+    st.rerun()
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")

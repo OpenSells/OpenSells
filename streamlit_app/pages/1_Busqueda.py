@@ -37,7 +37,7 @@ plan = (user or {}).get("plan", "free")
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session()
-    st.experimental_rerun()
+    st.rerun()
 
 # -------------------- Helpers --------------------
 

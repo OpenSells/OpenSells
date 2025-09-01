@@ -62,7 +62,7 @@ if is_authenticated():
     # Logout action
     if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
         clear_session()
-        st.experimental_rerun()
+        st.rerun()
 
     st.markdown(
         """
@@ -161,7 +161,7 @@ else:
                 "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos.",
             )
             if st.button("Reintentar", type="secondary"):
-                st.experimental_rerun()
+                st.rerun()
             st.stop()
 
         try:
@@ -171,14 +171,14 @@ else:
                 "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'.",
             )
             if st.button("Reintentar", type="secondary"):
-                st.experimental_rerun()
+                st.rerun()
             st.stop()
         except ConnectionError:
             st.error(
                 "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor.",
             )
             if st.button("Reintentar", type="secondary"):
-                st.experimental_rerun()
+                st.rerun()
             st.stop()
 
         if r.status_code == 200:
@@ -189,7 +189,7 @@ else:
                 user = resp_me.json() if getattr(resp_me, "status_code", None) == 200 else None
                 set_session(token, user)
                 st.success("¡Sesión iniciada!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
         else:

@@ -51,7 +51,7 @@ def _handle_401(resp):
         if get_token():
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
         clear_session()
-        st.experimental_rerun()
+        st.rerun()
     return resp
 
 
