@@ -4,8 +4,7 @@ from urllib.parse import urljoin
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import streamlit as st
-from streamlit_app.utils.auth_utils import clear_session
-from streamlit_app.utils.nav import go, LOGIN_PAGE
+from streamlit_app.utils.auth_utils import clear_session, get_token
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
 
@@ -42,17 +41,17 @@ def _merge_headers(headers: dict | None) -> dict:
     combined = dict(_extra_headers)
     if headers:
         combined.update(headers)
-    token = st.session_state.get("auth_token")
+    token = get_token()
     if token:
         combined["Authorization"] = f"Bearer {token}"
     return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
-        if st.session_state.get("auth_token"):
+        if get_token():
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session(preserve_logout_flag=True)
-        go(LOGIN_PAGE)
+        clear_session()
+        st.experimental_rerun()
     return resp
 
 

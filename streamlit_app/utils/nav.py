@@ -3,7 +3,6 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 HOME_PAGE = "Home.py"
-LOGIN_PAGE = "pages/0_Login.py"
 
 
 def _to_page_path(target: str) -> str:

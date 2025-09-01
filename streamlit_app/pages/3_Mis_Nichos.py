@@ -25,8 +25,13 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
+from streamlit_app.utils.auth_utils import (
+    rehydrate_session,
+    clear_session,
+    get_token,
+    get_user,
+)
+from streamlit_app.utils.auth_guard import require_auth_or_render_home_login
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -62,15 +67,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-ensure_session_or_redirect()
-token = st.session_state.get("auth_token")
-user = st.session_state.get("user")
-if not user:
-    resp_user = http_client.get("/me")
-    if resp_user is not None and resp_user.status_code == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+rehydrate_session()
+if not require_auth_or_render_home_login():
+    st.stop()
+st.session_state["last_path"] = "pages/3_Mis_Nichos.py"
+token = get_token()
+user = get_user()
 plan = (user or {}).get("plan", "free")
 
 ESTADOS = {
@@ -107,8 +109,8 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
         st.toast("Estado actualizado",icon="✅")
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
-    clear_session(preserve_logout_flag=True)
-    go(LOGIN_PAGE)
+    clear_session()
+    st.experimental_rerun()
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

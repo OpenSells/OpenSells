@@ -1,12 +1,18 @@
 # 7_Suscripcion.py – Página de planes y suscripción
 
 import os
+import os
 import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
+from streamlit_app.utils.auth_utils import (
+    rehydrate_session,
+    clear_session,
+    get_token,
+    get_user,
+)
+from streamlit_app.utils.auth_guard import require_auth_or_render_home_login
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -32,19 +38,16 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
-
-ensure_session_or_redirect()
-token = st.session_state.get("auth_token")
-user = st.session_state.get("user")
-if not user:
-    resp_user = http_client.get("/me")
-    if resp_user is not None and resp_user.status_code == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+rehydrate_session()
+if not require_auth_or_render_home_login():
+    st.stop()
+st.session_state["last_path"] = "pages/7_Suscripcion.py"
+token = get_token()
+user = get_user()
 
 if st.sidebar.button("Cerrar sesión"):
-    clear_session(preserve_logout_flag=True)
-    go(LOGIN_PAGE)
+    clear_session()
+    st.experimental_rerun()
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")
