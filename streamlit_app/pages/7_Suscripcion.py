@@ -5,7 +5,8 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -32,14 +33,18 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
 
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 
 if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+    clear_session(preserve_logout_flag=True)
+    go(HOME_PAGE)
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")
@@ -83,7 +88,7 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
                     try:
                         r = requests.post(
                             f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {st.session_state.token}"},
+                            headers={"Authorization": f"Bearer {token}"},
                             params={"plan": price_basico},
                             timeout=30,
                         )
@@ -106,7 +111,7 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
                     try:
                         r = requests.post(
                             f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {st.session_state.token}"},
+                            headers={"Authorization": f"Bearer {token}"},
                             params={"plan": price_premium},
                             timeout=30,
                         )

@@ -11,19 +11,29 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect
+from streamlit_app.utils.auth_utils import save_session, restore_session_if_allowed, clear_session
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
-from streamlit_app.utils.cookies_utils import set_auth_token, init_cookie_manager_mount
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 from streamlit_app.common_paths import APP_DIR, PAGES_DIR
+from streamlit_app.utils.nav import go, HOME_PAGE
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
-
-user, token = ensure_session()
+restore_session_if_allowed()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if token and not user:
+    resp = http_client.get("/me")
+    if getattr(resp, "status_code", None) == 200:
+        user = resp.json()
+        st.session_state["user"] = user
+    else:
+        clear_session(preserve_logout_flag=False)
+        token = None
 
 st.markdown(
     """
@@ -87,18 +97,15 @@ if not user:
         if r.status_code == 200:
             data = safe_json(r)
             token = data.get("access_token")
-            st.session_state["token"] = token
-            st.session_state.email = email
-            try:
-                set_auth_token(token)
-            except Exception:
-                st.warning("No se pudieron guardar las cookies de sesión")
-            ensure_session()
-            st.success("¡Sesión iniciada!")
-            try:
-                st.switch_page("streamlit/Home.py")
-            except Exception:
-                st.rerun()
+            if token:
+                save_session(token, email)
+                resp_me = http_client.get("/me")
+                if getattr(resp_me, "status_code", None) == 200:
+                    st.session_state["user"] = resp_me.json()
+                st.success("¡Sesión iniciada!")
+                go("pages/1_Busqueda.py")
+            else:
+                st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
         else:
             st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
 
@@ -112,22 +119,13 @@ if not user:
             st.error("Error al registrar usuario.")
     st.stop()
 
-if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
+    clear_session(preserve_logout_flag=True)
+    go(HOME_PAGE)
 
 
 def page_exists(name: str) -> bool:
     return (PAGES_DIR / name).exists()
-
-
-def go(page_file: str):
-    if not page_exists(page_file):
-        st.warning("Esta página aún no está disponible.")
-        return
-    try:
-        st.switch_page(f"pages/{page_file}")
-    except Exception:
-        st.page_link(f"pages/{page_file}", label="Abrir página", icon="➡️")
 
 
 PAGES = {
@@ -144,10 +142,10 @@ PAGES = {
 plan = (user or {}).get("plan", "free")
 suscripcion_activa = tiene_suscripcion_activa(plan)
 
-nichos = cached_get("mis_nichos", st.session_state.token) or {}
+nichos = cached_get("mis_nichos", st.session_state.get("auth_token")) or {}
 num_nichos = len(nichos.get("nichos", []))
 
-_tareas = cached_get("tareas_pendientes", st.session_state.token) or []
+_tareas = cached_get("tareas_pendientes", st.session_state.get("auth_token")) or []
 num_tareas = len([t for t in _tareas if not t.get("completado")])
 
 col1, col2 = st.columns(2, gap="large")
@@ -160,7 +158,7 @@ with col1:
         "🗨️ Asistente Virtual",
         use_container_width=True,
         disabled=not suscripcion_activa,
-        on_click=lambda: go(PAGES["assistant"]),
+        on_click=lambda: go(f"pages/{PAGES['assistant']}")
     )
     if not suscripcion_activa:
         subscription_cta()
@@ -171,7 +169,7 @@ with col2:
     st.button(
         "🔎 Búsqueda de Leads",
         use_container_width=True,
-        on_click=lambda: go(PAGES["busqueda"]),
+        on_click=lambda: go(f"pages/{PAGES['busqueda']}")
     )
 
 st.divider()
@@ -187,7 +185,7 @@ for col, (label, key) in zip(accesos, items):
     page_file = PAGES.get(key)
     if page_file and page_exists(page_file):
         if col.button(label, use_container_width=True):
-            go(page_file)
+            go(f"pages/{page_file}")
 
 with st.expander("Resumen de tu actividad"):
     st.write(f"**Número de nichos:** {num_nichos}")

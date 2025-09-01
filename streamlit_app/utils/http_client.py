@@ -5,6 +5,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import streamlit as st
 from streamlit_app.utils.auth_utils import clear_session
+from streamlit_app.utils.nav import go
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
 
@@ -20,6 +21,7 @@ _adapter = HTTPAdapter(max_retries=_retries, pool_connections=10, pool_maxsize=2
 _session.mount("http://", _adapter)
 _session.mount("https://", _adapter)
 
+# token-aware extra headers
 _extra_headers: dict[str, str] = {}
 
 # timeouts: (connect_timeout, read_timeout)
@@ -40,17 +42,17 @@ def _merge_headers(headers: dict | None) -> dict:
     combined = dict(_extra_headers)
     if headers:
         combined.update(headers)
+    token = st.session_state.get("auth_token")
+    if token:
+        combined["Authorization"] = f"Bearer {token}"
     return combined
 
 def _handle_401(resp):
     if resp is not None and getattr(resp, "status_code", None) == 401:
-        if st.session_state.get("token"):
+        if st.session_state.get("auth_token"):
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session()
-        try:
-            st.switch_page("streamlit/Home.py")
-        except Exception:
-            st.rerun()
+        clear_session(preserve_logout_flag=True)
+        go()
     return resp
 
 
@@ -71,6 +73,12 @@ def delete(path: str, **kwargs):
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
     headers = _merge_headers(kwargs.pop("headers", None))
     resp = _session.delete(_url(path), headers=headers, timeout=timeout, **kwargs)
+    return _handle_401(resp)
+
+def patch(path: str, **kwargs):
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    headers = _merge_headers(kwargs.pop("headers", None))
+    resp = _session.patch(_url(path), headers=headers, timeout=timeout, **kwargs)
     return _handle_401(resp)
 
 def health_ok() -> bool:

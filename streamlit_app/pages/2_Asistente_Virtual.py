@@ -6,11 +6,8 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import (
-    ensure_session,
-    logout_and_redirect,
-    require_auth_or_prompt,
-)
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils import http_client
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.assistant_api import (
@@ -28,14 +25,18 @@ http_client.set_extra_headers({"X-Client-Source": "assistant"})
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 
 if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+    clear_session(preserve_logout_flag=True)
+    go(HOME_PAGE)
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
@@ -758,8 +759,8 @@ tool_defs = [
 
 
 def build_system_prompt() -> str:
-    nichos = cached_get("mis_nichos", st.session_state.token).get("nichos", [])
-    tareas = cached_get("tareas_pendientes", st.session_state.token) or []
+    nichos = cached_get("mis_nichos", token).get("nichos", [])
+    tareas = cached_get("tareas_pendientes", token) or []
     resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (

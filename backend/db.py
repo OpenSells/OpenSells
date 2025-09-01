@@ -411,6 +411,7 @@ def obtener_leads_por_nicho(
 
     return [
         {
+            "id": lead.id,
             "url": lead.url,
             "timestamp": str(lead.timestamp) if lead.timestamp else "",
             "estado_contacto": lead.estado_contacto,

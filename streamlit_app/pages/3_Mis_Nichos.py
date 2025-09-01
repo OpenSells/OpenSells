@@ -25,7 +25,8 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -62,15 +63,52 @@ st.markdown(
 )
 
 
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 plan = (user or {}).get("plan", "free")
 
-if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+ESTADOS = {
+    "pendiente": ("Pendiente", "🟡"),
+    "contactado": ("Contactado", "🟦"),
+    "cerrado": ("Cerrado", "🟢"),
+    "fallido": ("Fallido", "🔴"),
+}
+
+st.markdown(
+    """
+<style>
+.estado-chip{display:inline-block;padding:.25rem .5rem;border-radius:999px;font-weight:600;border:1px solid #F2E5A3;background:#FFF7D1;color:#7A5B00;cursor:pointer;}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+def _estado_chip_label(estado:str)->str:
+    label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
+    return f"{icon} {label}"
+
+def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
+    antiguo=lead.get("estado_contacto")
+    lead["estado_contacto"]=nuevo
+    resp = http_client.patch(
+        f"/leads/{lead_id}/estado_contacto",
+        json={"estado_contacto": nuevo},
+    )
+    if not resp or resp.status_code>=400:
+        lead["estado_contacto"]=antiguo
+        st.toast("No se pudo actualizar el estado",icon="⚠️")
+    else:
+        st.toast("Estado actualizado",icon="✅")
+
+if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
+    clear_session(preserve_logout_flag=True)
+    go(HOME_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:
@@ -104,7 +142,7 @@ def _cambiar_estado(key: str, dominio: str):
     nuevo = st.session_state.get(key)
     cached_post(
         "leads/estado_contacto",
-        st.session_state.token,
+        token,
         payload={"dominio": dominio, "estado_contacto": nuevo},
     )
     st.session_state["forzar_recarga"] += 1
@@ -129,7 +167,7 @@ else:
     busqueda = ""
 
 # ── Cargar nichos del backend ───────────────────────
-resp = cached_get("mis_nichos", st.session_state.token)
+resp = cached_get("mis_nichos", token)
 nichos: list[dict] = []
 if resp:
     nichos = resp.get("nichos", [])
@@ -141,7 +179,7 @@ if not nichos:
 # ── Construir índice rápido de leads (para búsquedas globales) ────
 todos_leads = []
 for n in nichos:
-    datos = cached_get("leads_por_nicho", st.session_state.token, query={"nicho": n["nicho"]})
+    datos = cached_get("leads_por_nicho", token, query={"nicho": n["nicho"]})
     leads = datos.get("leads", []) if datos else []
     n["total_leads"] = len(leads)
 
@@ -206,7 +244,7 @@ for n in nichos_visibles:
         f"📂 {n['nicho_original']} ({n['total_leads']} leads)",
         expanded=expanded,
     ):
-        cols = st.columns([1, 1])
+        top_cols = st.columns([8, 2])
 
         # ── Descargar CSV ───────────────────────────
         try:
@@ -215,11 +253,11 @@ for n in nichos_visibles:
                 params_export["estado_contacto"] = estado_filtro
             resp = requests.get(
                 f"{BACKEND_URL}/exportar_leads_nicho",
-                headers={"Authorization": f"Bearer {st.session_state.token}"},
+                headers={"Authorization": f"Bearer {token}"},
                 params=params_export,
             )
             if resp.status_code == 200:
-                cols[0].download_button(
+                top_cols[0].download_button(
                     "📥 Descargar CSV",
                     resp.content,
                     file_name=f"{n['nicho_original']}.csv",
@@ -230,12 +268,12 @@ for n in nichos_visibles:
             pass
 
         # ── Eliminar nicho ──────────────────────────
-        if cols[1].button("🗑️ Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
+        if top_cols[1].button("🗑 Eliminar nicho", key=f"del_nicho_{n['nicho']}"):
             if not tiene_suscripcion_activa(plan):
                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                 subscription_cta()
             else:
-                res = cached_delete("eliminar_nicho", st.session_state.token, params={"nicho": n["nicho"]})
+                res = cached_delete("eliminar_nicho", token, params={"nicho": n["nicho"]})
                 if res:
                     st.success("Nicho eliminado correctamente")
                     if st.session_state.get("solo_nicho_visible") == n["nicho"]:
@@ -256,7 +294,7 @@ for n in nichos_visibles:
             query_params["estado_contacto"] = estado_filtro
         resp_leads = cached_get(
             "leads_por_nicho",
-            st.session_state.token,
+            token,
             query=query_params,
             nocache_key=st.session_state["forzar_recarga"],
         )
@@ -319,7 +357,7 @@ for n in nichos_visibles:
                             else:
                                 res = cached_post(
                                     "añadir_lead_manual",
-                                    st.session_state.token,
+                                    token,
                                     payload={
                                         "dominio": dominio_manual,
                                         "email": email_manual,
@@ -344,31 +382,55 @@ for n in nichos_visibles:
             dominio = normalizar_dominio(l["url"])
             estado_actual = l.get("estado_contacto", "pendiente")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
-            cols_row = st.columns([3, 2, 1, 1, 1])
+            cols_row = st.columns([4, 2, 2, 2, 2, 2])
             cols_row[0].markdown(
                 f"- 🌐 [**{dominio}**](https://{dominio})",
                 unsafe_allow_html=True,
             )
-            cols_row[1].markdown(render_estado_badge(estado_actual), unsafe_allow_html=True)
-            sel_key = f"estado_sel_{clave_base}"
-            cols_row[1].selectbox(
-                "",
-                ["pendiente", "en_proceso", "contactado"],
-                index=["pendiente", "en_proceso", "contactado"].index(estado_actual),
-                key=sel_key,
-                on_change=_cambiar_estado,
-                args=(sel_key, dominio),
-            )
+            estado_label = _estado_chip_label(estado_actual)
+            with cols_row[1]:
+                with st.popover(estado_label, help="Cambiar estado", use_container_width=False):
+                    for est in ESTADOS.keys():
+                        if st.button(_estado_chip_label(est), key=f"btn_est_{est}_{clave_base}"):
+                            _cambiar_estado_lead(l, l.get("id"), est)
+                            st.rerun()
+
+            with cols_row[5]:
+                with st.popover("➕ Tarea", help="Agregar tarea", use_container_width=False):
+                    texto = st.text_area("Descripción", key=f"tarea_txt_{clave_base}")
+                    fecha = st.date_input("Fecha", value=None, key=f"tarea_fecha_{clave_base}")
+                    prioridad = st.selectbox("Prioridad", ["alta", "media", "baja"], index=1, key=f"tarea_prio_{clave_base}")
+                    if st.button("Guardar", key=f"tarea_save_{clave_base}"):
+                        if texto.strip():
+                            resp = http_client.post(
+                                "/tareas",
+                                json={
+                                    "texto": texto.strip(),
+                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
+                                    "prioridad": prioridad,
+                                    "tipo": "lead",
+                                    "dominio": dominio,
+                                    "nicho": n["nicho"],
+                                    "auto": False,
+                                },
+                            )
+                            if resp and resp.status_code < 400:
+                                st.toast("Tarea creada", icon="✅")
+                                st.rerun()
+                            else:
+                                st.toast("No se pudo crear la tarea", icon="⚠️")
+                        else:
+                            st.warning("La descripción es obligatoria")
 
             # Botón eliminar
-            if cols_row[2].button("🗑️", key=f"btn_borrar_{clave_base}"):
+            if cols_row[2].button("🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False):
                 if not tiene_suscripcion_activa(plan):
                     st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                     subscription_cta()
                 else:
                     res = cached_delete(
                         "eliminar_lead",
-                        st.session_state.token,
+                        token,
                         params={
                             "nicho": n["nicho"],
                             "dominio": dominio,
@@ -384,7 +446,7 @@ for n in nichos_visibles:
                         st.error("❌ Error al eliminar el lead")
 
             # Botón Mover compacto
-            if cols_row[3].button("🔀", key=f"btn_mostrar_mover_{clave_base}"):
+            if cols_row[3].button("🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
                 st.session_state["lead_a_mover"] = clave_base
 
             # Formulario de mover lead si está activo
@@ -399,7 +461,7 @@ for n in nichos_visibles:
                     else:
                         res = cached_post(
                             "mover_lead",
-                            st.session_state.token,
+                            token,
                             payload={
                                 "dominio": dominio,
                                 "origen": n["nicho_original"],
@@ -416,12 +478,12 @@ for n in nichos_visibles:
                             st.error("Error al mover lead")
 
             # Botón Información extra
-            if cols_row[4].button("📝", key=f"btn_info_{clave_base}"):
+            if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
                 st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", st.session_state.token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
+                info = cached_get("info_extra", token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)
@@ -436,7 +498,7 @@ for n in nichos_visibles:
                         else:
                             res = cached_post(
                                 "guardar_info_extra",
-                                st.session_state.token,
+                                token,
                                 payload={
                                     "dominio": dominio,
                                     "email": email_nuevo,

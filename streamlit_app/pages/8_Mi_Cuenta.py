@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.utils.auth_utils import ensure_session, logout_and_redirect, require_auth_or_prompt
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -44,20 +45,24 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 
-if not require_auth_or_prompt():
-    st.stop()
-user, token = ensure_session()
-if not token:
-    st.stop()
+ensure_session_or_redirect()
+token = st.session_state.get("auth_token")
+user = st.session_state.get("user")
+if not user:
+    resp_user = http_client.get("/me")
+    if resp_user is not None and resp_user.status_code == 200:
+        user = resp_user.json()
+        st.session_state["user"] = user
 plan = (user or {}).get("plan", "free")
 
-if "email" not in st.session_state and user:
-    st.session_state.email = user.get("email")
+if "auth_email" not in st.session_state and user:
+    st.session_state["auth_email"] = user.get("email")
 
 if st.sidebar.button("Cerrar sesión"):
-    logout_and_redirect()
+    clear_session(preserve_logout_flag=True)
+    go(HOME_PAGE)
 
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
+headers = {"Authorization": f"Bearer {token}"}
 
 
 # -------------------- Sección principal --------------------
@@ -84,14 +89,14 @@ st.caption(
     "Describe brevemente tu negocio, tus objetivos y el tipo de cliente que buscas."
 )
 
-resp = cached_get("mi_memoria", st.session_state.token)
+resp = cached_get("mi_memoria", token)
 memoria = resp.get("memoria", "") if resp else ""
 nueva_memoria = st.text_area("Tu descripción de negocio", value=memoria, height=200)
 
 if st.button("💾 Guardar memoria"):
     r = cached_post(
         "mi_memoria",
-        st.session_state.token,
+        token,
         payload={"descripcion": nueva_memoria.strip()},
     )
     if r:
@@ -104,7 +109,7 @@ if st.button("💾 Guardar memoria"):
 # -------------------- Estadísticas --------------------
 st.subheader("📊 Estadísticas de uso")
 
-resp_nichos = cached_get("mis_nichos", st.session_state.token)
+resp_nichos = cached_get("mis_nichos", token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
 total_leads = 0
@@ -112,7 +117,7 @@ if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
     total_leads = len(df)
 
-resp_tareas = cached_get("tareas_pendientes", st.session_state.token)
+resp_tareas = cached_get("tareas_pendientes", token)
 tareas = resp_tareas or []
 
 st.markdown(
@@ -138,7 +143,7 @@ with st.form("form_pass"):
             st.warning("Las contraseñas no coinciden.")
         else:
             payload = {"actual": actual, "nueva": nueva}
-            r = cached_post("cambiar_password", st.session_state.token, payload=payload)
+            r = cached_post("cambiar_password", token, payload=payload)
             if r:
                 st.success("Contraseña actualizada correctamente.")
             else:

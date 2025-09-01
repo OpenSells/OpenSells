@@ -95,6 +95,7 @@ from backend.db import guardar_estado_lead, obtener_estado_lead
 from sqlalchemy.orm import Session
 from backend.db import obtener_nichos_para_url
 from backend.webhook import router as webhook_router
+from backend.routers.leads import router as leads_router
 from backend.startup_migrations import (
     ensure_estado_contacto_column,
     ensure_lead_tarea_auto_column,
@@ -104,6 +105,7 @@ load_dotenv()
 
 app = FastAPI()
 app.include_router(webhook_router)
+app.include_router(leads_router)
 
 @app.get("/health")
 def health():
@@ -751,6 +753,37 @@ class TareaRequest(BaseModel):
 
 from backend.db import guardar_tarea_lead_postgres as guardar_tarea_lead
 from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
+
+class TareaCreate(BaseModel):
+    texto: str
+    fecha: Optional[str] = None
+    prioridad: str = "media"
+    tipo: str = "lead"
+    dominio: Optional[str] = None
+    nicho: Optional[str] = None
+    auto: bool = False
+
+
+@app.post("/tareas", status_code=201)
+def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    dominio = normalizar_dominio(payload.dominio) if payload.dominio else None
+    nueva = LeadTarea(
+        email=usuario.email_lower,
+        user_email_lower=usuario.email_lower,
+        dominio=dominio,
+        texto=payload.texto.strip(),
+        fecha=payload.fecha,
+        completado=False,
+        timestamp=datetime.utcnow().isoformat(),
+        tipo=payload.tipo,
+        nicho=payload.nicho,
+        prioridad=payload.prioridad,
+        auto=payload.auto,
+    )
+    db.add(nueva)
+    db.commit()
+    db.refresh(nueva)
+    return {"id": nueva.id, "completado": nueva.completado, "auto": nueva.auto, "user_email_lower": nueva.user_email_lower}
 
 @app.post("/tarea_lead")
 def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
