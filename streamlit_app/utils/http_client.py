@@ -1,96 +1,61 @@
 import os
 import requests
-from urllib.parse import urljoin
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import streamlit as st
-from streamlit_app.utils.auth_utils import clear_session
-from streamlit_app.utils.nav import go
+from .auth_session import get_auth_token
 
-BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
+BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+session = requests.Session()
 
-_session = requests.Session()
-_retries = Retry(
-    total=4,                # 1 intento + 4 reintentos = 5 en total
-    backoff_factor=1.5,     # backoff exponencial: 1.5s, 3s, 4.5s, 6s...
-    status_forcelist=(429, 502, 503, 504),
-    allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]),
-    raise_on_status=False,
-)
-_adapter = HTTPAdapter(max_retries=_retries, pool_connections=10, pool_maxsize=20)
-_session.mount("http://", _adapter)
-_session.mount("https://", _adapter)
-
-# token-aware extra headers
 _extra_headers: dict[str, str] = {}
-
-# timeouts: (connect_timeout, read_timeout)
-DEFAULT_TIMEOUT = (5, 60)  # conectar rápido; dar margen al backend "cold start"
-LONG_TIMEOUT = (5, 120)    # para /login si Render está frío
-
-def _url(path: str) -> str:
-    return urljoin(BACKEND_URL + "/", path.lstrip("/"))
 
 
 def set_extra_headers(headers: dict[str, str] | None):
-    """Define headers que se incluirán por defecto en todas las peticiones."""
     global _extra_headers
     _extra_headers = headers or {}
 
 
-def _merge_headers(headers: dict | None) -> dict:
-    combined = dict(_extra_headers)
-    if headers:
-        combined.update(headers)
-    token = st.session_state.get("auth_token")
-    if token:
-        combined["Authorization"] = f"Bearer {token}"
-    return combined
-
-def _handle_401(resp):
-    if resp is not None and getattr(resp, "status_code", None) == 401:
-        if st.session_state.get("auth_token"):
-            st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
-        clear_session(preserve_logout_flag=True)
-        go()
-    return resp
+def _headers():
+    h = {"Accept": "application/json"}
+    if _extra_headers:
+        h.update(_extra_headers)
+    tok = get_auth_token()
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    return h
 
 
 def get(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    headers = _merge_headers(kwargs.pop("headers", None))
-    resp = _session.get(_url(path), headers=headers, timeout=timeout, **kwargs)
-    return _handle_401(resp)
+    resp = session.get(f"{BASE_URL}{path}", headers=_headers(), timeout=30, **kwargs)
+    if resp.status_code == 401:
+        return {"_error": "unauthorized", "_status": resp.status_code}
+    return resp
 
-def post(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", LONG_TIMEOUT)
-    headers = _merge_headers(kwargs.pop("headers", None))
-    resp = _session.post(_url(path), headers=headers, timeout=timeout, **kwargs)
-    return _handle_401(resp)
+
+def post(path: str, json=None, **kwargs):
+    resp = session.post(f"{BASE_URL}{path}", headers=_headers(), json=json, timeout=60, **kwargs)
+    if resp.status_code == 401:
+        return {"_error": "unauthorized", "_status": resp.status_code}
+    return resp
 
 
 def delete(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    headers = _merge_headers(kwargs.pop("headers", None))
-    resp = _session.delete(_url(path), headers=headers, timeout=timeout, **kwargs)
-    return _handle_401(resp)
+    resp = session.delete(f"{BASE_URL}{path}", headers=_headers(), timeout=30, **kwargs)
+    if resp.status_code == 401:
+        return {"_error": "unauthorized", "_status": resp.status_code}
+    return resp
 
-def patch(path: str, **kwargs):
-    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
-    headers = _merge_headers(kwargs.pop("headers", None))
-    resp = _session.patch(_url(path), headers=headers, timeout=timeout, **kwargs)
-    return _handle_401(resp)
+
+def patch(path: str, json=None, **kwargs):
+    resp = session.patch(f"{BASE_URL}{path}", headers=_headers(), json=json, timeout=30, **kwargs)
+    if resp.status_code == 401:
+        return {"_error": "unauthorized", "_status": resp.status_code}
+    return resp
+
 
 def health_ok() -> bool:
     try:
-        # Intenta /health y, si no existe, cae a /
-        r = get("/health", timeout=(3, 5))
-        if r.status_code < 500:
-            return True
-    except Exception:
-        pass
-    try:
-        r = get("/", timeout=(3, 5))
+        r = get("/health")
+        if isinstance(r, dict):
+            return False
         return r.status_code < 500
     except Exception:
         return False
