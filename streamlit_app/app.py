@@ -14,7 +14,7 @@ import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
-from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
 
 init_cookie_manager_mount()
 
@@ -32,7 +32,7 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+    go(LOGIN_PAGE)
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(

@@ -1,7 +1,7 @@
 import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -21,7 +21,7 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+    go(LOGIN_PAGE)
 
 st.title("📤 Exportaciones")
 st.info("Esta sección estará disponible pronto.")

@@ -6,7 +6,7 @@ import requests
 from dotenv import load_dotenv
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
@@ -44,7 +44,7 @@ if not user:
 
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+    go(LOGIN_PAGE)
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")

@@ -26,7 +26,7 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 
@@ -108,7 +108,7 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+    go(LOGIN_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

@@ -11,29 +11,30 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.auth_utils import save_session, restore_session_if_allowed, clear_session
+from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.cache_utils import cached_get
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
 from streamlit_app.common_paths import APP_DIR, PAGES_DIR
-from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.nav import go, HOME_PAGE, LOGIN_PAGE
 
 init_cookie_manager_mount()
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
-restore_session_if_allowed()
+ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
-if token and not user:
+if not user:
     resp = http_client.get("/me")
     if getattr(resp, "status_code", None) == 200:
         user = resp.json()
         st.session_state["user"] = user
     else:
         clear_session(preserve_logout_flag=False)
-        token = None
+        go(LOGIN_PAGE)
+        st.stop()
 
 st.markdown(
     """
@@ -45,83 +46,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if not user:
-    from json import JSONDecodeError
-
-    def wait_for_backend(max_attempts: int = 5):
-        with st.spinner("Conectando con el servidor..."):
-            for i in range(1, max_attempts + 1):
-                if http_client.health_ok():
-                    return True
-                st.info(f"Esperando al backend (intento {i}/{max_attempts})...")
-                st.sleep(1.5 * i)
-        return False
-
-    def safe_json(resp):
-        try:
-            return resp.json()
-        except JSONDecodeError:
-            st.error(f"Respuesta no válida: {resp.text}")
-            return {}
-
-    st.subheader("Iniciar sesión")
-    email = st.text_input("Correo electrónico")
-    password = st.text_input("Contraseña", type="password")
-
-    if st.button("Entrar", use_container_width=True):
-        if not wait_for_backend():
-            st.error(
-                "No puedo conectar con el backend ahora mismo. Por favor, vuelve a intentarlo en unos segundos.",
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-
-        try:
-            r = http_client.post("/login", data={"username": email, "password": password})
-        except (ReadTimeout, ConnectTimeout):
-            st.error(
-                "Tiempo de espera agotado al iniciar sesión. El servidor puede estar despertando. Pulsa 'Reintentar'.",
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-        except ConnectionError:
-            st.error(
-                "No hay conexión con el backend. Verifica BACKEND_URL o el estado del servidor.",
-            )
-            if st.button("Reintentar", type="secondary"):
-                st.rerun()
-            st.stop()
-
-        if r.status_code == 200:
-            data = safe_json(r)
-            token = data.get("access_token")
-            if token:
-                save_session(token, email)
-                resp_me = http_client.get("/me")
-                if getattr(resp_me, "status_code", None) == 200:
-                    st.session_state["user"] = resp_me.json()
-                st.success("¡Sesión iniciada!")
-                go("pages/1_Busqueda.py")
-            else:
-                st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
-        else:
-            st.error("Credenciales inválidas o servicio no disponible. Intenta de nuevo.")
-
-    if st.button("Registrarse", key="btn_register", use_container_width=True):
-        try:
-            r = http_client.post("/register", json={"email": email, "password": password})
-            st.success(
-                "Usuario registrado. Ahora inicia sesión." if r.status_code == 200 else "Error al registrar usuario.",
-            )
-        except Exception:
-            st.error("Error al registrar usuario.")
-    st.stop()
-
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
     clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+    go(LOGIN_PAGE)
 
 
 def page_exists(name: str) -> bool:

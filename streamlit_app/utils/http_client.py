@@ -5,7 +5,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import streamlit as st
 from streamlit_app.utils.auth_utils import clear_session
-from streamlit_app.utils.nav import go
+from streamlit_app.utils.nav import go, LOGIN_PAGE
 
 BACKEND_URL = os.getenv("BACKEND_URL", "https://opensells.onrender.com").rstrip("/")
 
@@ -52,7 +52,7 @@ def _handle_401(resp):
         if st.session_state.get("auth_token"):
             st.warning("Token inválido o expirado. Inicia sesión nuevamente.")
         clear_session(preserve_logout_flag=True)
-        go()
+        go(LOGIN_PAGE)
     return resp
 
 
