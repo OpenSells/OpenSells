@@ -152,8 +152,8 @@ def render_home_private():
 
 
 def main():
+    remember_current_page(PAGE_NAME)
     if is_authenticated():
-        remember_current_page(PAGE_NAME)
         render_logout_button()
         render_home_private()
     else:
