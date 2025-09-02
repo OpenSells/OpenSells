@@ -7,9 +7,7 @@
 #        • borrar un lead
 #        • usar el filtro interno de ese nicho
 #      (solo desaparece al pulsar “Volver a todos los nichos” o al borrar el nicho completo).
-#   3. Eliminado el bloque duplicado de `st.experimental_rerun()` que provocaba
-#      reruns innecesarios.
-#   4. Limpieza y tipado ligero.
+#   3. Limpieza y tipado ligero.
 
 import os
 import streamlit as st
@@ -25,12 +23,16 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE
-from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils import http_client
-
-init_cookie_manager_mount()
+from streamlit_app.utils.auth_session import (
+    is_authenticated,
+    remember_current_page,
+    get_auth_token,
+    clear_auth_token,
+    clear_page_remember,
+)
+from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.nav import go, HOME_PAGE
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -63,15 +65,27 @@ st.markdown(
 )
 
 
-ensure_session_or_redirect()
-token = st.session_state.get("auth_token")
+PAGE_NAME = "Nichos"
+remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
+
+token = get_auth_token()
 user = st.session_state.get("user")
-if not user:
+if token and not user:
     resp_user = http_client.get("/me")
-    if resp_user is not None and resp_user.status_code == 200:
+    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
+        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
+        st.stop()
+    if getattr(resp_user, "status_code", None) == 200:
         user = resp_user.json()
         st.session_state["user"] = user
 plan = (user or {}).get("plan", "free")
+
+with st.sidebar:
+    logout_button()
 
 ESTADOS = {
     "pendiente": ("Pendiente", "🟡"),
@@ -106,9 +120,6 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
     else:
         st.toast("Estado actualizado",icon="✅")
 
-if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
-    clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:

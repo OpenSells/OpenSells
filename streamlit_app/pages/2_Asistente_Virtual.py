@@ -6,10 +6,7 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
-from streamlit_app.utils.nav import go, HOME_PAGE
 from streamlit_app.utils import http_client
-from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.assistant_api import (
     ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
@@ -17,26 +14,31 @@ from streamlit_app.assistant_api import (
     api_buscar_variantes_seleccionadas,
 )
 from streamlit_app.utils.assistant_guard import violates_policy, sanitize_output
-
-init_cookie_manager_mount()
-
-# Identifica las peticiones provenientes del asistente
-http_client.set_extra_headers({"X-Client-Source": "assistant"})
+from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.logout_button import logout_button
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
-ensure_session_or_redirect()
-token = st.session_state.get("auth_token")
+PAGE_NAME = "Asistente"
+remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
+
+token = get_auth_token()
 user = st.session_state.get("user")
-if not user:
+if token and not user:
     resp_user = http_client.get("/me")
-    if resp_user is not None and resp_user.status_code == 200:
+    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
+        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
+        st.stop()
+    if getattr(resp_user, "status_code", None) == 200:
         user = resp_user.json()
         st.session_state["user"] = user
 
-if st.sidebar.button("Cerrar sesión"):
-    clear_session(preserve_logout_flag=True)
-    go(HOME_PAGE)
+with st.sidebar:
+    logout_button()
 
 # ────────────────── Config ──────────────────────────
 load_dotenv()
