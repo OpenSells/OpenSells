@@ -11,8 +11,7 @@ from json import JSONDecodeError
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.utils import http_client
 from streamlit_app.plan_utils import subscription_cta, force_redirect
-from streamlit_app.utils.guards import ensure_session_or_access
-from streamlit_app.utils.auth_session import remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
 load_dotenv()
@@ -43,8 +42,11 @@ BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 PAGE_NAME = "Cuenta"
-ensure_session_or_access(PAGE_NAME)
 remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
 
 token = get_auth_token()
 user = st.session_state.get("user")

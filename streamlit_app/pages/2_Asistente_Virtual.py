@@ -14,18 +14,17 @@ from streamlit_app.assistant_api import (
     api_buscar_variantes_seleccionadas,
 )
 from streamlit_app.utils.assistant_guard import violates_policy, sanitize_output
-from streamlit_app.utils.guards import ensure_session_or_access
-from streamlit_app.utils.auth_session import remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
-
-# Identifica las peticiones provenientes del asistente
-http_client.set_extra_headers({"X-Client-Source": "assistant"})
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
 PAGE_NAME = "Asistente"
-ensure_session_or_access(PAGE_NAME)
 remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
 
 token = get_auth_token()
 user = st.session_state.get("user")

@@ -41,6 +41,10 @@ def get_auth_token() -> str | None:
     return None
 
 
+def is_authenticated() -> bool:
+    return get_auth_token() is not None
+
+
 def remember_current_page(page_name: str):
     qp = st.query_params
     if qp.get("p") != page_name:
@@ -53,7 +57,3 @@ def clear_page_remember():
     if "p" in qp:
         del qp["p"]
     st.query_params = qp
-
-
-def is_authenticated() -> bool:
-    return get_auth_token() is not None

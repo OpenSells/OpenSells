@@ -11,8 +11,7 @@ from streamlit_app.utils import http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta
-from streamlit_app.utils.guards import ensure_session_or_access
-from streamlit_app.utils.auth_session import remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
 load_dotenv()
@@ -20,8 +19,11 @@ load_dotenv()
 st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered")
 
 PAGE_NAME = "Leads"
-ensure_session_or_access(PAGE_NAME)
 remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
 
 BACKEND_URL = http_client.BASE_URL
 

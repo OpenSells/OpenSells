@@ -7,9 +7,7 @@
 #        • borrar un lead
 #        • usar el filtro interno de ese nicho
 #      (solo desaparece al pulsar “Volver a todos los nichos” o al borrar el nicho completo).
-#   3. Eliminado el bloque duplicado de `st.experimental_rerun()` que provocaba
-#      reruns innecesarios.
-#   4. Limpieza y tipado ligero.
+#   3. Limpieza y tipado ligero.
 
 import os
 import streamlit as st
@@ -26,8 +24,7 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils import http_client
-from streamlit_app.utils.guards import ensure_session_or_access
-from streamlit_app.utils.auth_session import remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
 # ── Config ───────────────────────────────────────────
@@ -62,8 +59,11 @@ st.markdown(
 
 
 PAGE_NAME = "Nichos"
-ensure_session_or_access(PAGE_NAME)
 remember_current_page(PAGE_NAME)
+if not is_authenticated():
+    st.title(PAGE_NAME)
+    st.info("Inicia sesión en la página Home para continuar.")
+    st.stop()
 
 token = get_auth_token()
 user = st.session_state.get("user")
