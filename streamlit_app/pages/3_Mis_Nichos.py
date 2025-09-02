@@ -24,8 +24,15 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
 from streamlit_app.utils import http_client
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import (
+    is_authenticated,
+    remember_current_page,
+    get_auth_token,
+    clear_auth_token,
+    clear_page_remember,
+)
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.nav import go, HOME_PAGE
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -114,7 +121,8 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
         st.toast("Estado actualizado",icon="✅")
 
 if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
-    clear_session(preserve_logout_flag=True)
+    clear_auth_token()
+    clear_page_remember()
     go(HOME_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
