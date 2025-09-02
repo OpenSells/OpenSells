@@ -18,7 +18,7 @@ from streamlit_app.utils.auth_session import (
     clear_page_remember,
     get_auth_token,
 )
-from streamlit_app.utils.http_client import post, get
+from streamlit_app.utils.http_client import get, login as http_login
 
 st.set_page_config(page_title="OpenSells", page_icon="🧩", layout="wide")
 
@@ -33,21 +33,19 @@ def render_login():
         password = st.text_input("Contraseña", type="password")
         submitted = st.form_submit_button("Entrar")
         if submitted:
-            resp = post("/login", json={"username": username, "password": password})
-            if isinstance(resp, dict) and resp.get("_error"):
+            result = http_login(username, password)
+            if isinstance(result, dict) and result.get("_error"):
                 st.error("No autorizado. Revisa tus credenciales.")
                 return
-            try:
-                data = resp.json()
-            except Exception:
-                st.error("Respuesta inesperada del servidor.")
-                return
-            token = data.get("access_token") or data.get("token")
+            resp = result.get("response")
+            token = result.get("token")
             if not token:
+                status = getattr(resp, "status_code", "unknown")
+                body = getattr(resp, "text", "")[:500]
                 st.error("No se recibió token de acceso.")
+                st.info(f"status: {status}\nbody: {body}")
                 return
             set_auth_token(token)
-            st.success("Sesión iniciada.")
             st.rerun()
 
 
