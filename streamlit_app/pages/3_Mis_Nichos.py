@@ -120,10 +120,6 @@ def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
     else:
         st.toast("Estado actualizado",icon="✅")
 
-if st.sidebar.button("Cerrar sesión", type="secondary", use_container_width=True):
-    clear_auth_token()
-    clear_page_remember()
-    go(HOME_PAGE)
 
 # ── Helpers ──────────────────────────────────────────
 def normalizar_nicho(texto: str) -> str:
