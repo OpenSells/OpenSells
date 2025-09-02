@@ -17,6 +17,7 @@ from streamlit_app.utils.auth_session import (
     clear_auth_token,
     clear_page_remember,
     get_auth_token,
+    bootstrap_auth_once,   # 👈 NEW import
 )
 from streamlit_app.utils.http_client import get, login as http_login
 
@@ -151,11 +152,13 @@ def render_home_private():
 
 def main():
     remember_current_page(PAGE_NAME)
-    if is_authenticated():
-        render_logout_button()
-        render_home_private()
-    else:
+    bootstrap_auth_once()  # 👈 NEW: restore token on first render
+
+    if not is_authenticated():
         render_login()
+        return
+    render_logout_button()
+    render_home_private()
 
 
 if __name__ == "__main__":
