@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    Boolean,
+    func,
+    text,
+    Index,
+)
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
@@ -9,15 +19,27 @@ class LeadEstadoContacto(enum.Enum):
     en_proceso = "en_proceso"
     contactado = "contactado"
 
+
 # Tabla de usuarios
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    username = Column(String, nullable=True)
+    email = Column(String, nullable=False)
+    email_lower = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
+
+    @validates("email")
+    def _set_email_lower(self, key, value):
+        self.email_lower = (value or "").strip().lower()
+        return (value or "").strip()
+
+
+Index("idx_users_email_lower", Usuario.email_lower, unique=True)
+
 
 # Tabla de tareas
 class LeadTarea(Base):
@@ -40,6 +62,7 @@ class LeadTarea(Base):
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
 
 # Tabla de historial
 class LeadHistorial(Base):
@@ -74,6 +97,7 @@ class LeadNota(Base):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
+
 class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
 
@@ -91,6 +115,7 @@ class LeadInfoExtra(Base):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
 
+
 class LeadExtraido(Base):
     __tablename__ = "leads_extraidos"
 
@@ -101,7 +126,9 @@ class LeadExtraido(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     nicho = Column(String, nullable=False)  # Normalizado
     nicho_original = Column(String, nullable=False)
-    estado_contacto = Column(String(20), nullable=False, server_default="pendiente", index=True)
+    estado_contacto = Column(
+        String(20), nullable=False, server_default="pendiente", index=True
+    )
 
     @validates("user_email")
     def _set_lower(self, key, value):
@@ -115,4 +142,6 @@ class UsuarioMemoria(Base):
 
     email_lower = Column(String, primary_key=True, index=True)
     descripcion = Column(Text)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -2,7 +2,6 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.future import select
 from sqlalchemy import func
 from backend.models import Usuario
 from backend.database import get_db
@@ -14,7 +13,9 @@ import os
 # ────────────────────────────────────────────
 import secrets
 
-SECRET_KEY = os.getenv("SECRET_KEY") or (secrets.token_urlsafe(32) if os.getenv("ENV") != "production" else None)
+SECRET_KEY = os.getenv("SECRET_KEY") or (
+    secrets.token_urlsafe(32) if os.getenv("ENV") != "production" else None
+)
 
 if not SECRET_KEY:
     raise RuntimeError(
@@ -27,24 +28,27 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=False)
 
 
-def hashear_password(password: str):
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def verificar_password(password: str, hashed: str):
+def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
 
-def crear_token(data: dict):
+def create_access_token(data: dict) -> str:
     """Genera un JWT con los datos proporcionados."""
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def obtener_usuario_por_email(email: str, db: Session):
     email = (email or "").strip().lower()
-    return db.query(Usuario).filter(func.lower(Usuario.email) == email).first()
+    return db.query(Usuario).filter(Usuario.email_lower == email).first()
 
-def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+
+def get_current_user(
+    token: str | None = Depends(oauth2_scheme), db: Session = Depends(get_db)
+):
     """Obtiene el usuario actual a partir de un token JWT.
 
     Si la variable de entorno ``ALLOW_ANON_USER`` está establecida, permite el
@@ -61,22 +65,20 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
 
     if token is None:
         if os.getenv("ALLOW_ANON_USER") == "1":
-            anon = Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon = Usuario(email="anon@example.com", password_hash="", plan="basico")
             anon.email_lower = anon.email
             return anon
         raise credentials_exc
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get("sub")
-        if email is None:
+        email_lower = payload.get("sub")
+        if email_lower is None:
             raise credentials_exc
-        email = email.strip().lower()
-        user = obtener_usuario_por_email(email, db)
+        email_lower = email_lower.strip().lower()
+        user = obtener_usuario_por_email(email_lower, db)
         if user is None:
             raise credentials_exc
-        user.email = (user.email or "").strip()
-        user.email_lower = user.email.lower()
         return user
     except JWTError:
         raise credentials_exc

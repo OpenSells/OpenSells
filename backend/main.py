@@ -1,4 +1,6 @@
-from backend.db import obtener_todas_tareas_pendientes_postgres as obtener_todas_tareas_pendientes
+from backend.db import (
+    obtener_todas_tareas_pendientes_postgres as obtener_todas_tareas_pendientes,
+)
 from backend.db import eliminar_lead_completamente
 from backend.db import obtener_tarea_por_id_postgres as obtener_tarea_por_id
 from fastapi import UploadFile
@@ -6,8 +8,12 @@ from backend.db import normalizar_dominio
 from backend.db import guardar_info_extra, obtener_info_extra
 from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario_pg, obtener_memoria_usuario_pg
-from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
+from backend.db import (
+    guardar_evento_historial_postgres as guardar_evento_historial,
+    obtener_historial_por_dominio_postgres as obtener_historial_por_dominio,
+)
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
+
 # Utilidad para buscar leads guardados en la base de datos PostgreSQL
 # Se importa sin alias para usar el mismo nombre en el endpoint y evitar
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
@@ -43,6 +49,7 @@ logger = logging.getLogger(__name__)
 DEBUG_DIAGNOSTICO = os.getenv("DEBUG_DIAGNOSTICO") == "1"
 
 import stripe
+
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 # Dominio al que Stripe debe redirigir tras finalizar o cancelar el proceso
 # de pago.  Por defecto apuntamos al despliegue actual en Streamlit.
@@ -51,7 +58,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 # BD & seguridad
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from fastapi.security import OAuth2PasswordRequestForm
 from backend.database import engine, Base, get_db
 from backend.models import (
     Usuario,
@@ -62,22 +68,23 @@ from backend.models import (
     LeadExtraido,
 )
 from backend.auth import (
-    hashear_password,
-    verificar_password,
-    crear_token,
-    obtener_usuario_por_email,
+    hash_password,
+    verify_password,
     get_current_user,
 )
+from backend.routes.auth import router as auth_router
 
 from fastapi import Depends
 
-def validar_suscripcion(usuario = Depends(get_current_user)):
+
+def validar_suscripcion(usuario=Depends(get_current_user)):
     if not usuario.plan or usuario.plan == "free":
         raise HTTPException(
             status_code=403,
-            detail="Debes tener una suscripción activa para usar esta función."
+            detail="Debes tener una suscripción activa para usar esta función.",
         )
     return usuario
+
 
 # Historial de exportaciones y leads
 from backend.db import (
@@ -106,10 +113,13 @@ load_dotenv()
 app = FastAPI()
 app.include_router(webhook_router)
 app.include_router(leads_router)
+app.include_router(auth_router)
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.on_event("startup")
 async def startup():
@@ -127,13 +137,18 @@ async def startup():
     ensure_estado_contacto_column(engine)
     ensure_lead_tarea_auto_column(engine)
 
+
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
-    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8')
-    texto = re.sub(r'[^a-z0-9]+', '_', texto)
-    return texto.strip('_')
+    texto = (
+        unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
+    )
+    texto = re.sub(r"[^a-z0-9]+", "_", texto)
+    return texto.strip("_")
+
 
 from urllib.parse import urlparse
+
 
 def extraer_dominio_base(url: str) -> str:
     if not url:
@@ -144,90 +159,60 @@ def extraer_dominio_base(url: str) -> str:
         dominio = urlparse("http://" + url).netloc  # ← SOLUCIÓN
     return dominio.replace("www.", "").strip()
 
+
 openai_key = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key) if openai_key else None
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 
+
 class MemoriaUsuarioRequest(BaseModel):
     descripcion: str
+
 
 class Busqueda(BaseModel):
     cliente_ideal: str
 
+
 class VariantesSeleccionadasRequest(BaseModel):
     variantes: list[str]
+
 
 class UrlsMultiples(BaseModel):
     urls: list[str]
     pais: str = "ES"
+
 
 class ExportarCSVRequest(BaseModel):
     urls: list[str]
     pais: str = "ES"
     nicho: str
 
-class UsuarioRegistro(BaseModel):
-    email: str
-    password: str
-
-from sqlalchemy.orm import Session  # asegúrate de tener este import arriba
-
-@app.post("/register")
-def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
-    email = user.email.strip().lower()
-    db_user = obtener_usuario_por_email(email, db)
-    if db_user:
-        raise HTTPException(status_code=400, detail="El usuario ya existe")
-    nuevo_usuario = Usuario(email=email, hashed_password=hashear_password(user.password))
-    db.add(nuevo_usuario)
-    db.commit()
-    return {"mensaje": "Usuario registrado correctamente"}
-
-from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
-
-@app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    email = form_data.username.strip().lower()
-    user = obtener_usuario_por_email(email, db)
-    if not user or not verificar_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = crear_token({"sub": email})
-    return {"access_token": token, "token_type": "bearer"}
-
-
-@app.get("/usuario_actual")
-@app.get("/me")
-def usuario_actual(usuario=Depends(get_current_user)):
-    """Devuelve los datos básicos del usuario autenticado."""
-    return {
-        "id": usuario.id,
-        "email": usuario.email_lower,
-        "plan": usuario.plan or "free",
-        "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
-    }
 
 @app.get("/protegido")
-async def protegido(usuario = Depends(get_current_user)):
+async def protegido(usuario=Depends(get_current_user)):
     return {
         "mensaje": f"Bienvenido, {usuario.email_lower}",
         "email": usuario.email_lower,
-        "plan": usuario.plan or "free"
+        "plan": usuario.plan or "free",
     }
+
 
 @app.get("/")
 def inicio():
     return {"mensaje": "¡Bienvenido al Wrapper Automático!"}
+
 
 class BuscarRequest(BaseModel):
     cliente_ideal: str
     forzar_variantes: Optional[bool] = False
     contexto_extra: Optional[str] = None
 
+
 @app.post("/buscar")
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
     _=Depends(guard_assistant_extraction),
-    usuario=Depends(get_current_user)
+    usuario=Depends(get_current_user),
 ):
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
@@ -256,11 +241,15 @@ Si la búsqueda no menciona específicamente el sector, el tipo de cliente o el 
 
 Si está todo claro y específico, responde solo con OK.
 """
-        decision = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": evaluacion_prompt}],
-            temperature=0.3
-        ).choices[0].message.content.strip()
+        decision = (
+            openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": evaluacion_prompt}],
+                temperature=0.3,
+            )
+            .choices[0]
+            .message.content.strip()
+        )
 
         if decision != "OK":
             return {"pregunta_sugerida": decision}
@@ -274,18 +263,21 @@ Dado el nicho o búsqueda "{prompt_base}", genera exactamente 6 palabras clave o
     respuesta = openai_client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt_variantes}],
-        temperature=0.7
+        temperature=0.7,
     )
 
     contenido = respuesta.choices[0].message.content.strip()
-    variantes = [line.strip("- ").strip() for line in contenido.split("\n") if line.strip()]
+    variantes = [
+        line.strip("- ").strip() for line in contenido.split("\n") if line.strip()
+    ]
 
-    return {
-        "variantes_generadas": variantes
-    }
+    return {"variantes_generadas": variantes}
+
 
 @app.post("/buscar_variantes_seleccionadas")
-def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest, _=Depends(guard_assistant_extraction)):
+def buscar_urls_desde_variantes(
+    payload: VariantesSeleccionadasRequest, _=Depends(guard_assistant_extraction)
+):
     variantes = payload.variantes[:3]
 
     if openai_client is None:
@@ -303,7 +295,7 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
     respuesta_pais = openai_client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": detectar_pais_prompt}],
-        temperature=0.2
+        temperature=0.2,
     )
 
     codigo_pais = respuesta_pais.choices[0].message.content.strip().upper()
@@ -324,25 +316,41 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
             logger.info(f"Página {pagina+1} (start={start})")
 
             params = {
-                'api_key': SCRAPERAPI_KEY,
-                'query': query,
-                'num': str(resultados_por_pagina),
-                'start': str(start)
+                "api_key": SCRAPERAPI_KEY,
+                "query": query,
+                "num": str(resultados_por_pagina),
+                "start": str(start),
             }
             if codigo_pais != "ANY":
-                params['country_code'] = codigo_pais.lower()
+                params["country_code"] = codigo_pais.lower()
 
             try:
                 resultado = requests.get(
-                    'https://api.scraperapi.com/structured/google/search',
+                    "https://api.scraperapi.com/structured/google/search",
                     params=params,
-                    timeout=60
+                    timeout=60,
                 ).json()
 
-                links = [res.get('link') for res in resultado.get('organic_results', [])]
+                links = [
+                    res.get("link") for res in resultado.get("organic_results", [])
+                ]
                 # ❗ Filtro para excluir archivos
-                extensiones_no_deseadas = ('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.xml', '.ppt', '.pptx', '.zip')
-                links_filtrados = [url for url in links if url and not url.lower().endswith(extensiones_no_deseadas)]
+                extensiones_no_deseadas = (
+                    ".pdf",
+                    ".doc",
+                    ".docx",
+                    ".xls",
+                    ".xlsx",
+                    ".xml",
+                    ".ppt",
+                    ".pptx",
+                    ".zip",
+                )
+                links_filtrados = [
+                    url
+                    for url in links
+                    if url and not url.lower().endswith(extensiones_no_deseadas)
+                ]
 
                 todas_urls.extend(links_filtrados)
                 paginas_procesadas += 1
@@ -359,36 +367,32 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
         "total_dominios": len(dominios_unicos),
         "variantes_usadas": variantes,
         "paginas_consultadas_total": paginas_procesadas,
-        "pais_detectado": codigo_pais
+        "pais_detectado": codigo_pais,
     }
+
 
 # 🧠 Extrae datos de una URL
 @app.post("/extraer_datos")
 def extraer_datos_endpoint(
     url: str = Body(..., embed=True),
     pais: str = Body("ES", embed=True),
-    usuario = Depends(validar_suscripcion)  # 👈 protección activada
+    usuario=Depends(validar_suscripcion),  # 👈 protección activada
 ):
     try:
         datos = extraer_datos_desde_url(url, pais)
     except Exception as e:
-        datos = {
-            "url": url,
-            "error": str(e)
-        }
-    return {
-        "resultado": datos,
-        "export_payload": {
-            "urls": [url],
-            "pais": pais
-        }
-    }
+        datos = {"url": url, "error": str(e)}
+    return {"resultado": datos, "export_payload": {"urls": [url], "pais": pais}}
+
 
 # 🧠 Extrae de múltiples URLs
 from datetime import datetime
 
+
 @app.post("/extraer_multiples")
-def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar_suscripcion)):
+def extraer_multiples_endpoint(
+    payload: UrlsMultiples, usuario=Depends(validar_suscripcion)
+):
     start = perf_counter()
     resultados = []
 
@@ -396,26 +400,27 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
     urls_base = [f"https://{dominio}" for dominio in dominios_unicos]
 
     for dominio in dominios_unicos:
-        resultados.append({
-            "Dominio": dominio,
-            "Fecha": datetime.now().strftime("%Y-%m-%d")
-        })
+        resultados.append(
+            {"Dominio": dominio, "Fecha": datetime.now().strftime("%Y-%m-%d")}
+        )
 
     resp = {
         "resultados": resultados,
-        "payload_export": {
-            "urls": urls_base,
-            "pais": payload.pais
-        }
+        "payload_export": {"urls": urls_base, "pais": payload.pais},
     }
     logger.info(
         "extraer_multiples %d urls en %.2fs", len(payload.urls), perf_counter() - start
     )
     return resp
 
+
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def exportar_csv(
+    payload: ExportarCSVRequest,
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
     start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
@@ -424,10 +429,10 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
     dominios_unicos = list(set(extraer_dominio_base(url) for url in payload.urls))
 
     # Crear filas solo con dominio y fecha
-    filas = [{
-        "Dominio": dominio,
-        "Fecha": datetime.now().strftime("%Y-%m-%d")
-    } for dominio in dominios_unicos]
+    filas = [
+        {"Dominio": dominio, "Fecha": datetime.now().strftime("%Y-%m-%d")}
+        for dominio in dominios_unicos
+    ]
 
     df = pd.DataFrame(filas)
     df = df.drop_duplicates(subset="Dominio", keep="first")
@@ -438,11 +443,20 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
 
     # ✅ Guardar en base de datos solo dominios nuevos
     from backend.db import obtener_todos_los_dominios_usuario
+
     try:
         dominios_guardados = obtener_todos_los_dominios_usuario(usuario.email_lower, db)
-        dominios_guardados_normalizados = set(normalizar_dominio(d) for d in dominios_guardados)
-        nuevos_dominios = [d for d in dominios_unicos if normalizar_dominio(d) not in dominios_guardados_normalizados]
-        guardar_leads_extraidos(usuario.email_lower, nuevos_dominios, nicho_normalizado, nicho_original, db)
+        dominios_guardados_normalizados = set(
+            normalizar_dominio(d) for d in dominios_guardados
+        )
+        nuevos_dominios = [
+            d
+            for d in dominios_unicos
+            if normalizar_dominio(d) not in dominios_guardados_normalizados
+        ]
+        guardar_leads_extraidos(
+            usuario.email_lower, nuevos_dominios, nicho_normalizado, nicho_original, db
+        )
     except Exception as e:
         logger.warning("exportar_csv no pudo acceder a BD: %s", e)
 
@@ -452,15 +466,24 @@ def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripc
     df_combinado.to_csv(buffer, index=False, encoding="utf-8-sig")
     buffer.seek(0)
     logger.info(
-        "exportar_csv %s -> %d dominios en %.2fs", nicho_normalizado, len(dominios_unicos), perf_counter() - start
+        "exportar_csv %s -> %d dominios en %.2fs",
+        nicho_normalizado,
+        len(dominios_unicos),
+        perf_counter() - start,
     )
-    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nicho_original}.csv"})
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={nicho_original}.csv"},
+    )
+
 
 # 📜 Historial de exportaciones
 @app.get("/historial")
-def ver_historial(usuario = Depends(get_current_user)):
+def ver_historial(usuario=Depends(get_current_user)):
     historial = obtener_historial(usuario.email_lower)
     return {"historial": historial}
+
 
 # 📂 Ver nichos del usuario
 @app.get("/mis_nichos")
@@ -476,12 +499,13 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
         )
     return {"nichos": nichos}
 
+
 # 🔍 Ver leads por nicho
 @app.get("/leads_por_nicho")
 def leads_por_nicho(
     nicho: str,
     estado_contacto: str | None = None,
-    usuario = Depends(get_current_user),
+    usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     email = usuario.email_lower
@@ -507,6 +531,7 @@ def leads_por_nicho(
             )
     return {"nicho": nicho_norm, "leads": leads}
 
+
 @app.get("/exportar_leads_nicho")
 def exportar_leads_nicho(
     nicho: str,
@@ -522,14 +547,16 @@ def exportar_leads_nicho(
     if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
-    df = pd.DataFrame([
-        {
-            "Dominio": l["url"],
-            "Fecha": l["timestamp"][:10] if l.get("timestamp") else "",
-            "Estado_contacto": l.get("estado_contacto", ""),
-        }
-        for l in leads
-    ])
+    df = pd.DataFrame(
+        [
+            {
+                "Dominio": l["url"],
+                "Fecha": l["timestamp"][:10] if l.get("timestamp") else "",
+                "Estado_contacto": l.get("estado_contacto", ""),
+            }
+            for l in leads
+        ]
+    )
 
     buffer = BytesIO()
     df.to_csv(buffer, index=False, encoding="utf-8-sig")
@@ -546,29 +573,40 @@ def exportar_leads_nicho(
         headers={"Content-Disposition": f"attachment; filename={nicho}.csv"},
     )
 
+
 # 🗑️ Eliminar un nicho
 @app.delete("/eliminar_nicho")
 def eliminar_nicho_usuario(
-    nicho: str,
-    usuario = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    nicho: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
 ):
     nicho = normalizar_nicho(nicho)
     eliminar_nicho_postgres(usuario.email_lower, nicho, db)
     return {"mensaje": f"Nicho '{nicho}' eliminado correctamente"}
+
 
 # ✅ Filtrar URLs repetidas por nicho
 class FiltrarUrlsRequest(BaseModel):
     urls: list[str]
     nicho: str
 
+
 @app.post("/filtrar_urls")
-def filtrar_urls(payload: FiltrarUrlsRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def filtrar_urls(
+    payload: FiltrarUrlsRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     payload.nicho = normalizar_nicho(payload.nicho)
-    urls_guardadas = obtener_urls_extraidas_por_nicho(usuario.email_lower, payload.nicho, db)
+    urls_guardadas = obtener_urls_extraidas_por_nicho(
+        usuario.email_lower, payload.nicho, db
+    )
 
     dominios_guardados = set(extraer_dominio_base(url) for url in urls_guardadas)
-    urls_filtradas = [url for url in payload.urls if extraer_dominio_base(url) not in dominios_guardados]
+    urls_filtradas = [
+        url
+        for url in payload.urls
+        if extraer_dominio_base(url) not in dominios_guardados
+    ]
 
     return {"urls_filtradas": urls_filtradas}
 
@@ -596,8 +634,11 @@ def actualizar_estado_contacto(
     db.commit()
     return {"ok": True, "estado_contacto": lead.estado_contacto}
 
+
 @app.get("/exportar_todos_mis_leads")
-def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def exportar_todos_mis_leads(
+    usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     start = perf_counter()
     from backend.models import LeadExtraido
 
@@ -611,15 +652,17 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
     if not leads:
         raise HTTPException(status_code=404, detail="No hay leads para exportar")
 
-    df_total = pd.DataFrame([
-        {
-            "Dominio": lead.url,
-            "Nicho": lead.nicho_original,
-            "Fecha": str(lead.timestamp)[:10],
-            "Estado_contacto": lead.estado_contacto,
-        }
-        for lead in leads
-    ])
+    df_total = pd.DataFrame(
+        [
+            {
+                "Dominio": lead.url,
+                "Nicho": lead.nicho_original,
+                "Fecha": str(lead.timestamp)[:10],
+                "Estado_contacto": lead.estado_contacto,
+            }
+            for lead in leads
+        ]
+    )
 
     buffer = BytesIO()
     df_total.to_csv(buffer, index=False, encoding="utf-8-sig")
@@ -627,71 +670,115 @@ def exportar_todos_mis_leads(usuario=Depends(get_current_user), db: Session = De
 
     nombre_archivo = f"leads_totales_{usuario.email_lower}.csv"
     logger.info(
-        "exportar_todos_mis_leads %d leads en %.2fs", len(df_total), perf_counter() - start
+        "exportar_todos_mis_leads %d leads en %.2fs",
+        len(df_total),
+        perf_counter() - start,
     )
-    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"})
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={nombre_archivo}"},
+    )
+
 
 class EstadoDominioRequest(BaseModel):
     dominio: str
     estado: str
 
+
 from sqlalchemy.orm import Session  # asegúrate de tener este import
 
+
 @app.post("/estado_lead")
-def guardar_estado(payload: EstadoDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_estado(
+    payload: EstadoDominioRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         url = normalizar_dominio(payload.dominio.strip())
-        logger.info(f"Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email_lower}'")
+        logger.info(
+            f"Recibido estado='{payload.estado}' para URL='{url}' por usuario='{usuario.email_lower}'"
+        )
         guardar_estado_lead(usuario.email_lower, url, payload.estado.strip(), db)
-        guardar_evento_historial(usuario.email_lower, url, "estado", f"Estado cambiado a '{payload.estado}'", db)
+        guardar_evento_historial(
+            usuario.email_lower,
+            url,
+            "estado",
+            f"Estado cambiado a '{payload.estado}'",
+            db,
+        )
         return {"mensaje": "Estado actualizado"}
     except Exception as e:
         logger.error(f"ERROR al guardar estado: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno al guardar estado")
 
+
 @app.get("/estado_lead")
-def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_estado(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     url = normalizar_dominio(dominio)
     estado = obtener_estado_lead(usuario.email_lower, url, db)
     return {"estado": estado or "nuevo"}
 
+
 @app.get("/nichos_de_dominio")
-def nichos_de_dominio(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def nichos_de_dominio(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     dominio_base = extraer_dominio_base(dominio)
     nichos = obtener_nichos_para_url(usuario.email_lower, dominio_base, db)
     return {"nichos": nichos}
+
 
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+
 class NotaDominioRequest(BaseModel):
     dominio: str
     nota: str
 
+
 @app.post("/nota_lead")
-def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_nota(
+    payload: NotaDominioRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from backend.db import guardar_nota_lead_postgres as guardar_nota_lead
+
     try:
         dominio_base = normalizar_dominio(payload.dominio.strip())
         guardar_nota_lead(usuario.email_lower, dominio_base, payload.nota.strip(), db)
-        guardar_evento_historial(usuario.email_lower, dominio_base, "nota", "Nota actualizada", db)
+        guardar_evento_historial(
+            usuario.email_lower, dominio_base, "nota", "Nota actualizada", db
+        )
         return {"mensaje": "Nota guardada"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al guardar nota: {str(e)}")
 
+
 @app.get("/nota_lead")
-def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_nota(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     from backend.db import obtener_nota_lead_postgres as obtener_nota_lead
+
     dominio_base = normalizar_dominio(dominio)
     nota = obtener_nota_lead(usuario.email_lower, dominio_base, db)
 
     # Guardar en log
     with open("log_nota_lead.txt", "a", encoding="utf-8") as f:
-        f.write(f"[{datetime.now()}] Email: {usuario.email_lower} - Dominio: {dominio_base} - Nota encontrada: '{nota}'\n")
+        f.write(
+            f"[{datetime.now()}] Email: {usuario.email_lower} - Dominio: {dominio_base} - Nota encontrada: '{nota}'\n"
+        )
 
     return {"nota": nota or ""}
+
 
 class InfoExtraRequest(BaseModel):
     dominio: str
@@ -699,8 +786,13 @@ class InfoExtraRequest(BaseModel):
     telefono: Optional[str] = ""
     informacion: Optional[str] = ""
 
+
 @app.post("/guardar_info_extra")
-def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_info_extra_api(
+    data: InfoExtraRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from backend.db import guardar_info_extra_postgres as guardar_info_extra
 
     dominio = normalizar_dominio(data.dominio.strip())
@@ -710,21 +802,33 @@ def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_u
         email=data.email.strip(),
         telefono=data.telefono.strip(),
         informacion=data.informacion.strip(),
-        db=db
+        db=db,
     )
-    guardar_evento_historial(usuario.email_lower, dominio, "info", "Información extra guardada o actualizada", db)
+    guardar_evento_historial(
+        usuario.email_lower,
+        dominio,
+        "info",
+        "Información extra guardada o actualizada",
+        db,
+    )
     return {"mensaje": "Información guardada correctamente"}
 
+
 @app.get("/info_extra")
-def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_info_extra_api(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     from backend.db import obtener_info_extra_postgres as obtener_info_extra
 
     dominio = normalizar_dominio(dominio)
     info = obtener_info_extra(usuario.email_lower, dominio, db)
     return info
 
+
 @app.get("/buscar_leads")
-def buscar_leads(query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def buscar_leads(
+    query: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     resultados = buscar_leads_global_postgres(usuario.email_lower, query, db)
     return {"resultados": resultados}
 
@@ -738,9 +842,11 @@ def conteo_leads(usuario=Depends(get_current_user), db: Session = Depends(get_db
     )
     return {"total_leads_distintos": total}
 
+
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
+
 
 class TareaRequest(BaseModel):
     texto: str
@@ -751,8 +857,10 @@ class TareaRequest(BaseModel):
     prioridad: Optional[str] = "media"
     auto: Optional[bool] = False
 
+
 from backend.db import guardar_tarea_lead_postgres as guardar_tarea_lead
 from backend.db import obtener_tareas_lead_postgres as obtener_tareas_lead
+
 
 class TareaCreate(BaseModel):
     texto: str
@@ -765,7 +873,11 @@ class TareaCreate(BaseModel):
 
 
 @app.post("/tareas", status_code=201)
-def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def crear_tarea(
+    payload: TareaCreate,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     dominio = normalizar_dominio(payload.dominio) if payload.dominio else None
     nueva = LeadTarea(
         email=usuario.email_lower,
@@ -783,10 +895,20 @@ def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Ses
     db.add(nueva)
     db.commit()
     db.refresh(nueva)
-    return {"id": nueva.id, "completado": nueva.completado, "auto": nueva.auto, "user_email_lower": nueva.user_email_lower}
+    return {
+        "id": nueva.id,
+        "completado": nueva.completado,
+        "auto": nueva.auto,
+        "user_email_lower": nueva.user_email_lower,
+    }
+
 
 @app.post("/tarea_lead")
-def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def agregar_tarea(
+    payload: TareaRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     guardar_tarea_lead(
         email=usuario.email_lower,
         texto=payload.texto.strip(),
@@ -796,7 +918,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
         nicho=payload.nicho.strip() if payload.nicho else None,
         prioridad=payload.prioridad,
         auto=payload.auto,
-        db=db
+        db=db,
     )
 
     # 📌 GUARDAR HISTORIAL SI ES TAREA GENERAL O POR NICHO
@@ -806,7 +928,7 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
             dominio="general" if payload.tipo == "general" else payload.nicho,
             tipo=payload.tipo,
             descripcion=f"Tarea añadida: {payload.texto}",
-            db=db
+            db=db,
         )
 
     # 🧠 GUARDAR HISTORIAL SI ES TAREA POR LEAD
@@ -816,19 +938,24 @@ def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: 
             payload.dominio,
             "tarea",
             f"Tarea añadida: {payload.texto}",
-            db=db
+            db=db,
         )
 
     return {"mensaje": "Tarea guardada correctamente"}
 
 
 @app.get("/tareas_lead")
-def ver_tareas(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def ver_tareas(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     tareas = obtener_tareas_lead(usuario.email_lower, normalizar_dominio(dominio), db)
     return {"tareas": tareas}
 
+
 @app.post("/tarea_completada")
-def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def completar_tarea(
+    tarea_id: int, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     marcar_tarea_completada(usuario.email_lower, tarea_id, db)
 
     tarea = obtener_tarea_por_id(usuario.email_lower, tarea_id, db)
@@ -842,7 +969,7 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
                 tarea["dominio"],
                 tipo="tarea",
                 descripcion=f"Tarea completada: {texto}",
-                db=db
+                db=db,
             )
         elif tipo == "nicho":
             guardar_evento_historial(
@@ -850,7 +977,7 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
                 tarea["nicho"],
                 tipo="nicho",
                 descripcion=f"Tarea completada: {texto}",
-                db=db
+                db=db,
             )
         elif tipo == "general":
             guardar_evento_historial(
@@ -858,23 +985,31 @@ def completar_tarea(tarea_id: int, usuario=Depends(get_current_user), db: Sessio
                 "general",
                 tipo="general",
                 descripcion=f"Tarea completada: {texto}",
-                db=db
+                db=db,
             )
 
     return {"mensaje": "Tarea marcada como completada"}
 
+
 @app.post("/editar_tarea")
-def editar_tarea(tarea_id: int, payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def editar_tarea(
+    tarea_id: int,
+    payload: TareaRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from backend.db import editar_tarea_existente_postgres as editar_tarea_existente
+
     editar_tarea_existente(usuario.email_lower, tarea_id, payload, db)
     guardar_evento_historial(
         usuario.email_lower,
         payload.dominio or payload.nicho or "general",
         "tarea",
         f"Tarea editada: {payload.texto}",
-        db=db
+        db=db,
     )
     return {"mensaje": "Tarea editada correctamente"}
+
 
 @app.get("/tareas_pendientes")
 def tareas_pendientes(
@@ -891,10 +1026,16 @@ def tareas_pendientes(
     )
     return tareas
 
+
 @app.get("/historial_lead")
-def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    eventos = obtener_historial_por_dominio(usuario.email_lower, normalizar_dominio(dominio), db)
+def historial_lead(
+    dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    eventos = obtener_historial_por_dominio(
+        usuario.email_lower, normalizar_dominio(dominio), db
+    )
     return {"historial": eventos}
+
 
 @app.post("/mi_memoria")
 def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
@@ -903,7 +1044,10 @@ def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_
         guardar_memoria_usuario_pg(email_lower, request.descripcion.strip())
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al guardar memoria: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al guardar memoria: {str(e)}"
+        )
+
 
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user)):
@@ -912,13 +1056,25 @@ def obtener_memoria(usuario=Depends(get_current_user)):
         memoria = obtener_memoria_usuario_pg(email_lower)
         return {"memoria": memoria or ""}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al obtener memoria: {str(e)}"
+        )
+
 
 from sqlalchemy.orm import Session
 
+
 @app.get("/historial_tareas")
-def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    from backend.db import obtener_historial_por_tipo_postgres as obtener_historial_por_tipo, obtener_historial_por_nicho_postgres as obtener_historial_por_nicho
+def historial_tareas(
+    tipo: str = "general",
+    nicho: str = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from backend.db import (
+        obtener_historial_por_tipo_postgres as obtener_historial_por_tipo,
+        obtener_historial_por_nicho_postgres as obtener_historial_por_nicho,
+    )
 
     if tipo == "nicho" and nicho:
         historial = obtener_historial_por_nicho(usuario.email_lower, nicho, db)
@@ -927,23 +1083,26 @@ def historial_tareas(tipo: str = "general", nicho: str = None, usuario=Depends(g
 
     return {"historial": historial}
 
+
 class CambiarPasswordRequest(BaseModel):
     actual: str
     nueva: str
+
 
 @app.post("/cambiar_password")
 def cambiar_password(
     datos: CambiarPasswordRequest,
     usuario=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    if not verificar_password(datos.actual, usuario.hashed_password):
+    if not verify_password(datos.actual, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
 
-    usuario.hashed_password = hashear_password(datos.nueva)
+    usuario.password_hash = hash_password(datos.nueva)
     db.add(usuario)
     db.commit()
     return {"mensaje": "Contraseña actualizada correctamente"}
+
 
 class LeadManualRequest(BaseModel):
     dominio: str
@@ -952,8 +1111,13 @@ class LeadManualRequest(BaseModel):
     nombre: Optional[str] = ""
     nicho: str
 
+
 @app.post("/añadir_lead_manual")
-def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def añadir_lead_manual(
+    request: LeadManualRequest,
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
@@ -965,7 +1129,9 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
         existentes_normalizados = set(normalizar_dominio(d) for d in existentes)
 
         if dominio_normalizado in existentes_normalizados:
-            raise HTTPException(status_code=400, detail="Este dominio ya existe en tus leads.")
+            raise HTTPException(
+                status_code=400, detail="Este dominio ya existe en tus leads."
+            )
 
         # Guardar en base de datos
         guardar_leads_extraidos(
@@ -973,7 +1139,7 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
             [dominio],
             normalizar_nicho(request.nicho),
             request.nicho,
-            db
+            db,
         )
 
         return {"mensaje": "Lead añadido correctamente"}
@@ -982,13 +1148,23 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
         raise
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error al guardar lead manual: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al guardar lead manual: {str(e)}"
+        )
+
 
 from sqlalchemy.orm import Session
 
+
 @app.post("/importar_csv_manual")
-def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def importar_csv_manual(
+    nicho: str,
+    archivo: UploadFile,
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
     contenido = archivo.file.read()
     decoded = contenido.decode("utf-8").splitlines()
     reader = csv.DictReader(decoded)
@@ -1001,35 +1177,46 @@ def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar
         if not dominio:
             continue
 
-        filas.append({
-            "Dominio": dominio,
-            "Nombre": fila.get("Nombre", "").strip(),
-            "Emails": fila.get("Email", "").strip(),
-            "Teléfonos": fila.get("Teléfono", "").strip(),
-            "Instagram": "",
-            "Facebook": "",
-            "LinkedIn": "",
-            "Error": "",
-            "Fecha": datetime.now().strftime("%Y-%m-%d")
-        })
+        filas.append(
+            {
+                "Dominio": dominio,
+                "Nombre": fila.get("Nombre", "").strip(),
+                "Emails": fila.get("Email", "").strip(),
+                "Teléfonos": fila.get("Teléfono", "").strip(),
+                "Instagram": "",
+                "Facebook": "",
+                "LinkedIn": "",
+                "Error": "",
+                "Fecha": datetime.now().strftime("%Y-%m-%d"),
+            }
+        )
         dominios.add(dominio)
 
     df_nuevo = pd.DataFrame(filas)
 
-    guardar_leads_extraidos(usuario.email_lower, list(dominios), normalizar_nicho(nicho), nicho, db)
+    guardar_leads_extraidos(
+        usuario.email_lower, list(dominios), normalizar_nicho(nicho), nicho, db
+    )
 
     return {"mensaje": f"Se han importado {len(dominios)} leads correctamente."}
 
+
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 
 class MoverLeadRequest(BaseModel):
     dominio: str
     origen: str  # nombre original del nicho
     destino: str  # nombre original del nuevo nicho
 
+
 @app.post("/mover_lead")
-def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def mover_lead(
+    request: MoverLeadRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from backend.db import mover_lead_en_bd
 
     # Toda la lógica se maneja en la base de datos; no se modifican CSVs locales
@@ -1041,28 +1228,36 @@ def mover_lead(request: MoverLeadRequest, usuario=Depends(get_current_user), db:
         nicho_origen=normalizar_nicho(request.origen),
         nicho_destino=normalizar_nicho(request.destino),
         nicho_original_destino=request.destino,
-        db=db
+        db=db,
     )
 
     return {"mensaje": "Lead movido correctamente"}
+
 
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
 
+
 class EditarNichoRequest(BaseModel):
     nicho_actual: str
     nuevo_nombre: str
 
+
 @app.post("/editar_nicho")
-def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def editar_nicho(
+    request: EditarNichoRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from backend.db import editar_nombre_nicho, guardar_evento_historial
+
     try:
         editar_nombre_nicho(
             email=usuario.email_lower,
             nicho_actual=request.nicho_actual,
             nuevo_nombre=request.nuevo_nombre,
-            db=db
+            db=db,
         )
 
         guardar_evento_historial(
@@ -1070,13 +1265,16 @@ def editar_nicho(request: EditarNichoRequest, usuario=Depends(get_current_user),
             dominio="nicho",
             tipo="nicho",
             descripcion=f"Nicho renombrado de '{request.nicho_actual}' a '{request.nuevo_nombre}'",
-            db=db
+            db=db,
         )
 
         return {"mensaje": "Nombre del nicho actualizado correctamente"}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al editar el nicho: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al editar el nicho: {str(e)}"
+        )
+
 
 @app.delete("/eliminar_lead")
 def eliminar_lead(
@@ -1084,7 +1282,7 @@ def eliminar_lead(
     solo_de_este_nicho: bool = True,
     nicho: Optional[str] = None,
     usuario=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     import traceback
     from datetime import datetime
@@ -1094,17 +1292,24 @@ def eliminar_lead(
 
         # 🧪 Log inicial
         with open("log_eliminar_lead.txt", "a", encoding="utf-8") as f:
-            f.write(f"[{datetime.now()}] Inicio eliminación — Email: {usuario.email_lower} — Dominio: {dominio_base} — Solo este nicho: {solo_de_este_nicho} — Nicho: {nicho}\n")
+            f.write(
+                f"[{datetime.now()}] Inicio eliminación — Email: {usuario.email_lower} — Dominio: {dominio_base} — Solo este nicho: {solo_de_este_nicho} — Nicho: {nicho}\n"
+            )
 
         if solo_de_este_nicho:
             if not nicho:
-                raise HTTPException(status_code=400, detail="Debes especificar el nicho.")
-            eliminar_lead_de_nicho(usuario.email_lower, dominio_base, normalizar_nicho(nicho), db)
+                raise HTTPException(
+                    status_code=400, detail="Debes especificar el nicho."
+                )
+            eliminar_lead_de_nicho(
+                usuario.email_lower, dominio_base, normalizar_nicho(nicho), db
+            )
         else:
             eliminar_lead_completamente(usuario.email_lower, dominio_base, db)
 
-        guardar_evento_historial(usuario.email_lower, dominio_base, "lead", "Lead eliminado", db)
-
+        guardar_evento_historial(
+            usuario.email_lower, dominio_base, "lead", "Lead eliminado", db
+        )
 
         return {"mensaje": "Lead eliminado correctamente"}
 
@@ -1112,11 +1317,15 @@ def eliminar_lead(
         with open("error_eliminar_lead.log", "a", encoding="utf-8") as f:
             f.write(f"\n[{datetime.now()}] ❌ ERROR INTERNO: {str(e)}\n")
             f.write(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error interno al eliminar lead: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error interno al eliminar lead: {str(e)}"
+        )
+
 
 from fastapi import Query, Request  # asegúrate de tener esto al principio
 from sqlalchemy.orm import Session
 from backend.database import SessionLocal
+
 
 @app.post("/crear_checkout")
 def crear_checkout(
@@ -1132,10 +1341,12 @@ def crear_checkout(
         checkout = stripe.checkout.Session.create(
             customer_email=usuario.email_lower,
             payment_method_types=["card"],
-            line_items=[{
-                "price": plan,
-                "quantity": 1,
-            }],
+            line_items=[
+                {
+                    "price": plan,
+                    "quantity": 1,
+                }
+            ],
             mode="subscription",
             # Tras completar o cancelar el checkout volvemos a la página
             # "Mi Cuenta" para que el usuario continúe en la aplicación.
@@ -1147,6 +1358,7 @@ def crear_checkout(
     except Exception as e:
         logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/crear_portal_pago")
 def crear_portal_pago(
@@ -1191,6 +1403,7 @@ def crear_portal_pago(
         logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/crear_portal_cliente")
 def crear_portal_cliente(usuario=Depends(get_current_user)):
     """Genera una sesión del portal de facturación de Stripe para que el
@@ -1216,6 +1429,7 @@ def crear_portal_cliente(usuario=Depends(get_current_user)):
         logger.error(f"ERROR STRIPE: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -1236,7 +1450,10 @@ async def stripe_webhook(request: Request):
             db: Session = SessionLocal()
             try:
                 from sqlalchemy import select
-                result = db.execute(select(Usuario).where(Usuario.email == customer_email))
+
+                result = db.execute(
+                    select(Usuario).where(Usuario.email == customer_email)
+                )
                 user = result.scalar_one_or_none()
                 if user:
                     user.plan = nuevo_plan
@@ -1247,15 +1464,20 @@ async def stripe_webhook(request: Request):
 
     return {"status": "ok"}
 
+
 import os
+
 
 @app.get("/debug-db")
 def debug_db():
     db_url = os.getenv("DATABASE_URL") or ""
     return {"database_url": db_url, "engine": str(engine.url)}
 
+
 @app.get("/debug-user-snapshot")
-def debug_user_snapshot(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def debug_user_snapshot(
+    usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
     email_lower = usuario.email_lower
     nichos = obtener_nichos_usuario(email_lower, db)
     muestra = [n["nicho"] for n in nichos[:5]]
