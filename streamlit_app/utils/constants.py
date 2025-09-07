@@ -16,10 +16,10 @@ ASSISTANT_PAGE_PATH  = os.getenv("ASSISTANT_PAGE_PATH",  "pages/Asistente_virtua
 
 # Accesos secundarios (label, path, descripción, emoji)
 SECONDARY_PAGES = [
-    ("Nichos", "pages/Nichos.py", "Gestiona y elimina nichos; explora sus leads.", "🗂️"),
-    ("Tareas pendientes", "pages/Tareas_pendientes.py", "Crea, prioriza y marca tareas.", "✅"),
-    ("Historial", "pages/Historial.py", "Acciones recientes por lead y nicho.", "🕓"),
-    ("Exportaciones", "pages/Exportaciones.py", "Descarga CSV filtrados y combinados.", "📤"),
-    ("Mi cuenta / Configuración", "pages/Mi_cuenta.py", "Datos de usuario y preferencias.", "⚙️"),
+    ("Nichos", "pages/Nichos.py", "Gestiona y explora nichos y leads.", "🗂️"),
+    ("Tareas pendientes", "pages/Tareas_pendientes.py", "Prioriza y marca tareas.", "✅"),
+    ("Historial", "pages/Historial.py", "Acciones recientes y cambios.", "🕓"),
+    ("Exportaciones", "pages/Exportaciones.py", "Descarga CSV filtrados.", "📤"),
+    ("Mi cuenta / Configuración", "pages/Mi_cuenta.py", "Preferencias y sesión.", "⚙️"),
 ]
 

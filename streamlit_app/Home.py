@@ -12,7 +12,7 @@ from utils import (
     ASSISTANT_PAGE_LABEL, ASSISTANT_PAGE_PATH,
     SECONDARY_PAGES,
 )
-from utils.nav import go
+from utils.nav import go  # <- nav se importa del submódulo, no del paquete raíz
 from utils.http_client import post, login as http_login
 from utils.auth_utils import (
     is_authenticated,
