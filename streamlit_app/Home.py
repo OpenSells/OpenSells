@@ -6,10 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utils import (
+from utils.constants import (
     BRAND,
-    LEADS_PAGE_LABEL, LEADS_PAGE_PATH,
-    ASSISTANT_PAGE_LABEL, ASSISTANT_PAGE_PATH,
+    LEADS_PAGE_LABEL,
+    LEADS_PAGE_PATH,
+    ASSISTANT_PAGE_LABEL,
+    ASSISTANT_PAGE_PATH,
     SECONDARY_PAGES,
 )
 from utils.nav import go  # <- nav se importa del submódulo, no del paquete raíz
