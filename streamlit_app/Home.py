@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import sys
 from pathlib import Path
@@ -8,11 +9,8 @@ if str(ROOT) not in sys.path:
 
 from streamlit_app.utils.constants import (
     BRAND,
-    LEADS_PAGE_LABEL,
     LEADS_PAGE_PATH,
-    ASSISTANT_PAGE_LABEL,
     ASSISTANT_PAGE_PATH,
-    SECONDARY_PAGES,
 )
 from streamlit_app.utils.nav import go  # <- nav se importa del submódulo, no del paquete raíz
 from streamlit_app.utils.http_client import post, login as http_login
@@ -24,129 +22,98 @@ from streamlit_app.utils.auth_utils import (
 from streamlit_app.utils.logout_button import logout_button
 
 
-def _go_leads():
-    from streamlit_app.utils.nav import go as _go
-
-    _go(LEADS_PAGE_LABEL)
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _go_assistant():
-    from streamlit_app.utils.nav import go as _go
-
-    _go(ASSISTANT_PAGE_LABEL)
-
-
-def _go_pair(label, path=None):
-    from streamlit_app.utils.nav import go as _go
-
-    try:
-        _go(label)
-    except Exception:
-        if path:
-            _go(path)
-
-
-def _card_primary(title, desc, on_click):
+def _card(title: str, desc: str, on_click):
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.button(f"{title}\n{desc}", use_container_width=True, on_click=on_click)
-
-
-def _card_secondary(emoji, title, desc, on_click):
-    st.button(
-        f"{emoji} {title}\n{desc}", use_container_width=True, on_click=on_click
-    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 restore_session_if_allowed()
 
-if is_authenticated():
+auth = is_authenticated()
+if auth:
     st.set_page_config(page_title=f"{BRAND} — Inicio", layout="wide")
 else:
     st.set_page_config(page_title=f"{BRAND} — Accede a tu cuenta", layout="wide")
 
-if is_authenticated():
-    st.markdown(
-        """
-        <style>
-        .card-container .stButton>button {
-            border-radius:16px;
-            box-shadow:0 6px 24px rgba(0,0,0,.06);
-            padding:1.5rem;
-            transition:all .1s ease-in-out;
-            white-space:normal;
-        }
-        .card-container .stButton>button:hover {
-            box-shadow:0 6px 24px rgba(0,0,0,.12);
-            transform:translateY(-2px);
-        }
-        .primary-grid .stButton>button {font-size:1.25rem;}
-        .secondary-grid .stButton>button {font-size:1.05rem;padding:1rem;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+st.markdown(
+    """
+    <style>
+    .block-container{max-width:1100px;padding-top:2rem;}
+    .hero{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem;}
+    .session-badge{font-size:0.875rem;background:#eef2ff;padding:0.25rem 0.75rem;border-radius:9999px;}
+    .card{margin-bottom:1rem;}
+    .card .stButton>button{background:#f8fafc;border:1px solid #e6e8eb;border-radius:16px;padding:20px 24px;box-shadow:0 1px 2px rgba(0,0,0,.04);transition:transform .08s ease,box-shadow .2s ease;width:100%;text-align:left;font-size:19px;white-space:normal;}
+    .card .stButton>button:hover{transform:translateY(-2px);box-shadow:0 4px 6px rgba(0,0,0,.07);background:#f1f5f9;border-color:#d5d8dc;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.markdown(f"# {BRAND}")
-    cols_header = st.columns([3, 1])
-    with cols_header[0]:
-        st.subheader("¿Qué quieres hacer hoy?")
-    with cols_header[1]:
-        st.info("Sesión activa")
+session_text = "Sesión activa" if auth else "Sesión no iniciada"
+st.markdown(
+    f"""
+    <div class="hero">
+      <div>
+        <h1>{BRAND}</h1>
+        <p>Genera y gestiona leads de forma simple.</p>
+      </div>
+      <span class="session-badge">{session_text}</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.markdown('<div class="card-container">', unsafe_allow_html=True)
-
-    st.markdown('<div class="primary-grid">', unsafe_allow_html=True)
+if auth:
+    st.markdown("### ¿Qué quieres hacer hoy?")
     cols = st.columns(2)
     with cols[0]:
-        _card_primary(
+        _card(
             "🔎 Búsqueda de leads",
-            "Encuentra y guarda leads por nicho desde Google/Maps.",
-            _go_leads,
+            "Encuentra y guarda leads por nicho desde Google/Maps",
+            lambda: st.switch_page(LEADS_PAGE_PATH),
         )
     with cols[1]:
-        _card_primary(
+        _card(
             "🤖 Asistente virtual (beta)",
-            "Haz preguntas y lanza búsquedas guiadas con IA.",
-            _go_assistant,
+            "Haz preguntas y lanza búsquedas guiadas con IA",
+            lambda: st.switch_page(ASSISTANT_PAGE_PATH),
         )
-    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("### Más herramientas")
-    st.markdown('<div class="secondary-grid">', unsafe_allow_html=True)
-    sec_cols = st.columns(4)
-    for i, (label, path, desc, emoji) in enumerate(SECONDARY_PAGES):
-        col = sec_cols[i % len(sec_cols)]
-        with col:
-            _card_secondary(emoji, label, desc, lambda l=label, p=path: _go_pair(l, p))
-    st.markdown("</div>", unsafe_allow_html=True)
-
     logout_button()
-    st.markdown("</div>", unsafe_allow_html=True)
+    if Path("streamlit_app/pages/8_Mi_Cuenta.py").exists():
+        st.page_link("pages/8_Mi_Cuenta.py", label="Mi cuenta")
 else:
-    st.markdown(f"# {BRAND}")
-    st.subheader("Accede a tu cuenta")
-
     tabs = st.tabs(["Entrar", "Crear cuenta"])
 
     with tabs[0]:
         with st.form("login_form"):
-            username = st.text_input("Usuario o email")
+            email = st.text_input("Email", placeholder="tucorreo@ejemplo.com")
             password = st.text_input("Contraseña", type="password")
-            submitted = st.form_submit_button("Entrar", use_container_width=True)
+            submitted = st.form_submit_button("Iniciar sesión", use_container_width=True)
         if submitted:
-            result = http_login(username, password)
-            if isinstance(result, dict) and result.get("_error"):
-                st.error("No autorizado. Revisa tus credenciales.")
+            email_norm = email.strip().lower()
+            if not EMAIL_RE.match(email_norm):
+                st.error("Introduce un email válido")
             else:
-                resp = result.get("response")
-                token = result.get("token")
-                if not token:
-                    status = getattr(resp, "status_code", "unknown")
-                    body = getattr(resp, "text", "")[:500]
-                    st.error("No se recibió token de acceso.")
-                    st.info(f"status: {status}\nbody: {body}")
+                result = http_login(email_norm, password)
+                if isinstance(result, dict) and result.get("_error"):
+                    st.error("No autorizado. Revisa tus credenciales.")
                 else:
-                    save_session(token, username)
-                    go()
+                    resp = result.get("response")
+                    token = result.get("token")
+                    if not token:
+                        status = getattr(resp, "status_code", "unknown")
+                        body = getattr(resp, "text", "")[:500]
+                        st.error("No se recibió token de acceso.")
+                        st.info(f"status: {status}\nbody: {body}")
+                    else:
+                        save_session(token, email_norm)
+                        go()
 
     with tabs[1]:
         with st.form("register_form"):
@@ -188,5 +155,7 @@ else:
                         save_session(token, email)
                         go()
 
+
 if __name__ == "__main__":
     pass
+
