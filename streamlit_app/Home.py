@@ -8,8 +8,8 @@ if str(ROOT) not in sys.path:
 
 from utils import (
     BRAND,
-    LEADS_PAGE_LABEL,
-    ASSISTANT_PAGE_LABEL,
+    LEADS_PAGE_LABEL, LEADS_PAGE_PATH,
+    ASSISTANT_PAGE_LABEL, ASSISTANT_PAGE_PATH,
     SECONDARY_PAGES,
 )
 from utils.nav import go
