@@ -6,10 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_app.utils.constants import BRAND
-from streamlit_app.utils.nav import go
-from streamlit_app.utils.http_client import post, login as http_login
-from streamlit_app.utils.auth_utils import (
+from utils import BRAND
+from utils.nav import go
+from utils.http_client import post, login as http_login
+from utils.auth_utils import (
     is_authenticated,
     save_session,
     restore_session_if_allowed,
@@ -27,7 +27,7 @@ if is_authenticated():
     st.button(
         "Ir a Búsqueda",
         use_container_width=True,
-        on_click=lambda: go("pages/1_Busqueda.py"),
+        on_click=go,
     )
 else:
     tabs = st.tabs(["Entrar", "Crear cuenta"])
@@ -51,7 +51,7 @@ else:
                     st.info(f"status: {status}\nbody: {body}")
                 else:
                     save_session(token, username)
-                    go("app.py")
+                    go()
 
     with tabs[1]:
         with st.form("register_form"):
@@ -91,7 +91,7 @@ else:
                         st.info(f"status: {status}\nbody: {body}")
                     else:
                         save_session(token, email)
-                        go("app.py")
+                        go()
 
 if __name__ == "__main__":
     pass
