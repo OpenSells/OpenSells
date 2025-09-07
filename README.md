@@ -1,6 +1,6 @@
 # OpenSells
 
-*Actualizado el 27/08/2025*
+*Actualizado el 07/09/2025*
 
 **OpenSells** es un SaaS para generación y gestión de leads apoyado en un backend FastAPI y una interfaz multipágina en Streamlit.
 
@@ -27,6 +27,15 @@
 - **Multi-tenant:** la clave es `user_email_lower`; hay endpoint `/debug-user-snapshot` para verificar sesión y prefijo de la base de datos.
 - **Memoria del asistente:** conversaciones almacenadas en PostgreSQL, con soporte de migración desde SQLite.
 - **Pruebas:** `pytest` pasa todas las pruebas y el código compila con `python -m py_compile`.
+
+## 📁 Estructura del repositorio
+
+- `backend/`: API FastAPI con modelos, dependencias y scripts de arranque.
+- `streamlit_app/`: interfaz multipágina de Streamlit con utilidades comunes y páginas numeradas.
+- `scraper/`: módulo `extractor.py` para extraer emails, teléfonos y redes sociales desde una URL.
+- `scripts/`: herramientas adicionales como la migración de memoria a PostgreSQL.
+- `tests/`: batería de pruebas de `pytest` para backend y funcionalidades clave.
+- `render.yaml`: configuración de despliegue para Render.
 
 ## 💻 Requisitos previos
 
@@ -62,6 +71,26 @@ Copia `.env.example` a `.env` y completa las claves necesarias (PostgreSQL, Stri
 cp .env.example .env
 ```
 
+Variables disponibles:
+
+- `OPENAI_API_KEY`: clave para las llamadas a OpenAI y el scraper de contactos.
+- `DATABASE_URL`: cadena de conexión a PostgreSQL.
+- `SCRAPERAPI_KEY`: API key opcional para usar ScraperAPI.
+- `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_ILIMITADO`: identificadores de precios para los planes de Stripe.
+
+## 🕷️ Scraper de contactos
+
+El script `scraper/extractor.py` utiliza `requests`, `BeautifulSoup`, `phonenumbers` y la API de OpenAI para analizar una página web y devolver los mejores emails, teléfonos y enlaces sociales detectados.
+
+```python
+from scraper.extractor import extraer_datos_desde_url
+extraer_datos_desde_url("https://example.com")
+```
+
+## 🚢 Despliegue
+
+El archivo `render.yaml` describe un servicio web para desplegar el backend en [Render](https://render.com/). El comando de inicio por defecto es `uvicorn backend.main:app --host 0.0.0.0 --port 10000`.
+
 ## 🧪 Pruebas
 
 Para ejecutar la batería de pruebas:
@@ -81,4 +110,4 @@ OpenSells sigue evolucionando hacia un servicio estable de generación de leads 
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 27/08/2025.)*
+*(Generado automáticamente el 07/09/2025.)*
