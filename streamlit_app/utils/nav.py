@@ -1,13 +1,13 @@
-"""Navigation utilities for Streamlit pages.
-
-Provides a robust ``go`` function that can navigate using either page labels
-or relative paths.  It also supports a set of common aliases so the caller can
-use more human-friendly names.
-"""
+from __future__ import annotations
 
 import streamlit as st
 
 from . import AFTER_LOGIN_PAGE_LABEL, AFTER_LOGIN_PAGE_PATH
+
+# Alias retrocompatible para código legacy:
+HOME_PAGE = (AFTER_LOGIN_PAGE_LABEL or "Home")  # ej.: "Buscar leads"
+
+__all__ = ["go", "HOME_PAGE"]
 
 _ALIASES: dict[str, str] = {
     "app": "Home",
@@ -22,8 +22,6 @@ _ALIASES: dict[str, str] = {
 
 
 def _try_switch(target: str) -> bool:
-    """Try to switch to ``target`` and return whether it succeeded."""
-
     try:
         st.switch_page(target)
         return True
@@ -32,35 +30,28 @@ def _try_switch(target: str) -> bool:
 
 
 def go(target: str | None = None) -> None:
-    """Navigate by label (preferred) or relative path.
-
-    If ``target`` is ``None`` it will default to
-    ``AFTER_LOGIN_PAGE_LABEL`` or ``AFTER_LOGIN_PAGE_PATH``.
     """
+    Navega por label (preferente) o por ruta.
+    Si target es None, usa HOME_PAGE (alias de AFTER_LOGIN_PAGE_LABEL).
+    Hace fallbacks inteligentes sin romper la app.
+    """
+    candidate = (target or HOME_PAGE or "").strip() or "Home"
 
-    candidate = (target or AFTER_LOGIN_PAGE_LABEL or "").strip()
-    if not candidate:
-        candidate = "Home"
-
-    # 1) Attempt via alias -> label
+    # 1) Intento por alias/label
     label = _ALIASES.get(candidate.lower(), candidate)
     if _try_switch(label):
         return
 
-    # 2) Attempt via most probable paths
+    # 2) Intento por rutas probables + fallback por env
     for path in (
         f"pages/{label}.py",
         f"{label}.py",
         AFTER_LOGIN_PAGE_PATH,
-        candidate,  # in case it was already a valid path
+        candidate,  # por si ya era ruta válida
     ):
         if path and _try_switch(path):
             return
 
-    # 3) Last resort: don't break the app
+    # 3) Último recurso: no dejar la app rota
     st.toast("No se encontró la página de destino; recargando…")
     st.rerun()
-
-
-__all__ = ["go"]
-
