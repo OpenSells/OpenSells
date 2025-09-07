@@ -23,7 +23,7 @@ from streamlit_app.cache_utils import (
     limpiar_cache,
 )
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils import http_client
+import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import (
     is_authenticated,
     remember_current_page,

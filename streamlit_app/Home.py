@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utils.constants import (
+from streamlit_app.utils.constants import (
     BRAND,
     LEADS_PAGE_LABEL,
     LEADS_PAGE_PATH,
@@ -14,30 +14,30 @@ from utils.constants import (
     ASSISTANT_PAGE_PATH,
     SECONDARY_PAGES,
 )
-from utils.nav import go  # <- nav se importa del submódulo, no del paquete raíz
-from utils.http_client import post, login as http_login
-from utils.auth_utils import (
+from streamlit_app.utils.nav import go  # <- nav se importa del submódulo, no del paquete raíz
+from streamlit_app.utils.http_client import post, login as http_login
+from streamlit_app.utils.auth_utils import (
     is_authenticated,
     save_session,
     restore_session_if_allowed,
 )
-from utils.logout_button import logout_button
+from streamlit_app.utils.logout_button import logout_button
 
 
 def _go_leads():
-    from utils.nav import go as _go
+    from streamlit_app.utils.nav import go as _go
 
     _go(LEADS_PAGE_LABEL)
 
 
 def _go_assistant():
-    from utils.nav import go as _go
+    from streamlit_app.utils.nav import go as _go
 
     _go(ASSISTANT_PAGE_LABEL)
 
 
 def _go_pair(label, path=None):
-    from utils.nav import go as _go
+    from streamlit_app.utils.nav import go as _go
 
     try:
         _go(label)

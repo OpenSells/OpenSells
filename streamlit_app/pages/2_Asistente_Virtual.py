@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
-from streamlit_app.utils import http_client
+import streamlit_app.utils.http_client as http_client
 from streamlit_app.assistant_api import (
     ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
