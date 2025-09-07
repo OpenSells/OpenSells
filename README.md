@@ -62,6 +62,16 @@ Copia `.env.example` a `.env` y completa las claves necesarias (PostgreSQL, Stri
 cp .env.example .env
 ```
 
+## 🌐 Despliegue en Render
+
+Este repositorio incluye un archivo `render.yaml` que define un servicio web basado en Python. Para desplegar el backend en [Render](https://render.com):
+
+1. Conecta el repositorio y selecciona el branch `main`.
+2. Render instalará las dependencias con `pip install -r requirements.txt`.
+3. El servicio se iniciará con `uvicorn backend.main:app --host 0.0.0.0 --port 10000`.
+
+Asegúrate de configurar las variables de entorno necesarias antes de activar el servicio.
+
 ## 🧪 Pruebas
 
 Para ejecutar la batería de pruebas:
