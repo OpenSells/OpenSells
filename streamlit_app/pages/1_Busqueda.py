@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 
-from streamlit_app.utils import http_client
+import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta

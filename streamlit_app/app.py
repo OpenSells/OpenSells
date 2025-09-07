@@ -24,7 +24,7 @@ ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
 if not user:
-    from streamlit_app.utils import http_client
+    import streamlit_app.utils.http_client as http_client
     resp_user = http_client.get("/me")
     if resp_user is not None and resp_user.status_code == 200:
         user = resp_user.json()

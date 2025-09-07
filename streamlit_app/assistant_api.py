@@ -1,7 +1,7 @@
 import os
 from typing import Optional, List
 
-from streamlit_app.utils import http_client
+import streamlit_app.utils.http_client as http_client
 
 EXTRAER_LEADS_MSG = (
     "🚧 Esta funcionalidad desde el asistente estará disponible próximamente. "
