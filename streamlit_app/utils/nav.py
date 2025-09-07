@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import streamlit as st
 
-from . import AFTER_LOGIN_PAGE_LABEL, AFTER_LOGIN_PAGE_PATH
+from . import (
+    AFTER_LOGIN_PAGE_LABEL,
+    AFTER_LOGIN_PAGE_PATH,
+    LEADS_PAGE_LABEL,
+    LEADS_PAGE_PATH,
+    ASSISTANT_PAGE_LABEL,
+    ASSISTANT_PAGE_PATH,
+)
 
 # Alias retrocompatible para código legacy:
 HOME_PAGE = (AFTER_LOGIN_PAGE_LABEL or "Home")  # ej.: "Buscar leads"
@@ -15,9 +22,15 @@ _ALIASES: dict[str, str] = {
     "inicio": "Home",
     "home.py": "Home",
     "home": "Home",
-    "buscar": "Buscar leads",
-    "búsqueda": "Buscar leads",
-    "busqueda": "Buscar leads",
+    "buscar": LEADS_PAGE_LABEL,
+    "búsqueda": LEADS_PAGE_LABEL,
+    "busqueda": LEADS_PAGE_LABEL,
+    "leads": LEADS_PAGE_LABEL,
+    "buscar leads": LEADS_PAGE_LABEL,
+    "asistente": ASSISTANT_PAGE_LABEL,
+    "assistant": ASSISTANT_PAGE_LABEL,
+    "ai": ASSISTANT_PAGE_LABEL,
+    "asistente virtual": ASSISTANT_PAGE_LABEL,
 }
 
 
@@ -47,6 +60,8 @@ def go(target: str | None = None) -> None:
         f"pages/{label}.py",
         f"{label}.py",
         AFTER_LOGIN_PAGE_PATH,
+        LEADS_PAGE_PATH,
+        ASSISTANT_PAGE_PATH,
         candidate,  # por si ya era ruta válida
     ):
         if path and _try_switch(path):
