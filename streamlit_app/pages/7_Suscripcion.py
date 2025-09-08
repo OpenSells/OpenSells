@@ -6,7 +6,7 @@ import requests
 from dotenv import load_dotenv
 
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.plan_utils import force_redirect
+from streamlit_app.plan_utils import force_redirect, resolve_user_plan
 from streamlit_app.utils.plans import PLANS_FEATURES
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
@@ -54,7 +54,7 @@ price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")
 price_premium = _safe_secret("STRIPE_PRICE_PREMIUM")
 
-plan = (user or {}).get("plan", "free")
+plan = resolve_user_plan(token)["plan"]
 
 
 def _fetch_plan_features():

@@ -10,7 +10,7 @@ from json import JSONDecodeError
 import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.plan_utils import subscription_cta
+from streamlit_app.plan_utils import subscription_cta, resolve_user_plan
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -38,7 +38,7 @@ if token and not user:
         user = resp_user.json()
         st.session_state["user"] = user
 
-plan = (user or {}).get("plan", "free")
+plan = resolve_user_plan(token)["plan"]
 
 with st.sidebar:
     logout_button()

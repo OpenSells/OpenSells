@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.auth import obtener_usuario_por_email
+from backend.core.stripe_mapping import PRICE_TO_PLAN
 
 
 router = APIRouter()
@@ -28,15 +29,6 @@ def actualizar_plan_usuario(db: Session, email: str, nuevo_plan: str = "free"):
         db.commit()
         db.refresh(usuario)
     return usuario
-
-
-# Mapeo de ``price_id`` a nombre de plan
-PRICE_TO_PLAN = {
-    os.getenv("STRIPE_PRICE_GRATIS"): "free",
-    os.getenv("STRIPE_PRICE_BASICO"): "basico",
-    os.getenv("STRIPE_PRICE_PREMIUM"): "premium",
-}
-
 
 def _extraer_price_id(data_object: dict) -> str | None:
     """Intenta obtener el ``price_id`` desde el objeto enviado por Stripe."""
