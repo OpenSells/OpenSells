@@ -68,6 +68,10 @@ st.markdown(
 @media (max-width: 640px){ .grid-4 { grid-template-columns: 1fr; } }
 .stButton>button { border-radius: 12px; padding: 10px 14px; border: 1px solid rgba(0,0,0,.08); }
 .stButton>button:hover { border-color: rgba(0,0,0,.2); }
+.card:empty { display: none; }
+/* Evita que algún overlay o pseudo-elemento tape el botón */
+.card { position: relative; }
+.card * { position: relative; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -103,33 +107,34 @@ if auth:
 
     col1, col2 = st.columns(2, gap="large")
     with col1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🗨️ Modo Asistente Virtual")
-        st.write(
-            "Chat interactivo que permite buscar leads, gestionar tareas, notas y estados."
-        )
-        st.button(
-            "🗨️ Asistente Virtual",
-            use_container_width=True,
-            disabled=not suscripcion_activa,
-            on_click=lambda: go(PAGES["assistant"]),
-        )
-        if not suscripcion_activa:
-            subscription_cta()
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("🗨️ Modo Asistente Virtual")
+            st.write(
+                "Chat interactivo que permite buscar leads, gestionar tareas, notas y estados."
+            )
+            st.button(
+                "🗨️ Asistente Virtual",
+                use_container_width=True,
+                on_click=lambda: go(PAGES["assistant"]),
+            )
+            if not suscripcion_activa:
+                subscription_cta()
+            st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("📊 Modo Clásico")
-        st.write(
-            "Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones."
-        )
-        st.button(
-            "🔎 Búsqueda de Leads",
-            use_container_width=True,
-            on_click=lambda: go(PAGES["busqueda"]),
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("📊 Modo Clásico")
+            st.write(
+                "Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones."
+            )
+            st.button(
+                "🔎 Búsqueda de Leads",
+                use_container_width=True,
+                on_click=lambda: go(PAGES["busqueda"]),
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
 
@@ -167,72 +172,74 @@ if auth:
 else:
     tabs = st.tabs(["Entrar", "Crear cuenta"])
     with tabs[0]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        with st.form("login_form"):
-            email = st.text_input("Email", placeholder="tucorreo@ejemplo.com")
-            password = st.text_input("Contraseña", type="password")
-            submitted = st.form_submit_button("Iniciar sesión", use_container_width=True)
-        if submitted:
-            email_norm = email.strip().lower()
-            if not EMAIL_RE.match(email_norm):
-                st.error("Introduce un email válido")
-            else:
-                result = http_login(email_norm, password)
-                if isinstance(result, dict) and result.get("_error"):
-                    st.error("No autorizado. Revisa tus credenciales.")
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            with st.form("login_form"):
+                email = st.text_input("Email", placeholder="tucorreo@ejemplo.com")
+                password = st.text_input("Contraseña", type="password")
+                submitted = st.form_submit_button("Iniciar sesión", use_container_width=True)
+            if submitted:
+                email_norm = email.strip().lower()
+                if not EMAIL_RE.match(email_norm):
+                    st.error("Introduce un email válido")
                 else:
-                    resp = result.get("response")
-                    token = result.get("token")
-                    if not token:
-                        status = getattr(resp, "status_code", "unknown")
-                        body = getattr(resp, "text", "")[:500]
-                        st.error("No se recibió token de acceso.")
-                        st.info(f"status: {status}\nbody: {body}")
+                    result = http_login(email_norm, password)
+                    if isinstance(result, dict) and result.get("_error"):
+                        st.error("No autorizado. Revisa tus credenciales.")
                     else:
-                        save_session(token, email_norm)
-                        go()
-        st.markdown("</div>", unsafe_allow_html=True)
+                        resp = result.get("response")
+                        token = result.get("token")
+                        if not token:
+                            status = getattr(resp, "status_code", "unknown")
+                            body = getattr(resp, "text", "")[:500]
+                            st.error("No se recibió token de acceso.")
+                            st.info(f"status: {status}\nbody: {body}")
+                        else:
+                            save_session(token, email_norm)
+                            go()
+            st.markdown("</div>", unsafe_allow_html=True)
     with tabs[1]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        with st.form("register_form"):
-            name = st.text_input("Nombre (opcional)")
-            email = st.text_input("Email")
-            password_reg = st.text_input("Contraseña", type="password")
-            submitted_reg = st.form_submit_button("Crear cuenta", use_container_width=True)
-        if submitted_reg:
-            payload = {"email": email, "password": password_reg}
-            if name:
-                payload["name"] = name
-            resp = post(
-                "/register",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            if isinstance(resp, dict) and resp.get("_error"):
-                st.error("Error de autenticación.")
-            elif getattr(resp, "status_code", 0) >= 400:
-                if resp.status_code in (400, 409):
-                    st.error("Ese email ya está registrado")
-                else:
-                    body = getattr(resp, "text", "")[:500]
-                    st.error(f"Error al crear cuenta: {resp.status_code}. {body}")
-            else:
-                st.success("Cuenta creada. Iniciando sesión...")
-                login_res = http_login(email, password_reg)
-                if isinstance(login_res, dict) and login_res.get("_error"):
-                    st.error("Error al iniciar sesión automáticamente.")
-                else:
-                    resp_login = login_res.get("response")
-                    token = login_res.get("token")
-                    if not token:
-                        status = getattr(resp_login, "status_code", "unknown")
-                        body = getattr(resp_login, "text", "")[:500]
-                        st.error("No se recibió token de acceso.")
-                        st.info(f"status: {status}\nbody: {body}")
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            with st.form("register_form"):
+                name = st.text_input("Nombre (opcional)")
+                email = st.text_input("Email")
+                password_reg = st.text_input("Contraseña", type="password")
+                submitted_reg = st.form_submit_button("Crear cuenta", use_container_width=True)
+            if submitted_reg:
+                payload = {"email": email, "password": password_reg}
+                if name:
+                    payload["name"] = name
+                resp = post(
+                    "/register",
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                if isinstance(resp, dict) and resp.get("_error"):
+                    st.error("Error de autenticación.")
+                elif getattr(resp, "status_code", 0) >= 400:
+                    if resp.status_code in (400, 409):
+                        st.error("Ese email ya está registrado")
                     else:
-                        save_session(token, email)
-                        go()
-        st.markdown("</div>", unsafe_allow_html=True)
+                        body = getattr(resp, "text", "")[:500]
+                        st.error(f"Error al crear cuenta: {resp.status_code}. {body}")
+                else:
+                    st.success("Cuenta creada. Iniciando sesión...")
+                    login_res = http_login(email, password_reg)
+                    if isinstance(login_res, dict) and login_res.get("_error"):
+                        st.error("Error al iniciar sesión automáticamente.")
+                    else:
+                        resp_login = login_res.get("response")
+                        token = login_res.get("token")
+                        if not token:
+                            status = getattr(resp_login, "status_code", "unknown")
+                            body = getattr(resp_login, "text", "")[:500]
+                            st.error("No se recibió token de acceso.")
+                            st.info(f"status: {status}\nbody: {body}")
+                        else:
+                            save_session(token, email)
+                            go()
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
