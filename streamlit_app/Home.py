@@ -109,15 +109,12 @@ if auth:
     with col1:
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.subheader("🗨️ Modo Asistente Virtual")
+            st.subheader("🗨️ Modo Asistente Virtual (beta)")
             st.write(
                 "Chat interactivo que permite buscar leads, gestionar tareas, notas y estados."
             )
-            st.button(
-                "🗨️ Asistente Virtual",
-                use_container_width=True,
-                on_click=lambda: go(PAGES["assistant"]),
-            )
+            if st.button("🗨️ Asistente Virtual", use_container_width=True):
+                st.session_state["_nav_to"] = PAGES["assistant"]
             if not suscripcion_activa:
                 subscription_cta()
             st.markdown("</div>", unsafe_allow_html=True)
@@ -129,11 +126,8 @@ if auth:
             st.write(
                 "Navegación por las páginas actuales: búsqueda, nichos, tareas y exportaciones."
             )
-            st.button(
-                "🔎 Búsqueda de Leads",
-                use_container_width=True,
-                on_click=lambda: go(PAGES["busqueda"]),
-            )
+            if st.button("🔎 Búsqueda de Leads", use_container_width=True):
+                st.session_state["_nav_to"] = PAGES["busqueda"]
             st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
@@ -151,11 +145,8 @@ if auth:
             with st.container():
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.write(f"**{label}**")
-                st.button(
-                    label,
-                    use_container_width=True,
-                    on_click=lambda pf=page_file: go(pf),
-                )
+                if st.button(label, use_container_width=True):
+                    st.session_state["_nav_to"] = page_file
                 st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -240,6 +231,17 @@ else:
                             save_session(token, email)
                             go()
             st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ---- Navegación fuera de callbacks ----
+_target = st.session_state.pop("_nav_to", None)
+if _target:
+    go(_target)
+    try:
+        st.rerun()
+    except Exception:
+        pass
+    st.stop()
 
 
 if __name__ == "__main__":
