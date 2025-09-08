@@ -1,10 +1,50 @@
 import os
 import requests
 from typing import Any, Dict, Optional
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from .auth_session import get_auth_token
 
 BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-_session = requests.Session()
+
+
+def _full_url(path: str) -> str:
+    return f"{BASE_URL}{path}"
+
+
+def _build_session() -> requests.Session:
+    s = requests.Session()
+    retries = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.5,
+        allowed_methods=frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}),
+        status_forcelist=[502, 503, 504, 520, 521, 522, 523, 524, 525, 526],
+        raise_on_status=False,
+        raise_on_redirect=False,
+    )
+    adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+    s.headers.update({"User-Agent": "WrapperLeads/1.0"})
+    return s
+
+
+_session = _build_session()
+
+
+def _reset_session() -> None:
+    global _session
+    try:
+        _session.close()
+    except Exception:
+        pass
+    _session = _build_session()
+
+
+DEFAULT_TIMEOUT = (3.05, 15)  # (connect, read)
 
 
 def _base_headers() -> Dict[str, str]:
@@ -69,9 +109,14 @@ def login(username: str, password: str) -> Dict[str, Any]:
 
 def get(path: str, **kwargs):
     custom_headers = kwargs.pop("headers", None)
-    timeout = kwargs.pop("timeout", 30)
-    url = f"{BASE_URL}{path}"
-    r = _session.get(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    url = _full_url(path)
+    try:
+        r = _session.get(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    except (requests.ConnectionError, requests.ChunkedEncodingError):
+        _reset_session()
+        hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
+        r = _session.get(url, headers=hdrs, timeout=timeout, **kwargs)
     if r.status_code == 401:
         return {"_error": "unauthorized", "_status": 401}
     return r
@@ -79,9 +124,14 @@ def get(path: str, **kwargs):
 
 def post(path: str, **kwargs):
     custom_headers = kwargs.pop("headers", None)
-    timeout = kwargs.pop("timeout", 60)
-    url = f"{BASE_URL}{path}"
-    r = _session.post(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    url = _full_url(path)
+    try:
+        r = _session.post(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    except (requests.ConnectionError, requests.ChunkedEncodingError):
+        _reset_session()
+        hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
+        r = _session.post(url, headers=hdrs, timeout=timeout, **kwargs)
     if r.status_code == 401:
         return {"_error": "unauthorized", "_status": 401}
     return r
@@ -89,9 +139,14 @@ def post(path: str, **kwargs):
 
 def put(path: str, **kwargs):
     custom_headers = kwargs.pop("headers", None)
-    timeout = kwargs.pop("timeout", 60)
-    url = f"{BASE_URL}{path}"
-    r = _session.put(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    url = _full_url(path)
+    try:
+        r = _session.put(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    except (requests.ConnectionError, requests.ChunkedEncodingError):
+        _reset_session()
+        hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
+        r = _session.put(url, headers=hdrs, timeout=timeout, **kwargs)
     if r.status_code == 401:
         return {"_error": "unauthorized", "_status": 401}
     return r
@@ -99,9 +154,14 @@ def put(path: str, **kwargs):
 
 def delete(path: str, **kwargs):
     custom_headers = kwargs.pop("headers", None)
-    timeout = kwargs.pop("timeout", 30)
-    url = f"{BASE_URL}{path}"
-    r = _session.delete(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    url = _full_url(path)
+    try:
+        r = _session.delete(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    except (requests.ConnectionError, requests.ChunkedEncodingError):
+        _reset_session()
+        hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
+        r = _session.delete(url, headers=hdrs, timeout=timeout, **kwargs)
     if r.status_code == 401:
         return {"_error": "unauthorized", "_status": 401}
     return r
