@@ -3,12 +3,14 @@ import sqlite3
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
+import json
 
 from sqlalchemy import func, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import ProgrammingError, OperationalError
+from typing import List, Optional
 
 try:  # pragma: no cover - dependency availability
     from psycopg2.errors import UndefinedColumn
@@ -716,6 +718,33 @@ def obtener_memoria_usuario_pg(email_lower: str) -> str | None:
             .scalar()
         )
         return memoria
+
+
+def get_user_memory(db: Session, user_email_lower: str) -> Optional[dict]:
+    """Return stored user memory as dict, if available and valid."""
+    memoria_str = (
+        db.query(UsuarioMemoria.descripcion)
+        .filter(UsuarioMemoria.email_lower == user_email_lower)
+        .scalar()
+    )
+    if not memoria_str:
+        return None
+    try:
+        data = json.loads(memoria_str)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def get_user_niches(db: Session, user_email_lower: str) -> List[str]:
+    """Return list of existing niche names for the user."""
+    rows = (
+        db.query(func.max(LeadExtraido.nicho_original))
+        .filter(LeadExtraido.user_email_lower == user_email_lower)
+        .group_by(LeadExtraido.nicho)
+        .all()
+    )
+    return [r[0] for r in rows]
 
 def obtener_historial_por_tipo(email: str, tipo: str):
     with sqlite3.connect(DB_PATH) as db:

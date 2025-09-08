@@ -213,27 +213,40 @@ cliente_ideal = st.text_input(
 )
 
 
-def _sugerencias(cliente_txt: str):
-    # TODO(Ayrton): si existe una función real, usarla. Esto es fallback:
-    base = [
-        "Dentistas en Madrid",
-        "Fisioterapeutas Barcelona",
-        "Abogados Valencia",
-        "Clínicas Estéticas Sevilla",
-    ]
-    if cliente_txt and len(cliente_txt.strip()) >= 3:
-        return [s for s in base if cliente_txt.lower() in s.lower()] or base
-    return base
-
 OPCION_PLACEHOLDER = "— Selecciona un nicho —"
 OPCION_CREAR = "➕ Crear nuevo nicho"
 
 with st.expander("💡 Sugerencias de nichos rentables", expanded=False):
-    sugs = _sugerencias(cliente_ideal)
-    if sugs:
-        st.markdown("\n".join([f"- {s}" for s in sugs]))
+    placeholder = st.empty()
+    try:
+        with st.spinner("Analizando tu contexto para sugerirte nichos..."):
+            resp = http_client.get("/sugerencias_nichos")
+            data = resp.json()
+    except Exception:
+        st.error("No se pudieron cargar las sugerencias ahora mismo. Inténtalo de nuevo en unos minutos.")
+        data = {"needs_memory": False, "suggestions": []}
+
+    if data.get("needs_memory"):
+        st.info(
+            "🔎 Para poder sugerirte nichos, completa tu memoria con los datos de tu modelo de negocio (sector, servicio, ubicación, ticket...)."
+        )
     else:
-        st.caption("Escribe tu cliente ideal para ver ideas.")
+        suggestions = data.get("suggestions", [])
+        if not suggestions:
+            st.warning("No hay sugerencias disponibles por el momento.")
+        else:
+            st.caption(
+                "Haz clic en una sugerencia para rellenar el campo “Nombre del nicho nuevo”."
+            )
+            cols = st.columns(2)
+            for i, s in enumerate(suggestions):
+                col = cols[i % 2]
+                label = s.get("name") if isinstance(s, dict) else str(s)
+                with col:
+                    if st.button(f"➕ {label}", key=f"sug_{i}"):
+                        st.session_state["nuevo_nicho_nombre"] = label
+                        st.session_state["nicho_select_val"] = OPCION_CREAR
+                        st.rerun()
 
 lista_nichos = lista_nichos or []
 opciones = [OPCION_PLACEHOLDER, OPCION_CREAR] + lista_nichos

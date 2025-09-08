@@ -6,6 +6,7 @@ from backend.db import normalizar_dominio
 from backend.db import guardar_info_extra, obtener_info_extra
 from backend.db import eliminar_lead_de_nicho
 from backend.db import guardar_memoria_usuario_pg, obtener_memoria_usuario_pg
+from backend.db import get_user_niches, get_user_memory
 from backend.db import guardar_evento_historial_postgres as guardar_evento_historial, obtener_historial_por_dominio_postgres as obtener_historial_por_dominio
 from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completada
 # Utilidad para buscar leads guardados en la base de datos PostgreSQL
@@ -15,7 +16,7 @@ from backend.db import buscar_leads_global_postgres
 from pydantic import BaseModel
 from fastapi import FastAPI, Body, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import List, Optional, Literal
 from openai import OpenAI
 import requests
 import logging
@@ -25,6 +26,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import unicodedata
 import re
+import random
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 import asyncio
@@ -146,6 +148,7 @@ def extraer_dominio_base(url: str) -> str:
 
 openai_key = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=openai_key) if openai_key else None
+_OPENAI = openai_client
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 
 class MemoriaUsuarioRequest(BaseModel):
@@ -913,6 +916,136 @@ def obtener_memoria(usuario=Depends(get_current_user)):
         return {"memoria": memoria or ""}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener memoria: {str(e)}")
+
+
+class NichoSuggestion(BaseModel):
+    name: str
+    reason: Optional[str] = None
+
+
+class NichoSuggestionsResponse(BaseModel):
+    needs_memory: bool
+    suggestions: List[NichoSuggestion] = []
+    message: Optional[str] = None
+
+
+def _safe_user_memory(db: Session, user_email_lower: str) -> dict | None:
+    try:
+        return get_user_memory(db, user_email_lower)
+    except Exception:
+        return None
+
+
+def _get_user_niches(db: Session, user_email_lower: str) -> List[str]:
+    return get_user_niches(db, user_email_lower)
+
+
+def _heuristic_suggestions(existing: List[str], memory: Optional[dict]) -> List[NichoSuggestion]:
+    seeds: List[str] = []
+    if memory:
+        for k in ("sector", "subsector", "servicio"):
+            if memory.get(k):
+                seeds.append(str(memory[k]))
+        if memory.get("ubicacion"):
+            seeds.append(str(memory["ubicacion"]))
+    if not seeds:
+        seeds = [
+            "servicios locales",
+            "pymes",
+            "ecommerce",
+            "profesionales",
+            "restauración",
+            "salud",
+            "educación",
+        ]
+    existing_norm = {e.casefold(): e for e in existing}
+    if memory and memory.get("ubicacion"):
+        base_geo = [memory["ubicacion"]]
+    else:
+        base_geo = ["Madrid", "Barcelona", "Valencia", "Sevilla", "Málaga"]
+
+    candidates: List[str] = []
+    for s in seeds[:4]:
+        for g in base_geo[:3]:
+            candidates.append(f"{s} en {g}")
+    candidates += [
+        "dentistas en grandes ciudades",
+        "clínicas estéticas en zonas premium",
+        "reformas de viviendas en áreas urbanas",
+    ]
+
+    seen = set()
+    out: List[NichoSuggestion] = []
+    random.shuffle(candidates)
+    for c in candidates:
+        key = c.casefold()
+        if key in seen or key in existing_norm:
+            continue
+        seen.add(key)
+        out.append(NichoSuggestion(name=c, reason="Relacionado con tu contexto y expandible"))
+        if len(out) >= 10:
+            break
+    if not out:
+        out = [NichoSuggestion(name="agencias de marketing en España", reason="amplía tu alcance")]
+    return out
+
+
+def _openai_suggestions(existing: List[str], memory: Optional[dict]) -> List[NichoSuggestion]:
+    if not _OPENAI:
+        return _heuristic_suggestions(existing, memory)
+    prompt = f"""
+Eres un analista de growth. Propón 10 nichos rentables (solo el nombre del nicho por línea)
+basándote en:
+- Nichos existentes del usuario: {existing}
+- Memoria del negocio (sector, servicio, ubicación, ticket): {memory}
+
+Reglas:
+- Evita duplicar nichos ya existentes (aunque cambie el casing).
+- Priorizá variaciones geográficas y subnichos específicos de alto ticket.
+- Sé concreto (e.g., "clínicas dentales en Valencia", "arquitectos Passivhaus en Madrid").
+- NO añadas numeración ni guiones; una idea por línea.
+"""
+    try:
+        resp = _OPENAI.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Eres conciso y específico."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.5,
+        )
+        text = resp.choices[0].message.content.strip()
+        lines = [l.strip("•- \t") for l in text.splitlines() if l.strip()]
+        existing_norm = {e.casefold() for e in existing}
+        out: List[NichoSuggestion] = []
+        seen = set()
+        for l in lines:
+            k = l.casefold()
+            if k in seen or k in existing_norm:
+                continue
+            seen.add(k)
+            out.append(NichoSuggestion(name=l))
+            if len(out) >= 10:
+                break
+        return out or _heuristic_suggestions(existing, memory)
+    except Exception:
+        return _heuristic_suggestions(existing, memory)
+
+
+@app.get("/sugerencias_nichos", response_model=NichoSuggestionsResponse)
+def sugerencias_nichos(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    user_email_lower = user.email.lower()
+    existing = _get_user_niches(db, user_email_lower) or []
+    memory = _safe_user_memory(db, user_email_lower)
+    no_context = (not existing) and (not memory)
+    if no_context:
+        return NichoSuggestionsResponse(
+            needs_memory=True,
+            suggestions=[],
+            message="Para poder sugerirte nichos, completa tu memoria con los datos de tu modelo de negocio.",
+        )
+    suggestions = _openai_suggestions(existing, memory)
+    return NichoSuggestionsResponse(needs_memory=False, suggestions=suggestions)
 
 from sqlalchemy.orm import Session
 
