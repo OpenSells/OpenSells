@@ -3,6 +3,11 @@ import importlib
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from backend.database import get_db, Base
 
 
 def test_backend_blocks_assistant(monkeypatch):
@@ -21,7 +26,23 @@ def test_backend_allows_when_enabled(monkeypatch):
     import importlib
     import types
 
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Session = sessionmaker(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
     importlib.reload(main)
+    main.app.dependency_overrides[get_db] = override_get_db
 
     def dummy_create(*args, **kwargs):
         return types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="- v1"))])

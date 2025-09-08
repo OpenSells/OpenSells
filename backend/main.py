@@ -69,16 +69,23 @@ from backend.auth import (
     get_current_user,
 )
 
+from backend.core.plans import PLANES
+from backend.core.usage import check_and_inc, get_or_create_usage, get_period
+
 from fastapi import Depends
 
-def validar_suscripcion(usuario = Depends(get_current_user)):
+def validar_suscripcion(usuario=Depends(get_current_user)):
+    if getattr(usuario, "suspendido", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Suscripción suspendida. Revisa tu pago.",
+        )
     if not usuario.plan or usuario.plan == "free":
         raise HTTPException(
             status_code=403,
-            detail="Debes tener una suscripción activa para usar esta función."
+            detail="Debes tener una suscripción activa para usar esta función.",
         )
     return usuario
-
 # Historial de exportaciones y leads
 from backend.db import (
     crear_tablas_si_no_existen,
@@ -214,6 +221,35 @@ async def protegido(usuario = Depends(get_current_user)):
         "plan": usuario.plan or "free"
     }
 
+
+@app.get("/mi_plan")
+def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    period_usage = get_or_create_usage(db, usuario.id, get_period())
+    limits = PLANES.get(usuario.plan, PLANES["free"])
+    remaining = {
+        "leads": None
+        if limits.leads_mensuales is None
+        else max(limits.leads_mensuales - period_usage.leads, 0),
+        "ia_msgs": None
+        if limits.ia_mensajes is None
+        else max(limits.ia_mensajes - period_usage.ia_msgs, 0),
+        "tasks": None
+        if limits.tareas_max is None
+        else max(limits.tareas_max - period_usage.tasks, 0),
+        "csv_exports": None,
+    }
+    return {
+        "plan": usuario.plan or "free",
+        "limits": limits.dict(),
+        "usage": {
+            "leads": period_usage.leads,
+            "ia_msgs": period_usage.ia_msgs,
+            "tasks": period_usage.tasks,
+            "csv_exports": period_usage.csv_exports,
+        },
+        "remaining": remaining,
+    }
+
 @app.get("/")
 def inicio():
     return {"mensaje": "¡Bienvenido al Wrapper Automático!"}
@@ -227,10 +263,12 @@ class BuscarRequest(BaseModel):
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
     _=Depends(guard_assistant_extraction),
-    usuario=Depends(get_current_user)
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
+    check_and_inc(usuario, "ia_msgs", db)
     cliente_ideal = request.cliente_ideal.strip()
     forzar_variantes = request.forzar_variantes or False
     contexto_extra = request.contexto_extra or ""
@@ -285,11 +323,17 @@ Dado el nicho o búsqueda "{prompt_base}", genera exactamente 6 palabras clave o
     }
 
 @app.post("/buscar_variantes_seleccionadas")
-def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest, _=Depends(guard_assistant_extraction)):
+def buscar_urls_desde_variantes(
+    payload: VariantesSeleccionadasRequest,
+    _=Depends(guard_assistant_extraction),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     variantes = payload.variantes[:3]
 
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
+    check_and_inc(usuario, "ia_msgs", db)
 
     detectar_pais_prompt = f"""
 Dado el siguiente conjunto de variantes de búsqueda:
@@ -367,7 +411,8 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
 def extraer_datos_endpoint(
     url: str = Body(..., embed=True),
     pais: str = Body("ES", embed=True),
-    usuario = Depends(validar_suscripcion)  # 👈 protección activada
+    usuario = Depends(validar_suscripcion),
+    db: Session = Depends(get_db),  # 👈 protección activada
 ):
     try:
         datos = extraer_datos_desde_url(url, pais)
@@ -376,6 +421,7 @@ def extraer_datos_endpoint(
             "url": url,
             "error": str(e)
         }
+    check_and_inc(usuario, "leads", db)
     return {
         "resultado": datos,
         "export_payload": {
@@ -388,7 +434,11 @@ def extraer_datos_endpoint(
 from datetime import datetime
 
 @app.post("/extraer_multiples")
-def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar_suscripcion)):
+def extraer_multiples_endpoint(
+    payload: UrlsMultiples,
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
     start = perf_counter()
     resultados = []
 
@@ -396,6 +446,7 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
     urls_base = [f"https://{dominio}" for dominio in dominios_unicos]
 
     for dominio in dominios_unicos:
+        check_and_inc(usuario, "leads", db)
         resultados.append({
             "Dominio": dominio,
             "Fecha": datetime.now().strftime("%Y-%m-%d")
@@ -415,7 +466,12 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def exportar_csv(
+    payload: ExportarCSVRequest,
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
+    check_and_inc(usuario, "csv_exports", db)
     start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
@@ -766,6 +822,7 @@ class TareaCreate(BaseModel):
 
 @app.post("/tareas", status_code=201)
 def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    check_and_inc(usuario, "tasks", db)
     dominio = normalizar_dominio(payload.dominio) if payload.dominio else None
     nueva = LeadTarea(
         email=usuario.email_lower,
@@ -787,6 +844,7 @@ def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Ses
 
 @app.post("/tarea_lead")
 def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    check_and_inc(usuario, "tasks", db)
     guardar_tarea_lead(
         email=usuario.email_lower,
         texto=payload.texto.strip(),

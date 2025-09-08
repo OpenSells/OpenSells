@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from backend.main import app
 from backend.database import get_db
 from backend.auth import get_current_user
-from backend.models import Base, LeadExtraido
+from backend.models import Base, LeadExtraido, Usuario
 
 
 @pytest.fixture()
@@ -21,6 +21,8 @@ def client_session():
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     session = Session()
+    session.add(Usuario(id=1, email="test@example.com", hashed_password="x", plan="basico"))
+    session.commit()
 
     def override_get_db():
         try:
@@ -29,7 +31,7 @@ def client_session():
             pass
 
     def override_user():
-        return SimpleNamespace(email_lower="test@example.com")
+        return SimpleNamespace(id=1, email_lower="test@example.com", plan="basico", suspendido=False)
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_user

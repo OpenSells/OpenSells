@@ -61,7 +61,7 @@ def get_current_user(token: str | None = Depends(oauth2_scheme), db: Session = D
 
     if token is None:
         if os.getenv("ALLOW_ANON_USER") == "1":
-            anon = Usuario(email="anon@example.com", hashed_password="", plan="basico")
+            anon = Usuario(id=1, email="anon@example.com", hashed_password="", plan="basico")
             anon.email_lower = anon.email
             return anon
         raise credentials_exc

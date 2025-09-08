@@ -21,9 +21,10 @@ from streamlit_app.utils.auth_utils import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.plan_utils import (
-    obtener_plan,
+    resolve_user_plan,
     tiene_suscripcion_activa,
     subscription_cta,
+    render_plan_panel,
 )
 from streamlit_app.cache_utils import cached_get
 
@@ -88,7 +89,8 @@ with st.container():
 
 if auth:
     token = st.session_state.get("auth_token", "")
-    plan = obtener_plan(token)
+    plan_info = resolve_user_plan(token)
+    plan = plan_info.get("plan", "free")
     suscripcion_activa = tiene_suscripcion_activa(plan)
     nichos_resp = cached_get("mis_nichos", token) if token else {}
     nichos = nichos_resp.get("nichos", []) if isinstance(nichos_resp, dict) else []
@@ -100,10 +102,12 @@ if auth:
         tareas = tareas_resp or []
     num_tareas = len(tareas)
 
+    render_plan_panel(plan_info)
+
     with st.sidebar:
         logout_button()
         st.markdown("---")
-        st.markdown(f"**Plan:** {plan}")
+        render_plan_panel(plan_info)
 
     col1, col2 = st.columns(2, gap="large")
     with col1:

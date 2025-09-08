@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    Boolean,
+    func,
+    text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
@@ -18,6 +28,7 @@ class Usuario(Base):
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
+    suspendido = Column(Boolean, default=False)
 
 # Tabla de tareas
 class LeadTarea(Base):
@@ -116,3 +127,22 @@ class UsuarioMemoria(Base):
     email_lower = Column(String, primary_key=True, index=True)
     descripcion = Column(Text)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserUsageMonthly(Base):
+    __tablename__ = "user_usage_monthly"
+    __table_args__ = (
+        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    period_yyyymm = Column(String, nullable=False)
+    leads = Column(Integer, default=0)
+    ia_msgs = Column(Integer, default=0)
+    tasks = Column(Integer, default=0)
+    csv_exports = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

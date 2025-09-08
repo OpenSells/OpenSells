@@ -18,12 +18,16 @@ from backend.auth import obtener_usuario_por_email
 router = APIRouter()
 
 
-def actualizar_plan_usuario(db: Session, email: str, nuevo_plan: str = "free"):
-    """Actualiza el plan del usuario identificado por email."""
+def actualizar_plan_usuario(
+    db: Session, email: str, nuevo_plan: str | None = None, suspendido: bool = False
+):
+    """Actualiza el plan o estado de suspensión del usuario."""
 
     usuario = obtener_usuario_por_email(email, db)
     if usuario:
-        usuario.plan = nuevo_plan
+        if nuevo_plan:
+            usuario.plan = nuevo_plan
+        usuario.suspendido = suspendido
         db.add(usuario)
         db.commit()
         db.refresh(usuario)
@@ -76,15 +80,15 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         price_id = _extraer_price_id(data_object)
         plan = PRICE_TO_PLAN.get(price_id)
         if plan:
-            actualizar_plan_usuario(db, email, plan)
+            actualizar_plan_usuario(db, email, plan, suspendido=False)
         else:
             print(f"price_id desconocido: {price_id}")
         if event_type == "invoice.paid":
             print(f"Pago recibido para {email}")
     elif event_type == "customer.subscription.deleted":
-        actualizar_plan_usuario(db, email, "free")
+        actualizar_plan_usuario(db, email, "free", suspendido=False)
     elif event_type == "invoice.payment_failed":
-        actualizar_plan_usuario(db, email, "suspendido")
+        actualizar_plan_usuario(db, email, suspendido=True)
     else:
         print(f"Evento no procesado: {event_type}")
 

@@ -10,7 +10,11 @@ from json import JSONDecodeError
 import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.plan_utils import subscription_cta
+from streamlit_app.plan_utils import (
+    subscription_cta,
+    resolve_user_plan,
+    render_plan_panel,
+)
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -38,10 +42,12 @@ if token and not user:
         user = resp_user.json()
         st.session_state["user"] = user
 
-plan = (user or {}).get("plan", "free")
+plan_info = resolve_user_plan(token)
+plan = plan_info.get("plan", "free")
 
 with st.sidebar:
     logout_button()
+    render_plan_panel(plan_info)
 
 # -------------------- Helpers --------------------
 
@@ -152,6 +158,11 @@ def procesar_extraccion():
 
     # 3. Guardar leads ----------------------------------------------------
     if fase == "exportando":
+        if not plan_info.get("limits", {}).get("csv_exportacion"):
+            st.warning("La exportación CSV está disponible solo para planes de pago.")
+            subscription_cta()
+            st.session_state.loading = False
+            return
         # Mostrar texto "Guardando leads" solo una vez
         if not st.session_state.guardando_mostrado:
             st.session_state.estado_actual = "Guardando leads"
@@ -180,6 +191,7 @@ if st.session_state.loading:
 # -------------------- UI Principal (solo si no está cargando) -----------
 
 st.title("🎯 Encuentra tus próximos clientes")
+render_plan_panel(plan_info)
 
 st.markdown(
     """
@@ -308,54 +320,10 @@ if st.session_state.get("variantes"):
     st.session_state.seleccionadas = seleccionadas
 
 if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
-    seleccionadas = st.session_state.seleccionadas
-
-    # Comprobar si el usuario tiene plan activo
-    # Ya tienes `plan` arriba, no es necesario volver a pedirlo
-
-    if plan == "free":
-        try:
-            # Precio por defecto del plan Básico
-            price_id = os.getenv("STRIPE_PRICE_BASICO", "")
-            if not price_id:
-                st.error("Falta configurar el price_id del plan Básico.")
-                st.stop()
-            r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
-                headers=headers,
-                params={"plan": price_id}
-            )
-            if r_checkout.ok:
-                checkout_url = safe_json(r_checkout).get("url", "")
-                st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                subscription_cta()
-                st.markdown(f"""
-                <div style='text-align:center; margin-top: 1rem;'>
-                    <a href="{checkout_url}" target="_blank" style='
-                        background-color: #0d6efd;
-                        color: white;
-                        padding: 0.6rem 1.4rem;
-                        border-radius: 6px;
-                        text-decoration: none;
-                        font-weight: 600;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        display: inline-block;
-                        transition: background-color 0.3s ease;'>
-                        💳 Suscribirme ahora
-                    </a>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-                subscription_cta()
-        except Exception:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-            subscription_cta()
-    else:
-        st.session_state.fase_extraccion = "buscando"
-        st.session_state.loading = True
-        st.session_state.procesando = "dominios"
-        st.rerun()
+    st.session_state.fase_extraccion = "buscando"
+    st.session_state.loading = True
+    st.session_state.procesando = "dominios"
+    st.rerun()
 
 # -------------------- Mostrar resultado final debajo del flujo -----------
 

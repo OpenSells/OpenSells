@@ -10,7 +10,13 @@ from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.plan_utils import subscription_cta, force_redirect
+from streamlit_app.plan_utils import (
+    subscription_cta,
+    force_redirect,
+    resolve_user_plan,
+    render_plan_panel,
+    PLAN_ALIASES,
+)
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -58,34 +64,32 @@ if token and not user:
     if getattr(resp_user, "status_code", None) == 200:
         user = resp_user.json()
         st.session_state["user"] = user
-plan = (user or {}).get("plan", "free")
+plan_info = resolve_user_plan(token)
+plan = plan_info.get("plan", "free")
 
 if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
 
 with st.sidebar:
     logout_button()
+    render_plan_panel(plan_info)
 
 headers = {"Authorization": f"Bearer {token}"}
 
 
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")
+render_plan_panel(plan_info)
 
 # -------------------- Plan actual --------------------
 st.subheader("📄 Plan actual")
+alias = PLAN_ALIASES.get(plan, plan)
+st.success(f"Tu plan actual es: {alias}")
 if plan == "free":
-    st.success("Tu plan actual es: free")
     st.warning(
         "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
     )
     subscription_cta()
-elif plan == "basico":
-    st.success("Tu plan actual es: basico")
-elif plan == "premium":
-    st.success("Tu plan actual es: premium")
-else:
-    st.success(f"Tu plan actual es: {plan}")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
