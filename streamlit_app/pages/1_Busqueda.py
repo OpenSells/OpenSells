@@ -217,11 +217,21 @@ OPCION_PLACEHOLDER = "— Selecciona un nicho —"
 OPCION_CREAR = "➕ Crear nuevo nicho"
 
 with st.expander("💡 Sugerencias de nichos rentables", expanded=False):
-    placeholder = st.empty()
     try:
         with st.spinner("Analizando tu contexto para sugerirte nichos..."):
             resp = http_client.get("/sugerencias_nichos")
-            data = resp.json()
+
+            # ✅ Soporta tanto dict como requests.Response (tal como hacemos con /me)
+            if isinstance(resp, dict):
+                data = resp
+            else:
+                data = safe_json(resp)  # usa el helper de más arriba
+
+            # Manejo de sesión expirada similar a /me
+            if isinstance(data, dict) and data.get("_error") == "unauthorized":
+                st.warning("Sesión expirada. Vuelve a iniciar sesión.")
+                st.stop()
+
     except Exception:
         st.error("No se pudieron cargar las sugerencias ahora mismo. Inténtalo de nuevo en unos minutos.")
         data = {"needs_memory": False, "suggestions": []}
@@ -231,7 +241,7 @@ with st.expander("💡 Sugerencias de nichos rentables", expanded=False):
             "🔎 Para poder sugerirte nichos, completa tu memoria con los datos de tu modelo de negocio (sector, servicio, ubicación, ticket...)."
         )
     else:
-        suggestions = data.get("suggestions", [])
+        suggestions = data.get("suggestions", []) or []
         if not suggestions:
             st.warning("No hay sugerencias disponibles por el momento.")
         else:

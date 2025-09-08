@@ -721,7 +721,9 @@ def obtener_memoria_usuario_pg(email_lower: str) -> str | None:
 
 
 def get_user_memory(db: Session, user_email_lower: str) -> Optional[dict]:
-    """Return stored user memory as dict, if available and valid."""
+    """Devuelve la memoria del usuario como dict.
+    Acepta JSON o texto libre 'clave: valor' por línea. Si no encaja, envuelve en {'descripcion': ...}.
+    """
     memoria_str = (
         db.query(UsuarioMemoria.descripcion)
         .filter(UsuarioMemoria.email_lower == user_email_lower)
@@ -729,11 +731,30 @@ def get_user_memory(db: Session, user_email_lower: str) -> Optional[dict]:
     )
     if not memoria_str:
         return None
+
+    # 1) Intento JSON
     try:
         data = json.loads(memoria_str)
-        return data if isinstance(data, dict) else None
+        if isinstance(data, dict):
+            return data
     except Exception:
-        return None
+        pass
+
+    # 2) Intento parseo simple "clave: valor"
+    kv = {}
+    for raw_line in str(memoria_str).splitlines():
+        line = raw_line.strip()
+        if ":" in line:
+            k, v = line.split(":", 1)
+            k = k.strip().lower()
+            v = v.strip()
+            if k and v:
+                kv[k] = v
+    if kv:
+        return kv
+
+    # 3) Último recurso
+    return {"descripcion": memoria_str}
 
 
 def get_user_niches(db: Session, user_email_lower: str) -> List[str]:

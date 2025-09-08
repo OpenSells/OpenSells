@@ -902,7 +902,7 @@ def historial_lead(dominio: str, usuario=Depends(get_current_user), db: Session 
 @app.post("/mi_memoria")
 def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_user)):
     try:
-        email_lower = (usuario.email or "").strip().lower()
+        email_lower = (usuario.email_lower or "").strip().lower()
         guardar_memoria_usuario_pg(email_lower, request.descripcion.strip())
         return {"mensaje": "Memoria guardada correctamente"}
     except Exception as e:
@@ -911,7 +911,7 @@ def guardar_memoria(request: MemoriaUsuarioRequest, usuario=Depends(get_current_
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user)):
     try:
-        email_lower = (usuario.email or "").strip().lower()
+        email_lower = (usuario.email_lower or "").strip().lower()
         memoria = obtener_memoria_usuario_pg(email_lower)
         return {"memoria": memoria or ""}
     except Exception as e:
@@ -1034,7 +1034,7 @@ Reglas:
 
 @app.get("/sugerencias_nichos", response_model=NichoSuggestionsResponse)
 def sugerencias_nichos(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    user_email_lower = user.email.lower()
+    user_email_lower = (user.email_lower or "").strip().lower()
     existing = _get_user_niches(db, user_email_lower) or []
     memory = _safe_user_memory(db, user_email_lower)
     no_context = (not existing) and (not memory)
