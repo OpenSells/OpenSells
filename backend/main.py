@@ -240,7 +240,7 @@ async def generar_variantes_cliente_ideal(
 
     # 1. Si no hay contexto manual ni forzar_variantes, intenta cargar memoria automáticamente
     if not forzar_variantes and not contexto_extra:
-        email_lower = (usuario.email or "").strip().lower()
+        email_lower = (usuario.email_lower or "").strip().lower()
         memoria = obtener_memoria_usuario_pg(email_lower)
         if memoria:
             contexto_extra = f"El usuario indicó esto sobre su negocio: {memoria}"
