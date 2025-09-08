@@ -22,7 +22,7 @@ from streamlit_app.cache_utils import (
     cached_delete,
     limpiar_cache,
 )
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import (
     is_authenticated,
@@ -82,7 +82,7 @@ if token and not user:
     if getattr(resp_user, "status_code", None) == 200:
         user = resp_user.json()
         st.session_state["user"] = user
-plan = (user or {}).get("plan", "free")
+plan = resolve_user_plan(token)["plan"]
 
 with st.sidebar:
     logout_button()

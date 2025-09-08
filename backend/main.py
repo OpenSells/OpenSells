@@ -69,15 +69,13 @@ from backend.auth import (
     get_current_user,
 )
 
+from backend.core.plans import (
+    require_feature,
+    require_tier,
+    enforce_quota,
+    resolve_user_plan,
+)
 from fastapi import Depends
-
-def validar_suscripcion(usuario = Depends(get_current_user)):
-    if not usuario.plan or usuario.plan == "free":
-        raise HTTPException(
-            status_code=403,
-            detail="Debes tener una suscripción activa para usar esta función."
-        )
-    return usuario
 
 # Historial de exportaciones y leads
 from backend.db import (
@@ -206,13 +204,10 @@ def usuario_actual(usuario=Depends(get_current_user)):
         "fecha_creacion": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None,
     }
 
-@app.get("/protegido")
-async def protegido(usuario = Depends(get_current_user)):
-    return {
-        "mensaje": f"Bienvenido, {usuario.email_lower}",
-        "email": usuario.email_lower,
-        "plan": usuario.plan or "free"
-    }
+@app.get("/mi_plan")
+def mi_plan(usuario=Depends(get_current_user)):
+    plan, limits = resolve_user_plan(usuario)
+    return {"plan": plan, "limits": limits.dict()}
 
 @app.get("/")
 def inicio():
@@ -227,7 +222,8 @@ class BuscarRequest(BaseModel):
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
     _=Depends(guard_assistant_extraction),
-    usuario=Depends(get_current_user)
+    usuario=Depends(get_current_user),
+    _msg=Depends(enforce_quota("mensajes_ia_por_mes")),
 ):
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
@@ -367,7 +363,8 @@ Devuelve únicamente el código ISO alfa-2 del país (por ejemplo ES, MX, GT). S
 def extraer_datos_endpoint(
     url: str = Body(..., embed=True),
     pais: str = Body("ES", embed=True),
-    usuario = Depends(validar_suscripcion)  # 👈 protección activada
+    usuario=Depends(require_tier("basico")),
+    _=Depends(enforce_quota("leads_por_mes")),
 ):
     try:
         datos = extraer_datos_desde_url(url, pais)
@@ -388,7 +385,11 @@ def extraer_datos_endpoint(
 from datetime import datetime
 
 @app.post("/extraer_multiples")
-def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar_suscripcion)):
+def extraer_multiples_endpoint(
+    payload: UrlsMultiples,
+    usuario=Depends(require_tier("basico")),
+    _=Depends(enforce_quota("leads_por_mes")),
+):
     start = perf_counter()
     resultados = []
 
@@ -415,7 +416,11 @@ def extraer_multiples_endpoint(payload: UrlsMultiples, usuario = Depends(validar
 
 # 📁 Exportar CSV y guardar historial + leads por nicho normalizado
 @app.post("/exportar_csv")
-def exportar_csv(payload: ExportarCSVRequest, usuario = Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def exportar_csv(
+    payload: ExportarCSVRequest,
+    usuario=Depends(require_feature("permite_export_csv")),
+    db: Session = Depends(get_db),
+):
     start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
@@ -671,7 +676,11 @@ class NotaDominioRequest(BaseModel):
     nota: str
 
 @app.post("/nota_lead")
-def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_nota(
+    payload: NotaDominioRequest,
+    usuario=Depends(require_feature("permite_notas")),
+    db: Session = Depends(get_db),
+):
     from backend.db import guardar_nota_lead_postgres as guardar_nota_lead
     try:
         dominio_base = normalizar_dominio(payload.dominio.strip())
@@ -682,7 +691,11 @@ def guardar_nota(payload: NotaDominioRequest, usuario=Depends(get_current_user),
         raise HTTPException(status_code=500, detail=f"Error al guardar nota: {str(e)}")
 
 @app.get("/nota_lead")
-def obtener_nota(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_nota(
+    dominio: str,
+    usuario=Depends(require_feature("permite_notas")),
+    db: Session = Depends(get_db),
+):
     from backend.db import obtener_nota_lead_postgres as obtener_nota_lead
     dominio_base = normalizar_dominio(dominio)
     nota = obtener_nota_lead(usuario.email_lower, dominio_base, db)
@@ -700,7 +713,11 @@ class InfoExtraRequest(BaseModel):
     informacion: Optional[str] = ""
 
 @app.post("/guardar_info_extra")
-def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def guardar_info_extra_api(
+    data: InfoExtraRequest,
+    usuario=Depends(require_feature("permite_notas")),
+    db: Session = Depends(get_db),
+):
     from backend.db import guardar_info_extra_postgres as guardar_info_extra
 
     dominio = normalizar_dominio(data.dominio.strip())
@@ -716,7 +733,11 @@ def guardar_info_extra_api(data: InfoExtraRequest, usuario=Depends(get_current_u
     return {"mensaje": "Información guardada correctamente"}
 
 @app.get("/info_extra")
-def obtener_info_extra_api(dominio: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_info_extra_api(
+    dominio: str,
+    usuario=Depends(require_feature("permite_notas")),
+    db: Session = Depends(get_db),
+):
     from backend.db import obtener_info_extra_postgres as obtener_info_extra
 
     dominio = normalizar_dominio(dominio)
@@ -953,7 +974,12 @@ class LeadManualRequest(BaseModel):
     nicho: str
 
 @app.post("/añadir_lead_manual")
-def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def añadir_lead_manual(
+    request: LeadManualRequest,
+    usuario=Depends(require_tier("basico")),
+    _=Depends(enforce_quota("leads_por_mes")),
+    db: Session = Depends(get_db),
+):
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
@@ -988,7 +1014,13 @@ def añadir_lead_manual(request: LeadManualRequest, usuario=Depends(validar_susc
 from sqlalchemy.orm import Session
 
 @app.post("/importar_csv_manual")
-def importar_csv_manual(nicho: str, archivo: UploadFile, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+def importar_csv_manual(
+    nicho: str,
+    archivo: UploadFile,
+    usuario=Depends(require_tier("basico")),
+    _=Depends(enforce_quota("leads_por_mes")),
+    db: Session = Depends(get_db),
+):
     contenido = archivo.file.read()
     decoded = contenido.decode("utf-8").splitlines()
     reader = csv.DictReader(decoded)

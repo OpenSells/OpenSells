@@ -5,7 +5,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
-from streamlit_app.plan_utils import tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.assistant_api import (
     ASSISTANT_EXTRACTION_ENABLED,
@@ -73,7 +73,7 @@ st.markdown(
 )
 st.divider()
 
-plan = (user or {}).get("plan", "free")
+plan = resolve_user_plan(token)["plan"]
 
 
 def es_intencion_extraer_leads(texto: str) -> bool:

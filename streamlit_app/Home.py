@@ -21,7 +21,7 @@ from streamlit_app.utils.auth_utils import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.plan_utils import (
-    obtener_plan,
+    resolve_user_plan,
     tiene_suscripcion_activa,
     subscription_cta,
 )
@@ -88,7 +88,8 @@ with st.container():
 
 if auth:
     token = st.session_state.get("auth_token", "")
-    plan = obtener_plan(token)
+    plan_info = resolve_user_plan(token)
+    plan = plan_info["plan"]
     suscripcion_activa = tiene_suscripcion_activa(plan)
     nichos_resp = cached_get("mis_nichos", token) if token else {}
     nichos = nichos_resp.get("nichos", []) if isinstance(nichos_resp, dict) else []

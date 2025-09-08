@@ -76,7 +76,14 @@ Variables disponibles:
 - `OPENAI_API_KEY`: clave para las llamadas a OpenAI y el scraper de contactos.
 - `DATABASE_URL`: cadena de conexión a PostgreSQL.
 - `SCRAPERAPI_KEY`: API key opcional para usar ScraperAPI.
-- `STRIPE_PRICE_BASIC`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_ILIMITADO`: identificadores de precios para los planes de Stripe.
+- `STRIPE_PRICE_GRATIS`, `STRIPE_PRICE_BASICO`, `STRIPE_PRICE_PREMIUM`: identificadores de precios para los planes de Stripe.
+
+## 📦 Planes y límites (fuente única)
+
+La matriz de planes se centraliza en `backend/core/plans.py` y expone límites como
+`leads_por_mes`, `mensajes_ia_por_mes`, `tareas_max`, `permite_notas` y
+`permite_export_csv`. El endpoint `GET /mi_plan` devuelve el plan y sus límites,
+consumidos en el frontend mediante la función `resolve_user_plan`.
 
 ## 🕷️ Scraper de contactos
 

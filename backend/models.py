@@ -59,6 +59,18 @@ class LeadHistorial(Base):
         return (value or "").strip()
 
 
+# Tabla de contadores de uso por plan
+class UsageCounter(Base):
+    __tablename__ = "usage_counters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    metric = Column(String, index=True, nullable=False)
+    period_key = Column(String, index=True, nullable=False)
+    count = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class LeadNota(Base):
     __tablename__ = "lead_nota"
 
