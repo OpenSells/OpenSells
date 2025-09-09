@@ -12,15 +12,16 @@ from backend.db import marcar_tarea_completada_postgres as marcar_tarea_completa
 # Se importa sin alias para usar el mismo nombre en el endpoint y evitar
 # confusiones con la versión SQLite (buscar_leads_global) presente en db.py
 from backend.db import buscar_leads_global_postgres
-from pydantic import BaseModel
-from fastapi import FastAPI, Body, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
+import pydantic
+from fastapi import FastAPI, Body, Depends, HTTPException, Request
 from typing import Optional, Literal
 from openai import OpenAI
 import requests
 import logging
 import pandas as pd
 import os
+import sys
 from datetime import datetime
 from dotenv import load_dotenv
 import unicodedata
@@ -50,9 +51,10 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func, text
+import sqlalchemy
 from backend.database import engine, Base, get_db
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -118,6 +120,46 @@ app.include_router(leads_router)
 def health():
     return {"status": "ok"}
 
+
+@app.get("/debug/db")
+def debug_db(request: Request, db: Session = Depends(get_db)):
+    debug_key = os.getenv("DEBUG_KEY")
+    if not debug_key or request.headers.get("X-Debug-Key") != debug_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    bind = db.get_bind()
+    with bind.connect() as conn:
+        dbinfo = conn.execute(
+            text(
+                "SELECT current_database(), current_schema(), current_setting('search_path')"
+            )
+        ).fetchone()
+        select_one = conn.execute(text("SELECT 1")).scalar()
+        exists = (
+            conn.execute(
+                text(
+                    "SELECT 1 FROM pg_catalog.pg_tables WHERE tablename='users'"
+                )
+            ).fetchone()
+            is not None
+        )
+        count = (
+            conn.execute(text("SELECT COUNT(*) FROM users")).scalar()
+            if exists
+            else None
+        )
+    return {
+        "python_version": sys.version,
+        "sqlalchemy_version": sqlalchemy.__version__,
+        "driver": bind.dialect.driver,
+        "current_database": dbinfo[0],
+        "current_schema": dbinfo[1],
+        "search_path": dbinfo[2],
+        "select_1": select_one,
+        "users_table_exists": exists,
+        "users_count": count,
+        "database_url": bind.url.render_as_string(hide_password=True),
+    }
+
 @app.on_event("startup")
 async def startup():
     db_url = os.getenv("DATABASE_URL")
@@ -129,6 +171,22 @@ async def startup():
         raise RuntimeError("DATABASE_URL debe usar PostgreSQL")
     logger.warning("DATABASE_URL prefix: %s", db_url[:16])
     logger.warning("SQLAlchemy engine: %s", engine.url)
+    logger.info("Python %s", sys.version)
+    logger.info(
+        "SQLAlchemy %s driver %s", sqlalchemy.__version__, engine.dialect.driver
+    )
+    logger.info("Pydantic %s", pydantic.__version__)
+    try:
+        import psycopg2
+
+        logger.info("psycopg2 %s", psycopg2.__version__)
+    except Exception:
+        try:
+            import psycopg
+
+            logger.info("psycopg %s", psycopg.__version__)
+        except Exception:
+            logger.info("No PostgreSQL driver found")
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
     ensure_estado_contacto_column(engine)
@@ -190,13 +248,22 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
 
-from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
+class LoginData(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+
 
 @app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    email = form_data.username.strip().lower()
-    user = obtener_usuario_por_email(email, db)
-    if not user or not verificar_password(form_data.password, user.hashed_password):
+def login(payload: LoginData, request: Request, db: Session = Depends(get_db)):
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        raise HTTPException(status_code=415, detail="Content-Type debe ser application/json")
+    email = payload.email.strip().lower()
+    try:
+        user = obtener_usuario_por_email(email, db)
+    except (DBAPIError, ProgrammingError) as e:
+        logger.error("DB error on login: %s", getattr(e, "orig", e))
+        raise HTTPException(status_code=503, detail="DB no inicializada o esquema inválido")
+    if not user or not verificar_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = crear_token({"sub": email})
     return {"access_token": token, "token_type": "bearer"}

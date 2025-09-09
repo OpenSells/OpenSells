@@ -89,19 +89,11 @@ def login(username: str, password: str) -> Dict[str, Any]:
     url = f"{BASE_URL}/login"
     resp = _session.post(
         url,
-        data={"username": username, "password": password},
+        json={"email": username, "password": password},
         headers=_base_headers(),
         timeout=60,
     )
     token = _extract_token(resp)
-    if (not token or resp.status_code >= 400) and resp.status_code != 401:
-        resp = _session.post(
-            url,
-            json={"username": username, "password": password},
-            headers=_base_headers(),
-            timeout=60,
-        )
-        token = _extract_token(resp)
     if resp.status_code == 401:
         return {"_error": "unauthorized"}
     return {"response": resp, "token": token}

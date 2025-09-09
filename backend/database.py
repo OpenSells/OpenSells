@@ -14,8 +14,17 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("❌ DATABASE_URL no está definido. Verifica tu archivo .env")
 
+connect_args = {}
+if DATABASE_URL.startswith("postgres"):
+    connect_args["options"] = "-c search_path=public"
+
 # ✅ Crear engine síncrono
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(
+    DATABASE_URL,
+    echo=True,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+)
 
 SessionLocal = sessionmaker(
     bind=engine,

@@ -12,6 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
+import os
 
 
 class LeadEstadoContacto(enum.Enum):
@@ -21,7 +22,7 @@ class LeadEstadoContacto(enum.Enum):
 
 # Tabla de usuarios
 class Usuario(Base):
-    __tablename__ = "usuarios"
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
@@ -129,20 +130,24 @@ class UsuarioMemoria(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-class UserUsageMonthly(Base):
-    __tablename__ = "user_usage_monthly"
-    __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
-    )
+FEATURE_NEW_MODELS = os.getenv("FEATURE_NEW_MODELS", "false").lower() == "true"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    period_yyyymm = Column(String, nullable=False)
-    leads = Column(Integer, default=0)
-    ia_msgs = Column(Integer, default=0)
-    tasks = Column(Integer, default=0)
-    csv_exports = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+
+if FEATURE_NEW_MODELS:
+    class UserUsageMonthly(Base):
+        __tablename__ = "user_usage_monthly"
+        __table_args__ = (
+            UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
+        )
+
+        id = Column(Integer, primary_key=True, index=True)
+        user_id = Column(Integer, index=True, nullable=False)
+        period_yyyymm = Column(String, nullable=False)
+        leads = Column(Integer, default=0)
+        ia_msgs = Column(Integer, default=0)
+        tasks = Column(Integer, default=0)
+        csv_exports = Column(Integer, default=0)
+        created_at = Column(DateTime(timezone=True), server_default=func.now())
+        updated_at = Column(
+            DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        )

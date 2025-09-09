@@ -2,11 +2,12 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-sqlalchemy
+SQLAlchemy==2.0.43
 alembic
 passlib[bcrypt]
 python-jose
 python-multipart
+pydantic[email]==2.11.7
 
 # Scraping y validación
 beautifulsoup4
@@ -30,5 +31,5 @@ pandas
 
 # Testing
 pytest
-psycopg2-binary
+psycopg2-binary==2.9.10
 
