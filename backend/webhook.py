@@ -8,6 +8,7 @@ Stripe.  Los identificadores de precio se obtienen de las variables de entorno
 from __future__ import annotations
 
 import os
+import logging
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,7 @@ from backend.core.stripe_mapping import PRICE_TO_PLAN
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def actualizar_plan_usuario(db: Session, email: str, nuevo_plan: str = "free"):
@@ -54,31 +56,31 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Recibe webhooks de Stripe y actualiza el plan del usuario."""
 
     payload = await request.json()
-    print("Webhook recibido:", payload)
+    logger.info("Webhook recibido: %s", payload)
 
     event_type = payload.get("type")
     data_object = payload.get("data", {}).get("object", {})
     email = data_object.get("customer_email")
 
     if not email:
-        print("Email no encontrado en payload")
+        logger.warning("Email no encontrado en payload")
         return {"status": "ok"}
 
     if event_type in {"checkout.session.completed", "customer.subscription.updated", "invoice.paid"}:
         price_id = _extraer_price_id(data_object)
         plan = PRICE_TO_PLAN.get(price_id)
-        if plan:
-            actualizar_plan_usuario(db, email, plan)
-        else:
-            print(f"price_id desconocido: {price_id}")
+        if not plan:
+            logger.warning("price_id desconocido: %s; asignando free", price_id)
+            plan = "free"
+        actualizar_plan_usuario(db, email, plan)
         if event_type == "invoice.paid":
-            print(f"Pago recibido para {email}")
+            logger.info("Pago recibido para %s", email)
     elif event_type == "customer.subscription.deleted":
         actualizar_plan_usuario(db, email, "free")
     elif event_type == "invoice.payment_failed":
         actualizar_plan_usuario(db, email, "suspendido")
     else:
-        print(f"Evento no procesado: {event_type}")
+        logger.info("Evento no procesado: %s", event_type)
 
     return {"status": "ok"}
 
