@@ -18,7 +18,9 @@ class Usuario(Base):
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
-    suspendido = Column(Boolean, default=False)
+    suspendido = Column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
 
 # Tabla de tareas
 class LeadTarea(Base):

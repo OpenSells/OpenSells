@@ -51,8 +51,8 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from backend.database import engine, Base, get_db, MASKED_DSN
 from backend.models import (
     Usuario,
@@ -100,6 +100,7 @@ from backend.routers.leads import router as leads_router
 from backend.startup_migrations import (
     ensure_estado_contacto_column,
     ensure_lead_tarea_auto_column,
+    ensure_column,
 )
 
 load_dotenv()
@@ -117,7 +118,7 @@ def health():
 def health_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
-        return {"ok": True, "engine": db.bind.dialect.name, "db": MASKED_DSN}
+        return {"ok": True, "engine": db.bind.dialect.name, "dsn": MASKED_DSN}
     except Exception as exc:  # pragma: no cover - diagnostic only
         logging.error("/health/db error: %s", exc)
         raise HTTPException(status_code=500, detail="Error DB") from exc
@@ -137,6 +138,12 @@ async def startup():
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
     ensure_estado_contacto_column(engine)
     ensure_lead_tarea_auto_column(engine)
+    ensure_column(
+        engine,
+        "usuarios",
+        "suspendido",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS suspendido BOOLEAN NOT NULL DEFAULT FALSE",
+    )
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
@@ -194,26 +201,29 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
 
-from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
-from sqlalchemy import select, func
-import traceback
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 
 @app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    email_norm = form_data.username.strip()
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    email_norm = data.email.strip().lower()
     try:
-        stmt = select(Usuario).where(func.lower(Usuario.email) == email_norm.lower())
+        stmt = select(Usuario).where(func.lower(Usuario.email) == email_norm)
         user = db.execute(stmt).scalars().first()
-        if not user or not verificar_password(form_data.password, user.hashed_password):
+        if user is None:
             raise HTTPException(status_code=401, detail="Credenciales inválidas")
-        token = crear_token({"sub": email_norm.strip().lower()})
+        if not verificar_password(data.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        token = crear_token({"sub": email_norm})
         return {"access_token": token, "token_type": "bearer"}
     except HTTPException:
         raise
-    except Exception as exc:  # pragma: no cover - unexpected
+    except SQLAlchemyError as exc:  # pragma: no cover - DB errors
         db.rollback()
-        logging.error("/login error:\n%s", traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Error inesperado") from exc
+        logging.exception("/login error")
+        raise HTTPException(status_code=500, detail="Error interno") from exc
 
 
 @app.get("/usuario_actual")
