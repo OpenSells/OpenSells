@@ -39,7 +39,7 @@
 
 ## 💻 Requisitos previos
 
-- Python 3.11+ (ver \`runtime.txt\`)
+- Python 3.11.8 (ver `runtime.txt`)
 - pip
 
 ## 🛠️ Ejecución local

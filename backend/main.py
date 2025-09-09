@@ -31,6 +31,7 @@ import asyncio
 from time import perf_counter
 import csv
 from scraper.extractor import extraer_datos_desde_url
+from sqlalchemy import text
 from backend.deps import guard_assistant_extraction
 
 # Cargar variables de entorno antes de usar Stripe
@@ -52,7 +53,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi.security import OAuth2PasswordRequestForm
-from backend.database import engine, Base, get_db
+from backend.database import engine, Base, get_db, MASKED_DSN
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -111,6 +112,16 @@ app.include_router(leads_router)
 def health():
     return {"status": "ok"}
 
+
+@app.get("/health/db")
+def health_db(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"ok": True, "engine": db.bind.dialect.name, "db": MASKED_DSN}
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        logging.error("/health/db error: %s", exc)
+        raise HTTPException(status_code=500, detail="Error DB") from exc
+
 @app.on_event("startup")
 async def startup():
     db_url = os.getenv("DATABASE_URL")
@@ -119,9 +130,9 @@ async def startup():
         raise RuntimeError("DATABASE_URL no está definida")
     if db_url.startswith("sqlite"):
         logger.error("DATABASE_URL apunta a SQLite: %s", db_url)
-        raise RuntimeError("DATABASE_URL debe usar PostgreSQL")
-    logger.warning("DATABASE_URL prefix: %s", db_url[:16])
-    logger.warning("SQLAlchemy engine: %s", engine.url)
+    else:
+        logger.warning("DATABASE_URL prefix: %s", db_url[:16])
+        logger.warning("SQLAlchemy engine: %s", engine.url)
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
     ensure_estado_contacto_column(engine)
@@ -184,15 +195,25 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     return {"mensaje": "Usuario registrado correctamente"}
 
 from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
+from sqlalchemy import select, func
+import traceback
 
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    email = form_data.username.strip().lower()
-    user = obtener_usuario_por_email(email, db)
-    if not user or not verificar_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = crear_token({"sub": email})
-    return {"access_token": token, "token_type": "bearer"}
+    email_norm = form_data.username.strip()
+    try:
+        stmt = select(Usuario).where(func.lower(Usuario.email) == email_norm.lower())
+        user = db.execute(stmt).scalars().first()
+        if not user or not verificar_password(form_data.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        token = crear_token({"sub": email_norm.strip().lower()})
+        return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - unexpected
+        db.rollback()
+        logging.error("/login error:\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Error inesperado") from exc
 
 
 @app.get("/usuario_actual")
