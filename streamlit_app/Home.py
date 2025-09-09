@@ -13,7 +13,7 @@ from streamlit_app.utils.constants import (
     ASSISTANT_PAGE_PATH,
 )
 from streamlit_app.utils.nav import go  # nav se importa del submódulo, no del paquete raíz
-from streamlit_app.utils.http_client import post, login as http_login
+import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_utils import (
     is_authenticated,
     save_session,
@@ -24,9 +24,9 @@ from streamlit_app.plan_utils import (
     resolve_user_plan,
     tiene_suscripcion_activa,
     subscription_cta,
-    render_plan_panel,
 )
 from streamlit_app.cache_utils import cached_get
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -102,12 +102,11 @@ if auth:
         tareas = tareas_resp or []
     num_tareas = len(tareas)
 
-    render_plan_panel(plan_info)
-
     with st.sidebar:
         logout_button()
         st.markdown("---")
-        render_plan_panel(plan_info)
+
+    render_sidebar_plan(http_client)
 
     col1, col2 = st.columns(2, gap="large")
     with col1:
@@ -178,7 +177,7 @@ else:
                 if not EMAIL_RE.match(email_norm):
                     st.error("Introduce un email válido")
                 else:
-                    result = http_login(email_norm, password)
+                    result = http_client.login(email_norm, password)
                     if isinstance(result, dict) and result.get("_error"):
                         st.error("No autorizado. Revisa tus credenciales.")
                     else:
@@ -205,7 +204,7 @@ else:
                 payload = {"email": email, "password": password_reg}
                 if name:
                     payload["name"] = name
-                resp = post(
+                resp = http_client.post(
                     "/register",
                     json=payload,
                     headers={"Content-Type": "application/json"},
@@ -220,7 +219,7 @@ else:
                         st.error(f"Error al crear cuenta: {resp.status_code}. {body}")
                 else:
                     st.success("Cuenta creada. Iniciando sesión...")
-                    login_res = http_login(email, password_reg)
+                    login_res = http_client.login(email, password_reg)
                     if isinstance(login_res, dict) and login_res.get("_error"):
                         st.error("Error al iniciar sesión automáticamente.")
                     else:

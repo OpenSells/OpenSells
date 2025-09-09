@@ -33,6 +33,7 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -86,6 +87,8 @@ plan = (user or {}).get("plan", "free")
 
 with st.sidebar:
     logout_button()
+
+render_sidebar_plan(http_client)
 
 ESTADOS = {
     "pendiente": ("Pendiente", "🟡"),

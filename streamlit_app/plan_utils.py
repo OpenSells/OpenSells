@@ -46,19 +46,6 @@ def tiene_suscripcion_activa(plan: str) -> bool:
     return plan != "free"
 
 
-def render_plan_panel(info: dict) -> None:
-    plan = info.get("plan", "free")
-    alias = PLAN_ALIASES.get(plan, plan)
-    limits = info.get("limits", {})
-    usage = info.get("usage", {})
-    st.markdown(f"**Plan:** {alias}")
-    st.caption(
-        f"Leads {usage.get('leads',0)}/{limits.get('leads_mensuales') or '∞'} · "
-        f"IA {usage.get('ia_msgs',0)}/{limits.get('ia_mensajes') or '∞'} · "
-        f"Tareas {usage.get('tasks',0)}/{limits.get('tareas_max') or '∞'}"
-    )
-
-
 def subscription_cta():
     if hasattr(st, "page_link"):
         st.page_link("pages/7_Suscripcion.py", label="💳 Ver planes y suscribirme")
@@ -99,7 +86,6 @@ __all__ = [
     "resolve_user_plan",
     "obtener_plan",
     "tiene_suscripcion_activa",
-    "render_plan_panel",
     "subscription_cta",
     "force_redirect",
 ]

@@ -13,8 +13,8 @@ from streamlit_app.cache_utils import cached_get, get_openai_client, auth_header
 from streamlit_app.plan_utils import (
     subscription_cta,
     resolve_user_plan,
-    render_plan_panel,
 )
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -47,7 +47,8 @@ plan = plan_info.get("plan", "free")
 
 with st.sidebar:
     logout_button()
-    render_plan_panel(plan_info)
+
+render_sidebar_plan(http_client)
 
 # -------------------- Helpers --------------------
 
@@ -191,7 +192,6 @@ if st.session_state.loading:
 # -------------------- UI Principal (solo si no está cargando) -----------
 
 st.title("🎯 Encuentra tus próximos clientes")
-render_plan_panel(plan_info)
 
 st.markdown(
     """

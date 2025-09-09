@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 st.set_page_config(page_title="Exportaciones", page_icon="📤")
 
@@ -26,6 +27,8 @@ if token and not user:
 
 with st.sidebar:
     logout_button()
+
+render_sidebar_plan(http_client)
 
 st.title("📤 Exportaciones")
 st.info("Esta sección estará disponible pronto.")

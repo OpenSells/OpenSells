@@ -11,10 +11,12 @@ if str(ROOT) not in sys.path:
 
 import os
 import streamlit as st
+import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 init_cookie_manager_mount()
 
@@ -24,7 +26,6 @@ ensure_session_or_redirect()
 token = st.session_state.get("auth_token")
 user = st.session_state.get("user")
 if not user:
-    import streamlit_app.utils.http_client as http_client
     resp_user = http_client.get("/me")
     if resp_user is not None and resp_user.status_code == 200:
         user = resp_user.json()
@@ -33,6 +34,8 @@ if not user:
 if st.sidebar.button("Cerrar sesión"):
     clear_session(preserve_logout_flag=True)
     go(HOME_PAGE)
+
+render_sidebar_plan(http_client)
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(

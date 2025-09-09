@@ -10,6 +10,7 @@ from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.plans import PLANS_FEATURES
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 load_dotenv()
 
@@ -49,6 +50,8 @@ if token and not user:
 
 with st.sidebar:
     logout_button()
+
+render_sidebar_plan(http_client)
 
 price_free = _safe_secret("STRIPE_PRICE_GRATIS")
 price_basico = _safe_secret("STRIPE_PRICE_BASICO")

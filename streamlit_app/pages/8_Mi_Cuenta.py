@@ -14,11 +14,11 @@ from streamlit_app.plan_utils import (
     subscription_cta,
     force_redirect,
     resolve_user_plan,
-    render_plan_panel,
     PLAN_ALIASES,
 )
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.components.sidebar_plan import render_sidebar_plan
 
 load_dotenv()
 
@@ -72,14 +72,14 @@ if "auth_email" not in st.session_state and user:
 
 with st.sidebar:
     logout_button()
-    render_plan_panel(plan_info)
+
+render_sidebar_plan(http_client)
 
 headers = {"Authorization": f"Bearer {token}"}
 
 
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")
-render_plan_panel(plan_info)
 
 # -------------------- Plan actual --------------------
 st.subheader("📄 Plan actual")
