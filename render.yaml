@@ -6,6 +6,6 @@ services:
     plan: free
     branch: main
     runtime: python
-    pythonVersion: 3.11
+    pythonVersion: 3.11.8
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port 10000

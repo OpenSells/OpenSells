@@ -31,6 +31,7 @@ import asyncio
 from time import perf_counter
 import csv
 from scraper.extractor import extraer_datos_desde_url
+from sqlalchemy import text
 from backend.deps import guard_assistant_extraction
 
 # Cargar variables de entorno antes de usar Stripe
@@ -50,9 +51,9 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "https://opensells.streamlit.app")
 
 # BD & seguridad
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from fastapi.security import OAuth2PasswordRequestForm
-from backend.database import engine, Base, get_db
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from backend.database import engine, Base, get_db, MASKED_DSN
 from backend.models import (
     Usuario,
     LeadTarea,
@@ -60,6 +61,7 @@ from backend.models import (
     LeadNota,
     LeadInfoExtra,
     LeadExtraido,
+    UserUsageMonthly,
 )
 from backend.auth import (
     hashear_password,
@@ -70,11 +72,12 @@ from backend.auth import (
 )
 
 from backend.core.plans import (
-    require_feature,
     require_tier,
-    enforce_quota,
     resolve_user_plan,
+    validar_suscripcion,
+    require_feature,
 )
+from backend.core.usage import check_and_inc, get_period
 from fastapi import Depends
 
 # Historial de exportaciones y leads
@@ -97,6 +100,7 @@ from backend.routers.leads import router as leads_router
 from backend.startup_migrations import (
     ensure_estado_contacto_column,
     ensure_lead_tarea_auto_column,
+    ensure_column,
 )
 
 load_dotenv()
@@ -109,6 +113,16 @@ app.include_router(leads_router)
 def health():
     return {"status": "ok"}
 
+
+@app.get("/health/db")
+def health_db(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"ok": True, "engine": db.bind.dialect.name, "dsn": MASKED_DSN}
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        logging.error("/health/db error: %s", exc)
+        raise HTTPException(status_code=500, detail="Error DB") from exc
+
 @app.on_event("startup")
 async def startup():
     db_url = os.getenv("DATABASE_URL")
@@ -117,13 +131,19 @@ async def startup():
         raise RuntimeError("DATABASE_URL no está definida")
     if db_url.startswith("sqlite"):
         logger.error("DATABASE_URL apunta a SQLite: %s", db_url)
-        raise RuntimeError("DATABASE_URL debe usar PostgreSQL")
-    logger.warning("DATABASE_URL prefix: %s", db_url[:16])
-    logger.warning("SQLAlchemy engine: %s", engine.url)
+    else:
+        logger.warning("DATABASE_URL prefix: %s", db_url[:16])
+        logger.warning("SQLAlchemy engine: %s", engine.url)
     Base.metadata.create_all(bind=engine)
     crear_tablas_si_no_existen()  # ✅ función síncrona, se llama normal
     ensure_estado_contacto_column(engine)
     ensure_lead_tarea_auto_column(engine)
+    ensure_column(
+        engine,
+        "usuarios",
+        "suspendido",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS suspendido BOOLEAN NOT NULL DEFAULT FALSE",
+    )
 
 def normalizar_nicho(texto: str) -> str:
     texto = texto.strip().lower()
@@ -181,16 +201,29 @@ def register(user: UsuarioRegistro, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": "Usuario registrado correctamente"}
 
-from sqlalchemy.orm import Session  # asegúrate de tener este import en la parte superior
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 
 @app.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    email = form_data.username.strip().lower()
-    user = obtener_usuario_por_email(email, db)
-    if not user or not verificar_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    token = crear_token({"sub": email})
-    return {"access_token": token, "token_type": "bearer"}
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    email_norm = data.email.strip().lower()
+    try:
+        stmt = select(Usuario).where(func.lower(Usuario.email) == email_norm)
+        user = db.execute(stmt).scalars().first()
+        if user is None:
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        if not verificar_password(data.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Credenciales inválidas")
+        token = crear_token({"sub": email_norm})
+        return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:  # pragma: no cover - DB errors
+        db.rollback()
+        logging.exception("/login error")
+        raise HTTPException(status_code=500, detail="Error interno") from exc
 
 
 @app.get("/usuario_actual")
@@ -205,9 +238,28 @@ def usuario_actual(usuario=Depends(get_current_user)):
     }
 
 @app.get("/mi_plan")
-def mi_plan(usuario=Depends(get_current_user)):
+def mi_plan(usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
     plan, limits = resolve_user_plan(usuario)
-    return {"plan": plan, "limits": limits.dict()}
+    period = get_period()
+    UserUsageMonthly.__table__.create(bind=db.get_bind(), checkfirst=True)
+    usage = (
+        db.query(UserUsageMonthly)
+        .filter_by(user_id=usuario.id, period_yyyymm=period)
+        .first()
+    )
+    remaining = {
+        "leads": None
+        if limits.leads_mensuales is None
+        else max(limits.leads_mensuales - (usage.leads if usage else 0), 0),
+        "ia_msgs": None
+        if limits.ia_mensajes is None
+        else max(limits.ia_mensajes - (usage.ia_msgs if usage else 0), 0),
+        "tasks": None
+        if limits.tareas_max is None
+        else max(limits.tareas_max - (usage.tasks if usage else 0), 0),
+        "csv_exports": None if limits.csv_exportacion else 0,
+    }
+    return {"plan": plan, "limits": limits.dict(), "remaining": remaining}
 
 @app.get("/")
 def inicio():
@@ -222,9 +274,10 @@ class BuscarRequest(BaseModel):
 async def generar_variantes_cliente_ideal(
     request: BuscarRequest,
     _=Depends(guard_assistant_extraction),
-    usuario=Depends(get_current_user),
-    _msg=Depends(enforce_quota("mensajes_ia_por_mes")),
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
 ):
+    check_and_inc(db, usuario, "ia_msgs")
     if openai_client is None:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY no configurado")
     cliente_ideal = request.cliente_ideal.strip()
@@ -281,7 +334,13 @@ Dado el nicho o búsqueda "{prompt_base}", genera exactamente 6 palabras clave o
     }
 
 @app.post("/buscar_variantes_seleccionadas")
-def buscar_urls_desde_variantes(payload: VariantesSeleccionadasRequest, _=Depends(guard_assistant_extraction)):
+def buscar_urls_desde_variantes(
+    payload: VariantesSeleccionadasRequest,
+    _=Depends(guard_assistant_extraction),
+    usuario=Depends(validar_suscripcion),
+    db: Session = Depends(get_db),
+):
+    check_and_inc(db, usuario, "ia_msgs")
     variantes = payload.variantes[:3]
 
     if openai_client is None:
@@ -364,15 +423,13 @@ def extraer_datos_endpoint(
     url: str = Body(..., embed=True),
     pais: str = Body("ES", embed=True),
     usuario=Depends(require_tier("basico")),
-    _=Depends(enforce_quota("leads_por_mes")),
+    db: Session = Depends(get_db),
 ):
+    check_and_inc(db, usuario, "leads")
     try:
         datos = extraer_datos_desde_url(url, pais)
     except Exception as e:
-        datos = {
-            "url": url,
-            "error": str(e)
-        }
+        datos = {"url": url, "error": str(e)}
     return {
         "resultado": datos,
         "export_payload": {
@@ -388,7 +445,7 @@ from datetime import datetime
 def extraer_multiples_endpoint(
     payload: UrlsMultiples,
     usuario=Depends(require_tier("basico")),
-    _=Depends(enforce_quota("leads_por_mes")),
+    db: Session = Depends(get_db),
 ):
     start = perf_counter()
     resultados = []
@@ -397,6 +454,7 @@ def extraer_multiples_endpoint(
     urls_base = [f"https://{dominio}" for dominio in dominios_unicos]
 
     for dominio in dominios_unicos:
+        check_and_inc(db, usuario, "leads")
         resultados.append({
             "Dominio": dominio,
             "Fecha": datetime.now().strftime("%Y-%m-%d")
@@ -418,9 +476,10 @@ def extraer_multiples_endpoint(
 @app.post("/exportar_csv")
 def exportar_csv(
     payload: ExportarCSVRequest,
-    usuario=Depends(require_feature("permite_export_csv")),
+    usuario=Depends(validar_suscripcion),
     db: Session = Depends(get_db),
 ):
+    check_and_inc(db, usuario, "csv_exports")
     start = perf_counter()
     nicho_original = payload.nicho
     nicho_normalizado = normalizar_nicho(nicho_original)
@@ -786,7 +845,8 @@ class TareaCreate(BaseModel):
 
 
 @app.post("/tareas", status_code=201)
-def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def crear_tarea(payload: TareaCreate, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+    check_and_inc(db, usuario, "tasks")
     dominio = normalizar_dominio(payload.dominio) if payload.dominio else None
     nueva = LeadTarea(
         email=usuario.email_lower,
@@ -807,7 +867,8 @@ def crear_tarea(payload: TareaCreate, usuario=Depends(get_current_user), db: Ses
     return {"id": nueva.id, "completado": nueva.completado, "auto": nueva.auto, "user_email_lower": nueva.user_email_lower}
 
 @app.post("/tarea_lead")
-def agregar_tarea(payload: TareaRequest, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+def agregar_tarea(payload: TareaRequest, usuario=Depends(validar_suscripcion), db: Session = Depends(get_db)):
+    check_and_inc(db, usuario, "tasks")
     guardar_tarea_lead(
         email=usuario.email_lower,
         texto=payload.texto.strip(),
@@ -977,9 +1038,9 @@ class LeadManualRequest(BaseModel):
 def añadir_lead_manual(
     request: LeadManualRequest,
     usuario=Depends(require_tier("basico")),
-    _=Depends(enforce_quota("leads_por_mes")),
     db: Session = Depends(get_db),
 ):
+    check_and_inc(db, usuario, "leads")
     try:
         from backend.db import obtener_todos_los_dominios_usuario
 
@@ -1018,7 +1079,6 @@ def importar_csv_manual(
     nicho: str,
     archivo: UploadFile,
     usuario=Depends(require_tier("basico")),
-    _=Depends(enforce_quota("leads_por_mes")),
     db: Session = Depends(get_db),
 ):
     contenido = archivo.file.read()
@@ -1032,19 +1092,24 @@ def importar_csv_manual(
         dominio = extraer_dominio_base(fila.get("Dominio", "").strip())
         if not dominio:
             continue
-
-        filas.append({
-            "Dominio": dominio,
-            "Nombre": fila.get("Nombre", "").strip(),
-            "Emails": fila.get("Email", "").strip(),
-            "Teléfonos": fila.get("Teléfono", "").strip(),
-            "Instagram": "",
-            "Facebook": "",
-            "LinkedIn": "",
-            "Error": "",
-            "Fecha": datetime.now().strftime("%Y-%m-%d")
-        })
-        dominios.add(dominio)
+        dominio_norm = normalizar_dominio(dominio)
+        if dominio_norm in dominios:
+            continue
+        check_and_inc(db, usuario, "leads")
+        filas.append(
+            {
+                "Dominio": dominio_norm,
+                "Nombre": fila.get("Nombre", "").strip(),
+                "Emails": fila.get("Email", "").strip(),
+                "Teléfonos": fila.get("Teléfono", "").strip(),
+                "Instagram": "",
+                "Facebook": "",
+                "LinkedIn": "",
+                "Error": "",
+                "Fecha": datetime.now().strftime("%Y-%m-%d"),
+            }
+        )
+        dominios.add(dominio_norm)
 
     df_nuevo = pd.DataFrame(filas)
 

@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import os
+import logging
+from sqlalchemy.engine import make_url
 import streamlit as st
 
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
@@ -17,6 +19,15 @@ from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils.nav import go, HOME_PAGE
 
 init_cookie_manager_mount()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    url = make_url(DATABASE_URL)
+    masked_dsn = (
+        f"{url.drivername}://***:***@{url.host}:{url.port}/{url.database}"
+        + ("?" + "&".join(f"{k}={v}" for k, v in url.query.items()) if url.query else "")
+    )
+    logging.info("Streamlit DB → %s", masked_dsn)
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
 

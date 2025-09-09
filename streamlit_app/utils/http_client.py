@@ -84,26 +84,14 @@ def _extract_token(resp: requests.Response) -> Optional[str]:
     return token
 
 
-def login(username: str, password: str) -> Dict[str, Any]:
+def login(email: str, password: str) -> Dict[str, Any]:
     """Attempt to authenticate and return token and raw response."""
-    url = f"{BASE_URL}/login"
-    resp = _session.post(
-        url,
-        data={"username": username, "password": password},
-        headers=_base_headers(),
-        timeout=60,
-    )
-    token = _extract_token(resp)
-    if (not token or resp.status_code >= 400) and resp.status_code != 401:
-        resp = _session.post(
-            url,
-            json={"username": username, "password": password},
-            headers=_base_headers(),
-            timeout=60,
-        )
-        token = _extract_token(resp)
-    if resp.status_code == 401:
+    resp = post("/login", json={"email": email, "password": password})
+    if isinstance(resp, dict):
+        return resp
+    if resp.status_code in (401, 422):
         return {"_error": "unauthorized"}
+    token = _extract_token(resp)
     return {"response": resp, "token": token}
 
 

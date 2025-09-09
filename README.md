@@ -39,7 +39,7 @@
 
 ## 💻 Requisitos previos
 
-- Python 3.11+ (ver \`runtime.txt\`)
+- Python 3.11.8 (ver `runtime.txt`)
 - pip
 
 ## 🛠️ Ejecución local
@@ -77,6 +77,11 @@ Variables disponibles:
 - `DATABASE_URL`: cadena de conexión a PostgreSQL.
 - `SCRAPERAPI_KEY`: API key opcional para usar ScraperAPI.
 - `STRIPE_PRICE_GRATIS`, `STRIPE_PRICE_BASICO`, `STRIPE_PRICE_PREMIUM`: identificadores de precios para los planes de Stripe.
+
+El mapeo de estos `price_id` al nombre interno del plan se define en
+`backend/core/stripe_mapping.py`. El webhook de Stripe actualiza el campo
+`usuario.plan` usando dicho diccionario y, si recibe un `price_id` desconocido,
+se asigna el plan **Free** por seguridad.
 
 ## 📦 Planes y límites (fuente única)
 
