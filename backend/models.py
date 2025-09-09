@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text, UniqueConstraint
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
@@ -18,6 +18,7 @@ class Usuario(Base):
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
+    suspendido = Column(Boolean, default=False)
 
 # Tabla de tareas
 class LeadTarea(Base):
@@ -60,15 +61,22 @@ class LeadHistorial(Base):
 
 
 # Tabla de contadores de uso por plan
-class UsageCounter(Base):
-    __tablename__ = "usage_counters"
+class UserUsageMonthly(Base):
+    __tablename__ = "user_usage_monthly"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    metric = Column(String, index=True, nullable=False)
-    period_key = Column(String, index=True, nullable=False)
-    count = Column(Integer, default=0)
+    user_id = Column(Integer, nullable=False)
+    period_yyyymm = Column(String, nullable=False)
+    leads = Column(Integer, default=0)
+    ia_msgs = Column(Integer, default=0)
+    tasks = Column(Integer, default=0)
+    csv_exports = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
+    )
 
 
 class LeadNota(Base):
