@@ -26,7 +26,7 @@ def upgrade():
         with op.get_context().autocommit_block():
             conn.execute(
                 text(
-                    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ix_users_email_lower ON usuarios ((lower(email)))"
+                    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ix_usuarios_email_lower ON usuarios ((lower(email)))"
                 )
             )
     except Exception as exc:  # pragma: no cover - depends on DB state
@@ -46,5 +46,5 @@ def downgrade():
     if conn.dialect.name != "postgresql":
         return
     with op.get_context().autocommit_block():
-        conn.execute(text("DROP INDEX IF EXISTS ix_users_email_lower"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_usuarios_email_lower"))
 
