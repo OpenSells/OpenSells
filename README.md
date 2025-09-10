@@ -158,6 +158,10 @@ pytest -q
 Si tu entorno no permite contenedores, exporta `USE_TESTCONTAINERS=0` y define
 `TEST_DATABASE_URL` apuntando a una instancia válida de PostgreSQL.
 
+## 🤝 Contribuciones
+
+¿Quieres ayudar a mejorar OpenSells? Si encuentras un error o tienes una idea, abre un issue o envía un pull request. Revisa la sección de pruebas para asegurarte de que tu contribución no rompa nada.
+
 ## 🚀 Próximos pasos
 
 - Configurar autenticación en el entorno de pruebas para que `pytest` se ejecute correctamente.
