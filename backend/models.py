@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, func, text, UniqueConstraint
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    Boolean,
+    func,
+    text,
+    UniqueConstraint,
+    Index,
+)
 from sqlalchemy.orm import validates
 from backend.database import Base
 import enum
@@ -13,13 +24,17 @@ class LeadEstadoContacto(enum.Enum):
 class Usuario(Base):
     __tablename__ = "usuarios"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     plan = Column(String, default="free")
     suspendido = Column(
         Boolean, default=False, server_default=text("false"), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_usuarios_email_lower", func.lower(email), unique=True),
     )
 
 # Tabla de tareas
@@ -119,6 +134,7 @@ class LeadExtraido(Base):
     id = Column(Integer, primary_key=True)
     user_email = Column(String, nullable=False)
     user_email_lower = Column(String, index=True, nullable=False)
+    dominio = Column(String, nullable=False)
     url = Column(String, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     nicho = Column(String, nullable=False)  # Normalizado
@@ -129,6 +145,12 @@ class LeadExtraido(Base):
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email_lower", "dominio", name="uix_leads_usuario_dominio"
+        ),
+    )
 
 
 # Memoria de usuario almacenada en PostgreSQL

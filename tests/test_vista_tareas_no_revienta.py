@@ -33,6 +33,7 @@ def test_vista_tareas_no_revienta():
                     id INTEGER PRIMARY KEY,
                     user_email TEXT NOT NULL,
                     user_email_lower TEXT NOT NULL,
+                    dominio TEXT NOT NULL,
                     url TEXT NOT NULL,
                     timestamp TEXT,
                     nicho TEXT NOT NULL,

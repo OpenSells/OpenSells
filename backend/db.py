@@ -137,7 +137,7 @@ def obtener_todas_tareas_pendientes_postgres(
             .outerjoin(
                 LeadExtraido,
                 and_(
-                    LeadTarea.dominio == LeadExtraido.url,
+                    LeadTarea.dominio == LeadExtraido.dominio,
                     LeadTarea.user_email_lower == LeadExtraido.user_email_lower,
                 ),
             )
@@ -185,7 +185,7 @@ def obtener_todas_tareas_pendientes_postgres(
                 "tipo": t.tipo,
                 "nicho": t.nicho,
                 "prioridad": t.prioridad,
-                "lead_url": lead.url if lead else None,
+                "lead_url": lead.dominio if lead else None,
                 "auto": bool(getattr(t, "auto", False)),
             }
         )
@@ -282,13 +282,14 @@ def guardar_leads_extraidos(
     for dominio in dominios:
         existe = (
             db.query(LeadExtraido)
-            .filter_by(user_email_lower=user_email_lower, url=dominio, nicho=nicho)
+            .filter_by(user_email_lower=user_email_lower, dominio=dominio, nicho=nicho)
             .first()
         )
         if not existe:
             nuevo = LeadExtraido(
                 user_email=user_email,
                 user_email_lower=user_email_lower,
+                dominio=dominio,
                 url=dominio,
                 nicho=nicho,
                 nicho_original=nicho_original,
@@ -440,7 +441,7 @@ def eliminar_nicho_postgres(user_email: str, nicho: str, db: Session):
 
 def obtener_urls_extraidas_por_nicho(user_email: str, nicho: str, db: Session):
     resultados = (
-        db.query(LeadExtraido.url)
+        db.query(LeadExtraido.dominio)
         .filter(LeadExtraido.user_email_lower == user_email, LeadExtraido.nicho == nicho)
         .all()
     )
@@ -536,15 +537,15 @@ def buscar_leads_global(email: str, query: str):
 def buscar_leads_global_postgres(email: str, query: str, db: Session) -> list[str]:
     query = f"%{query.lower()}%"
     resultados = (
-        db.query(LeadExtraido.url)
+        db.query(LeadExtraido.dominio)
         .outerjoin(
             LeadNota,
-            (LeadNota.url == LeadExtraido.url) & (LeadNota.user_email_lower == LeadExtraido.user_email_lower)
+            (LeadNota.url == LeadExtraido.dominio) & (LeadNota.user_email_lower == LeadExtraido.user_email_lower)
         )
         .filter(
             LeadExtraido.user_email_lower == email,
             (
-                LeadExtraido.url.ilike(query) |
+                LeadExtraido.dominio.ilike(query) |
                 LeadNota.nota.ilike(query)
             )
         )
@@ -752,7 +753,7 @@ def eliminar_lead_de_nicho(user_email: str, dominio: str, nicho: str, db: Sessio
     email_lower = (user_email or "").strip().lower()
     db.query(LeadExtraido).filter_by(
         user_email_lower=email_lower,
-        url=dominio,
+        dominio=dominio,
         nicho=nicho
     ).delete()
     db.commit()
@@ -775,12 +776,13 @@ def mover_lead_en_bd(user_email: str, dominio_original: str, nicho_origen: str, 
 
     # 🗑️ Eliminar del nicho original
     email_lower = (user_email or "").strip().lower()
-    db.query(LeadExtraido).filter_by(user_email_lower=email_lower, url=dominio_limpio, nicho=nicho_origen).delete()
+    db.query(LeadExtraido).filter_by(user_email_lower=email_lower, dominio=dominio_limpio, nicho=nicho_origen).delete()
 
     # ✅ Insertar en el nuevo nicho
     nuevo = LeadExtraido(
         user_email=user_email,
         user_email_lower=email_lower,
+        dominio=dominio_limpio,
         url=dominio_limpio,
         timestamp=datetime.utcnow().isoformat(),
         nicho=nicho_destino,
@@ -892,7 +894,7 @@ def obtener_historial_por_nicho(email: str, nicho: str):
 
 def obtener_todos_los_dominios_usuario(email: str, db: Session):
     resultados = (
-        db.query(LeadExtraido.url)
+        db.query(LeadExtraido.dominio)
         .filter(LeadExtraido.user_email_lower == email)
         .distinct()
         .all()

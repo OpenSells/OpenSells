@@ -1,4 +1,4 @@
-"""add case-insensitive email unique index
+"""ensure case-insensitive email index and drop redundant ones
 
 Revision ID: 20250115_email_lower_unique_index
 Revises: 20250108_unify_tenant_key
@@ -7,44 +7,51 @@ Create Date: 2025-01-15
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import text
-import logging
 
-
-# revision identifiers, used by Alembic.
 revision = "20250115_email_lower_unique_index"
 down_revision = "20250108_unify_tenant_key"
 branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    conn = op.get_bind()
-    if conn.dialect.name != "postgresql":
-        return
-    try:
-        with op.get_context().autocommit_block():
-            conn.execute(
-                text(
-                    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ix_users_email_lower ON usuarios ((lower(email)))"
-                )
-            )
-    except Exception as exc:  # pragma: no cover - depends on DB state
-        logging.error("duplicados detectados en emails: %s", exc)
-        dup = conn.execute(
-            text(
-                "SELECT lower(email) AS e, COUNT(*) FROM usuarios GROUP BY lower(email) HAVING COUNT(*) > 1"
-            )
-        )
-        rows = [r[0] for r in dup]
-        if rows:
-            logging.error("duplicados: %s", rows)
+def upgrade() -> None:
+    # Create unique index on lower(email)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname='public' AND tablename='usuarios' AND indexname='ix_usuarios_email_lower'
+            ) THEN
+                CREATE UNIQUE INDEX ix_usuarios_email_lower ON public.usuarios (lower(email));
+            END IF;
+        END$$;
+        """
+    )
+
+    # Drop redundant indices if present
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname='public' AND tablename='usuarios' AND indexname='ix_usuarios_id'
+            ) THEN
+                DROP INDEX public.ix_usuarios_id;
+            END IF;
+            IF EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname='public' AND tablename='usuarios' AND indexname='ix_usuarios_email'
+            ) THEN
+                DROP INDEX public.ix_usuarios_email;
+            END IF;
+        END$$;
+        """
+    )
 
 
-def downgrade():
-    conn = op.get_bind()
-    if conn.dialect.name != "postgresql":
-        return
-    with op.get_context().autocommit_block():
-        conn.execute(text("DROP INDEX IF EXISTS ix_users_email_lower"))
-
+def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS public.ix_usuarios_email_lower")
+    # redundant indices are intentionally not recreated

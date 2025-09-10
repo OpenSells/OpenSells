@@ -22,6 +22,7 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Migración a emails en minúsculas:** script `backend/scripts/migrate_emails_lowercase.py` para poblar e indexar campos `user_email_lower`.
 - **Matriz de planes centralizada:** `backend/core/plans.py` y `backend/core/usage.py` definen límites y registran consumo mensual.
 - **Suspensión de usuarios:** columna `suspendido` en `usuarios` y guard que bloquea acceso si está activa.
+- **Depuración de tablas legado:** eliminadas referencias a `users` y `usage_counters`; la info de usuarios se gestiona solo en `usuarios` y el uso mensual en `user_usage_monthly`.
 
 ## 📊 Estado del proyecto
 
@@ -71,6 +72,17 @@ streamlit run streamlit_app/Home.py
 ```
 
 También puedes usar `backend/start.sh` o los scripts `.bat` en Windows.
+
+## 🗄️ Base de datos
+
+- `usuarios` cuenta con el índice único `ix_usuarios_email_lower` sobre `lower(email)` para evitar duplicados por mayúsculas/minúsculas. El índice `ix_usuarios_id` se eliminó por redundante.
+- `leads_extraidos` posee la constraint única `uix_leads_usuario_dominio` que impide guardar el mismo dominio varias veces para un usuario.
+
+Verificación rápida en producción:
+
+```sql
+SELECT indexname FROM pg_indexes WHERE tablename IN ('usuarios','leads_extraidos');
+```
 
 ## 🔑 Variables de entorno
 

@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
+from types import SimpleNamespace
 
 from backend.models import Base, LeadExtraido, LeadNota, LeadTarea
 from backend.db import buscar_leads_global_postgres, obtener_todas_tareas_pendientes_postgres
@@ -35,8 +36,8 @@ def seed_leads_and_notes(session):
     u1 = "u1@example.com"
     u2 = "u2@example.com"
     session.add_all([
-        LeadExtraido(user_email=u1, user_email_lower=u1, url="example.com", nicho="n", nicho_original="n"),
-        LeadExtraido(user_email=u2, user_email_lower=u2, url="example.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=u1, user_email_lower=u1, dominio="example.com", url="example.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=u2, user_email_lower=u2, dominio="example.com", url="example.com", nicho="n", nicho_original="n"),
         LeadNota(email=u1, user_email_lower=u1, url="example.com", nota="alpha"),
         LeadNota(email=u2, user_email_lower=u2, url="example.com", nota="beta"),
     ])
@@ -48,8 +49,8 @@ def seed_tasks(session):
     u1 = "a@example.com"
     u2 = "b@example.com"
     session.add_all([
-        LeadExtraido(user_email=u1, user_email_lower=u1, url="foo.com", nicho="n", nicho_original="n"),
-        LeadExtraido(user_email=u2, user_email_lower=u2, url="foo.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=u1, user_email_lower=u1, dominio="foo.com", url="foo.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=u2, user_email_lower=u2, dominio="foo.com", url="foo.com", nicho="n", nicho_original="n"),
         LeadTarea(email=u1, user_email_lower=u1, dominio="foo.com", texto="t1", completado=False, fecha=None, timestamp="1"),
         LeadTarea(email=u2, user_email_lower=u2, dominio="foo.com", texto="t2", completado=False, fecha=None, timestamp="1"),
     ])
@@ -76,9 +77,8 @@ def test_conteo_leads_endpoint(db_session):
     user = "cnt@example.com"
     session = db_session
     session.add_all([
-        LeadExtraido(user_email=user, user_email_lower=user, url="a.com", nicho="n", nicho_original="n"),
-        LeadExtraido(user_email=user, user_email_lower=user, url="a.com", nicho="n", nicho_original="n"),
-        LeadExtraido(user_email=user, user_email_lower=user, url="b.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=user, user_email_lower=user, dominio="a.com", url="a.com", nicho="n", nicho_original="n"),
+        LeadExtraido(user_email=user, user_email_lower=user, dominio="b.com", url="b.com", nicho="n", nicho_original="n"),
     ])
     session.commit()
 

@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.models import Base, LeadExtraido
@@ -13,6 +14,7 @@ def test_estado_contacto_default():
     lead = LeadExtraido(
         user_email="a",
         user_email_lower="a",
+        dominio="b",
         url="b",
         nicho="n",
         nicho_original="n",
