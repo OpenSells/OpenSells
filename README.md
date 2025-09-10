@@ -1,6 +1,6 @@
 # OpenSells
 
-*Actualizado el 14/02/2025*
+*Actualizado el 10/09/2025*
 
 **OpenSells** es un SaaS para generación y gestión de leads apoyado en un backend FastAPI y una interfaz multipágina en Streamlit.
 Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes de suscripción con límites de uso.
@@ -21,6 +21,7 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Validación de `DATABASE_URL`:** el backend avisa al arrancar si apunta a SQLite o falta la variable.
 - **Migración a emails en minúsculas:** script `backend/scripts/migrate_emails_lowercase.py` para poblar e indexar campos `user_email_lower`.
 - **Matriz de planes centralizada:** `backend/core/plans.py` y `backend/core/usage.py` definen límites y registran consumo mensual.
+- **Suspensión de usuarios:** columna `suspendido` en `usuarios` y guard que bloquea acceso si está activa.
 
 ## 📊 Estado del proyecto
 
@@ -123,5 +124,5 @@ OpenSells sigue evolucionando hacia un servicio estable de generación de leads 
 
 **👨‍💻 Ayrton**
 
-*(Generado automáticamente el 14/02/2025.)*
+*(Generado automáticamente el 10/09/2025.)*
 
