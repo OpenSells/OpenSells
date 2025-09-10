@@ -198,3 +198,17 @@ class LeadEstado(Base):
     @validates("user_email_lower")
     def _lower(self, key, value):
         return (value or "").strip().lower()
+
+
+class UsageCounter(Base):
+    __tablename__ = "usage_counters"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    metric = Column(String, nullable=False)
+    period_key = Column(String, nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric", "period_key", name="uix_usage_counter"),
+    )

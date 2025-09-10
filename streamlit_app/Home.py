@@ -20,6 +20,7 @@ from streamlit_app.utils.auth_utils import (
     restore_session_if_allowed,
 )
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.quota_badge import render_quota_badge
 from streamlit_app.plan_utils import (
     resolve_user_plan,
     tiene_suscripcion_activa,
@@ -104,7 +105,7 @@ if auth:
     with st.sidebar:
         logout_button()
         st.markdown("---")
-        st.markdown(f"**Plan:** {plan}")
+        render_quota_badge()
 
     col1, col2 = st.columns(2, gap="large")
     with col1:

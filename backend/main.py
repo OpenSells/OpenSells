@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from urllib.parse import urlparse
-from datetime import datetime
 
 from backend.database import get_db
 from backend.models import (
@@ -14,9 +13,9 @@ from backend.models import (
     LeadTarea,
     Usuario,
     UsuarioMemoria,
-    UserUsageMonthly,
 )
-from backend.core.plans import resolve_user_plan
+from backend.core.plan_config import get_plan_for_user, get_limits
+from backend.core import usage as usage_service
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -25,12 +24,6 @@ from backend.auth import (
 )
 
 app = FastAPI()
-
-PLAN_LIMITS = {
-    "free": {"tareas": 2, "csv_exports": 1},
-    "basico": {"tareas": 5, "csv_exports": 5},
-    "premium": {"tareas": 999, "csv_exports": 999},
-}
 
 
 def normalizar_dominio(dominio: str) -> str:
@@ -82,9 +75,58 @@ def me(usuario=Depends(get_current_user)):
 
 
 @app.get("/mi_plan")
-def mi_plan(usuario=Depends(get_current_user)):
-    plan, limits = resolve_user_plan(usuario)
-    return {"plan": plan, "limits": limits}
+def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    plan = get_plan_for_user(usuario)
+    limits = get_limits(plan)
+    month = usage_service.month_key()
+    day = usage_service.day_key()
+
+    usage = {
+        "lead_credits": {
+            "used": usage_service.get_count(db, usuario.id, "lead_credits", month),
+            "remaining": (
+                limits.lead_credits_month
+                - usage_service.get_count(db, usuario.id, "lead_credits", month)
+                if limits.lead_credits_month is not None
+                else None
+            ),
+            "period": month,
+        },
+        "free_searches": {
+            "used": usage_service.get_count(db, usuario.id, "free_searches", month),
+            "remaining": (
+                limits.searches_per_month
+                - usage_service.get_count(db, usuario.id, "free_searches", month)
+                if limits.searches_per_month is not None
+                else None
+            ),
+            "period": month,
+        },
+        "csv_exports": {
+            "used": usage_service.get_count(db, usuario.id, "csv_exports", month),
+            "remaining": (
+                limits.csv_exports_per_month
+                - usage_service.get_count(db, usuario.id, "csv_exports", month)
+                if limits.csv_exports_per_month is not None
+                else None
+            ),
+            "period": month,
+        },
+        "ai_messages": {
+            "used_today": usage_service.get_count(db, usuario.id, "ai_messages", day),
+            "remaining_today": (
+                limits.ai_daily_limit
+                - usage_service.get_count(db, usuario.id, "ai_messages", day)
+            ),
+            "period": day,
+        },
+        "tasks_active": {
+            "current": usage_service.count_active_tasks(db, usuario.email_lower),
+            "limit": limits.tasks_active_max,
+        },
+    }
+
+    return {"plan": plan, "limits": limits.dict(), "usage": usage}
 
 
 class MemoriaPayload(BaseModel):
@@ -124,19 +166,89 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
     return {"nichos": [{"nicho": n, "nicho_original": o} for n, o in rows]}
 
 
-def _get_usage(db: Session, user_id: int) -> UserUsageMonthly:
-    period = datetime.utcnow().strftime("%Y%m")
-    usage = (
-        db.query(UserUsageMonthly)
-        .filter_by(user_id=user_id, period_yyyymm=period)
-        .first()
-    )
-    if not usage:
-        usage = UserUsageMonthly(user_id=user_id, period_yyyymm=period)
-        db.add(usage)
-        db.commit()
-        db.refresh(usage)
-    return usage
+class SearchPayload(BaseModel):
+    leads: list[str]
+    nicho: str | None = None
+
+
+@app.post("/buscar_leads")
+def buscar_leads(
+    payload: SearchPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = get_plan_for_user(usuario)
+    ok, remaining, cap = usage_service.can_start_search(db, usuario.id, plan)
+    limits = get_limits(plan)
+    if plan == "free" and not ok:
+        usage_service.limit_error(
+            "search",
+            plan,
+            limits.searches_per_month or 0,
+            remaining or 0,
+            "Límite de búsquedas mensual alcanzado",
+        )
+
+    domains = [normalizar_dominio(d) for d in payload.leads]
+    unique: list[str] = []
+    for d in domains:
+        if d not in unique:
+            unique.append(d)
+
+    existing = {
+        row.dominio
+        for row in db.query(LeadExtraido.dominio)
+        .filter(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.dominio.in_(unique),
+        )
+        .all()
+    }
+
+    new_domains = [d for d in unique if d not in existing]
+    duplicates = len(domains) - len(new_domains)
+    truncated = False
+
+    if plan == "free":
+        cap = limits.leads_cap_per_search
+        if len(new_domains) > cap:
+            truncated = True
+            new_domains = new_domains[:cap]
+    else:
+        remaining_credits = remaining
+        if remaining_credits is not None and len(new_domains) > remaining_credits:
+            truncated = True
+            new_domains = new_domains[:remaining_credits]
+
+    for d in new_domains:
+        lead = LeadExtraido(
+            user_email=usuario.email,
+            user_email_lower=usuario.email_lower,
+            dominio=d,
+            url=d,
+            nicho=payload.nicho or "",
+            nicho_original=payload.nicho or "",
+        )
+        db.add(lead)
+    db.commit()
+
+    saved = len(new_domains)
+
+    if plan == "free":
+        usage_service.consume_free_search(db, usuario.id)
+        credits_remaining = None
+    else:
+        usage_service.consume_lead_credits(db, usuario.id, saved)
+        credits_remaining = remaining - saved if remaining is not None else None
+
+    return {
+        "saved": saved,
+        "duplicates": duplicates,
+        "truncated": truncated,
+        "credits_remaining": credits_remaining,
+    }
+
+
 
 
 class TareaPayload(BaseModel):
@@ -152,10 +264,17 @@ def crear_tarea(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    limits = PLAN_LIMITS.get(usuario.plan, PLAN_LIMITS["free"])
-    usage = _get_usage(db, usuario.id)
-    if usage.tasks >= limits["tareas"]:
-        raise HTTPException(status_code=403, detail="Límite de tareas excedido")
+    plan = get_plan_for_user(usuario)
+    limits = get_limits(plan)
+    activos = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
+        .count()
+    )
+    if activos >= limits.tasks_active_max:
+        usage_service.limit_error(
+            "tasks", plan, limits.tasks_active_max, 0, "Límite de tareas activas alcanzado"
+        )
     tarea = LeadTarea(
         email=usuario.email,
         texto=payload.texto,
@@ -165,7 +284,6 @@ def crear_tarea(
         completado=payload.completado,
     )
     db.add(tarea)
-    usage.tasks += 1
     db.commit()
     db.refresh(tarea)
     return {"id": tarea.id, "texto": tarea.texto}
@@ -207,15 +325,31 @@ def exportar_csv(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    limits = PLAN_LIMITS.get(usuario.plan, PLAN_LIMITS["free"])
-    usage = _get_usage(db, usuario.id)
-    if usage.csv_exports >= limits["csv_exports"]:
-        raise HTTPException(status_code=403, detail="Límite de exportaciones excedido")
+    plan = get_plan_for_user(usuario)
+    limits = get_limits(plan)
+    ok, remaining, rows_cap = usage_service.can_export_csv(db, usuario.id, plan)
+    if not ok:
+        usage_service.limit_error(
+            "csv", plan, limits.csv_exports_per_month or 0, remaining or 0, "Límite de exportaciones alcanzado"
+        )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
-    usage.csv_exports += 1
+    usage_service.consume_csv_export(db, usuario.id)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "rows_cap": rows_cap}
+
+
+@app.post("/ia")
+def ia_endpoint(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    plan = get_plan_for_user(usuario)
+    limits = get_limits(plan)
+    ok, remaining = usage_service.can_use_ai(db, usuario.id, plan)
+    if not ok:
+        usage_service.limit_error(
+            "ai", plan, limits.ai_daily_limit, remaining, "Límite diario de IA alcanzado"
+        )
+    usage_service.consume_ai(db, usuario.id)
+    return {"ok": True, "remaining": remaining - 1}
 
 
 @app.get("/historial")

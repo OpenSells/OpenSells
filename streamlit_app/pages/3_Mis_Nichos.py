@@ -32,6 +32,7 @@ from streamlit_app.utils.auth_session import (
     clear_page_remember,
 )
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.quota_badge import render_quota_badge
 from streamlit_app.utils.nav import go, HOME_PAGE
 
 # ── Config ───────────────────────────────────────────
@@ -86,6 +87,7 @@ plan = resolve_user_plan(token)["plan"]
 
 with st.sidebar:
     logout_button()
+    render_quota_badge()
 
 ESTADOS = {
     "pendiente": ("Pendiente", "🟡"),
