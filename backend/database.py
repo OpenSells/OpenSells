@@ -15,6 +15,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("❌ DATABASE_URL no está definido. Verifica tu archivo .env")
 
+if DATABASE_URL.startswith("sqlite"):
+    raise RuntimeError("SQLite no soportado. Configure PostgreSQL en DATABASE_URL.")
+
 url_obj = make_url(DATABASE_URL)
 if url_obj.drivername.startswith("postgresql") and "sslmode" not in url_obj.query:
     url_obj = url_obj.set(query={**url_obj.query, "sslmode": "require"})

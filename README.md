@@ -18,7 +18,7 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Gestión de sesión y rutas unificada:** refactor para centralizar manejo de tokens y paths en toda la app.
 - **Clave multi‑tenant unificada:** todos los datos se filtran por `user_email_lower`; se añadió `/debug-user-snapshot` para diagnosticar sesión y base de datos.
 - **Esquema multi‑tenant armonizado:** las tablas incluyen `user_email_lower` no nulo, índices compuestos y conteo de leads por dominio distinto vía `/conteo_leads`.
-- **Validación de `DATABASE_URL`:** el backend avisa al arrancar si apunta a SQLite o falta la variable.
+- **Base de datos solo PostgreSQL:** se eliminó soporte a SQLite y se valida que `DATABASE_URL` no use ese motor.
 - **Migración a emails en minúsculas:** script `backend/scripts/migrate_emails_lowercase.py` para poblar e indexar campos `user_email_lower`.
 - **Matriz de planes centralizada:** `backend/core/plans.py` y `backend/core/usage.py` definen límites y registran consumo mensual.
 - **Suspensión de usuarios:** columna `suspendido` en `usuarios` y guard que bloquea acceso si está activa.
@@ -75,6 +75,13 @@ También puedes usar `backend/start.sh` o los scripts `.bat` en Windows.
 
 ## 🗄️ Base de datos
 
+- SQLite ya no es soportado. Configura siempre `DATABASE_URL` apuntando a PostgreSQL.
+- Para migrar datos antiguos ejecuta:
+
+```bash
+python scripts/migrar_sqlite_a_postgres.py --drop
+```
+
 - `usuarios` cuenta con el índice único `ix_usuarios_email_lower` sobre `lower(email)` para evitar duplicados por mayúsculas/minúsculas. El índice `ix_usuarios_id` se eliminó por redundante.
 - `leads_extraidos` posee la constraint única `uix_leads_usuario_dominio` que impide guardar el mismo dominio varias veces para un usuario.
 
@@ -120,10 +127,17 @@ El archivo `render.yaml` describe un servicio web para desplegar el backend en [
 
 ## 🧪 Pruebas
 
+Las pruebas utilizan una base de datos PostgreSQL efímera gracias a
+[Testcontainers](https://testcontainers.com/), por lo que no necesitas tener
+Postgres instalado localmente.
+
 ```bash
 python -m py_compile $(git ls-files '*.py')
-pytest
+pytest -q
 ```
+
+Si tu entorno no permite contenedores, exporta `USE_TESTCONTAINERS=0` y define
+`TEST_DATABASE_URL` apuntando a una instancia válida de PostgreSQL.
 
 ## 🚀 Próximos pasos
 

@@ -31,4 +31,6 @@ pandas
 # Testing
 pytest
 psycopg2-binary
+testcontainers
+pytest-asyncio
 
