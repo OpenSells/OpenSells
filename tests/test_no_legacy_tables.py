@@ -58,6 +58,7 @@ def test_endpoints_do_not_touch_legacy_tables(caplog):
         lead = LeadExtraido(
             user_email=user.email,
             user_email_lower=user.email.lower(),
+            dominio="example.com",
             url="example.com",
             nicho="n",
             nicho_original="n",

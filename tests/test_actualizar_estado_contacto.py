@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+import pytest
 
 from backend.main import app
 from backend.database import get_db
@@ -46,6 +47,7 @@ def test_actualizar_estado_permitidos(client_session):
     lead = LeadExtraido(
         user_email="test@example.com",
         user_email_lower="test@example.com",
+        dominio="example.com",
         url="example.com",
         nicho="n",
         nicho_original="N",
@@ -65,6 +67,7 @@ def test_actualizar_estado_invalido(client_session):
     lead = LeadExtraido(
         user_email="test@example.com",
         user_email_lower="test@example.com",
+        dominio="example.com",
         url="example.com",
         nicho="n",
         nicho_original="N",

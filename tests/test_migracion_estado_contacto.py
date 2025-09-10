@@ -13,6 +13,7 @@ def test_migracion_estado_contacto():
                     id INTEGER PRIMARY KEY,
                     user_email TEXT NOT NULL,
                     user_email_lower TEXT NOT NULL,
+                    dominio TEXT NOT NULL,
                     url TEXT NOT NULL,
                     timestamp TEXT,
                     nicho TEXT NOT NULL,
@@ -31,7 +32,7 @@ def test_migracion_estado_contacto():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO leads_extraidos (user_email, user_email_lower, url, nicho, nicho_original) VALUES ('a','a','b','n','n')"
+                "INSERT INTO leads_extraidos (user_email, user_email_lower, dominio, url, nicho, nicho_original) VALUES ('a','a','b','b','n','n')"
             )
         )
         val = conn.execute(text("SELECT estado_contacto FROM leads_extraidos")).scalar_one()

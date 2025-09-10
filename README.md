@@ -73,6 +73,17 @@ streamlit run streamlit_app/Home.py
 
 También puedes usar `backend/start.sh` o los scripts `.bat` en Windows.
 
+## 🗄️ Base de datos
+
+- `usuarios` cuenta con el índice único `ix_usuarios_email_lower` sobre `lower(email)` para evitar duplicados por mayúsculas/minúsculas. El índice `ix_usuarios_id` se eliminó por redundante.
+- `leads_extraidos` posee la constraint única `uix_leads_usuario_dominio` que impide guardar el mismo dominio varias veces para un usuario.
+
+Verificación rápida en producción:
+
+```sql
+SELECT indexname FROM pg_indexes WHERE tablename IN ('usuarios','leads_extraidos');
+```
+
 ## 🔑 Variables de entorno
 
 Copia `.env.example` a `.env` y completa las claves necesarias (PostgreSQL, Stripe, etc.):
