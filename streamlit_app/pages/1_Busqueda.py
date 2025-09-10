@@ -199,10 +199,10 @@ with st.expander("❓ Consejos para obtener mejores leads", expanded=False):
         "- Filtra dominios repetidos y revisa emails sospechosos."
     )
 
-memoria_data = cached_get("mi_memoria", token)
+memoria_data = cached_get("/mi_memoria", token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
-nichos_data = cached_get("mis_nichos", token)
+nichos_data = cached_get("/mis_nichos", token)
 lista_nichos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
 lista_nichos = lista_nichos or []
 

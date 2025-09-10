@@ -10,10 +10,13 @@ from backend.database import get_db
 from backend.models import (
     HistorialExport,
     LeadEstado,
+    LeadExtraido,
     LeadTarea,
     Usuario,
+    UsuarioMemoria,
     UserUsageMonthly,
 )
+from backend.core.plans import resolve_user_plan
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -71,6 +74,54 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
     token = crear_token({"sub": user.email})
     return {"access_token": token}
+
+
+@app.get("/me")
+def me(usuario=Depends(get_current_user)):
+    return {"id": usuario.id, "email": usuario.email, "plan": usuario.plan}
+
+
+@app.get("/mi_plan")
+def mi_plan(usuario=Depends(get_current_user)):
+    plan, limits = resolve_user_plan(usuario)
+    return {"plan": plan, "limits": limits}
+
+
+class MemoriaPayload(BaseModel):
+    descripcion: str
+
+
+@app.get("/mi_memoria")
+def obtener_memoria(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.get(UsuarioMemoria, usuario.email_lower)
+    return {"memoria": row.descripcion if row else ""}
+
+
+@app.post("/mi_memoria")
+def guardar_memoria(
+    payload: MemoriaPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.get(UsuarioMemoria, usuario.email_lower)
+    if row:
+        row.descripcion = payload.descripcion
+    else:
+        row = UsuarioMemoria(email_lower=usuario.email_lower, descripcion=payload.descripcion)
+        db.add(row)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/mis_nichos")
+def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(LeadExtraido.nicho, LeadExtraido.nicho_original)
+        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
+        .distinct()
+        .all()
+    )
+    return {"nichos": [{"nicho": n, "nicho_original": o} for n, o in rows]}
 
 
 def _get_usage(db: Session, user_id: int) -> UserUsageMonthly:

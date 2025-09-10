@@ -761,7 +761,7 @@ tool_defs = [
 
 
 def build_system_prompt() -> str:
-    nichos = cached_get("mis_nichos", token).get("nichos", [])
+    nichos = cached_get("/mis_nichos", token).get("nichos", [])
     tareas = cached_get("tareas_pendientes", token) or []
     resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."

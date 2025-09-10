@@ -73,6 +73,25 @@ streamlit run streamlit_app/Home.py
 
 También puedes usar `backend/start.sh` o los scripts `.bat` en Windows.
 
+## 🔌 Endpoints principales
+
+No existe prefijo global; todas las rutas se sirven desde la raíz del dominio.
+
+| Método | Ruta | Descripción |
+| ------ | ---- | ----------- |
+| POST | /register | Crear usuario |
+| POST | /login | Obtener JWT |
+| GET | /me | Usuario autenticado |
+| GET | /mi_plan | Plan actual y límites |
+| GET/POST | /mi_memoria | Obtener o actualizar memoria |
+| GET | /mis_nichos | Lista de nichos del usuario |
+| POST | /tareas | Crear tarea |
+| GET | /tareas | Listar tareas |
+| POST | /exportar_csv | Registrar exportación de CSV |
+| GET | /historial | Historial de exportaciones |
+| POST | /estado_lead | Upsert del estado de un dominio |
+| GET | /estado_lead | Consultar estado de un dominio |
+
 ## 🗄️ Base de datos
 
 - SQLite ya no es soportado. Configura siempre `DATABASE_URL` apuntando a PostgreSQL.

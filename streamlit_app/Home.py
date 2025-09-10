@@ -91,7 +91,7 @@ if auth:
     plan_info = resolve_user_plan(token)
     plan = plan_info["plan"]
     suscripcion_activa = tiene_suscripcion_activa(plan)
-    nichos_resp = cached_get("mis_nichos", token) if token else {}
+    nichos_resp = cached_get("/mis_nichos", token) if token else {}
     nichos = nichos_resp.get("nichos", []) if isinstance(nichos_resp, dict) else []
     num_nichos = len(nichos)
     tareas_resp = cached_get("tareas_pendientes", token) if token else []
