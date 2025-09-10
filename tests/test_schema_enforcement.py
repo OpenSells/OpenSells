@@ -1,61 +1,65 @@
-import pytest
-import sqlalchemy as sa
-import pytest
-import sqlalchemy as sa
-from sqlalchemy.orm import sessionmaker
-
-from backend.models import Base, Usuario, LeadExtraido
+import pathlib, re, pytest
+from sqlalchemy import text
 
 
-def create_session():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    return engine, Session()
+def test_usuarios_email_unique_lower(db_session):
+    rows = db_session.execute(text("""
+        SELECT indexname, indexdef
+        FROM pg_indexes
+        WHERE schemaname='public' AND tablename='usuarios'
+          AND indexname='ix_usuarios_email_lower'
+    """)).fetchall()
+    assert rows and "UNIQUE" in rows[0][1].upper()
 
 
-def test_indexes_and_constraints_exist():
-    engine, session = create_session()
-    insp = sa.inspect(engine)
-
-    result = session.execute(sa.text("PRAGMA index_list('usuarios')")).fetchall()
-    idx_names = {row[1]: row[2] for row in result}  # name -> unique flag
-    assert idx_names.get("ix_usuarios_email_lower") == 1
-    assert "ix_usuarios_id" not in idx_names
-
-    lead_constraints = insp.get_unique_constraints("leads_extraidos")
-    assert any(c["name"] == "uix_leads_usuario_dominio" for c in lead_constraints)
+def test_user_usage_monthly_unique(db_session):
+    rows = db_session.execute(text("""
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid='user_usage_monthly'::regclass
+          AND conname='uix_user_period'
+    """)).fetchall()
+    assert rows
 
 
-def test_unique_enforcement():
-    engine, session = create_session()
+def test_leads_extraidos_unique(db_session):
+    rows = db_session.execute(text("""
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid='leads_extraidos'::regclass
+          AND conname='uix_leads_usuario_dominio'
+    """)).fetchall()
+    assert rows
 
-    session.add(Usuario(email="Email@dom.com", hashed_password="x"))
-    session.commit()
-    session.add(Usuario(email="email@dom.com", hashed_password="y"))
-    with pytest.raises(Exception):
-        session.commit()
-    session.rollback()
 
-    lead = LeadExtraido(
-        user_email="a",
-        user_email_lower="a",
-        dominio="example.com",
-        url="example.com",
-        nicho="n",
-        nicho_original="n",
+def test_lead_estado_unique_constraint(db_session):
+    db_session.execute(
+        text(
+            "INSERT INTO lead_estado (user_email_lower, dominio, estado) VALUES (:u, :d, :e)"
+        ),
+        {"u": "x@example.com", "d": "example.com", "e": "a"},
     )
-    session.add(lead)
-    session.commit()
-    session.add(
-        LeadExtraido(
-            user_email="a",
-            user_email_lower="a",
-            dominio="example.com",
-            url="example.com",
-            nicho="n",
-            nicho_original="n",
+    db_session.commit()
+    with pytest.raises(Exception):
+        db_session.execute(
+            text(
+                "INSERT INTO lead_estado (user_email_lower, dominio, estado) VALUES (:u, :d, :e)"
+            ),
+            {"u": "x@example.com", "d": "example.com", "e": "b"},
         )
-    )
-    with pytest.raises(Exception):
-        session.commit()
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_no_sqlite_leftovers():
+    root = pathlib.Path(".")
+    bad = []
+    for p in root.rglob("**/*.py"):
+        if "tests" in p.parts:
+            continue
+        if "scripts/migrar_sqlite" in str(p) or "scripts/migrar_memoria_sqlite" in str(p):
+            continue
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        if re.search(r"(sqlite://|historial\.db|aiosqlite)", txt):
+            bad.append(str(p))
+    assert not bad, f"Referencias a SQLite encontradas: {bad}"

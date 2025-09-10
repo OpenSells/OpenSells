@@ -178,7 +178,7 @@ else:
     busqueda = ""
 
 # ── Cargar nichos del backend ───────────────────────
-resp = cached_get("mis_nichos", token)
+resp = cached_get("/mis_nichos", token)
 nichos: list[dict] = []
 if resp:
     nichos = resp.get("nichos", [])

@@ -8,25 +8,16 @@ logger = logging.getLogger(__name__)
 def ensure_column(engine: Engine, table: str, column: str, ddl: str) -> None:
     """Ensure a column exists, creating it with provided DDL if missing."""
     with engine.begin() as conn:
-        if engine.dialect.name == "sqlite":
-            cols = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
-            if any(row[1] == column for row in cols):
-                return
-            ddl_sql = ddl.replace(" IF NOT EXISTS", "").replace("false", "0").replace(
-                "FALSE", "0"
-            )
-            conn.execute(text(ddl_sql))
-        else:
-            exists = conn.execute(
-                text(
-                    "SELECT 1 FROM information_schema.columns "
-                    "WHERE table_name=:t AND column_name=:c"
-                ),
-                {"t": table, "c": column},
-            ).fetchone()
-            if exists:
-                return
-            conn.execute(text(ddl))
+        exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name=:t AND column_name=:c"
+            ),
+            {"t": table, "c": column},
+        ).fetchone()
+        if exists:
+            return
+        conn.execute(text(ddl))
     logger.info("DB schema healed: %s.%s created", table, column)
 
 def ensure_estado_contacto_column(engine: Engine) -> None:

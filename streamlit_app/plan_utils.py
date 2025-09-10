@@ -39,7 +39,7 @@ def resolve_user_plan(token: str) -> dict:
     """Obtiene el plan y límites desde el backend."""
 
     try:
-        data = cached_get("mi_plan", token, nocache_key=time.time())
+        data = cached_get("/mi_plan", token, nocache_key=time.time())
         if data and "plan" in data:
             plan = (data.get("plan") or "free").strip().lower()
             limits = data.get("limits") or DEFAULT_LIMITS

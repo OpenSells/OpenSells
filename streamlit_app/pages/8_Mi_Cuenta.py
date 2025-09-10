@@ -93,7 +93,7 @@ st.caption(
     "Describe brevemente tu negocio, tus objetivos y el tipo de cliente que buscas."
 )
 
-resp = cached_get("mi_memoria", token)
+resp = cached_get("/mi_memoria", token)
 memoria = resp.get("memoria", "") if resp else ""
 nueva_memoria = st.text_area("Tu descripción de negocio", value=memoria, height=200)
 
@@ -113,7 +113,7 @@ if st.button("💾 Guardar memoria"):
 # -------------------- Estadísticas --------------------
 st.subheader("📊 Estadísticas de uso")
 
-resp_nichos = cached_get("mis_nichos", token)
+resp_nichos = cached_get("/mis_nichos", token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
 total_leads = 0

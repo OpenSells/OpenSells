@@ -21,6 +21,10 @@ def _safe_secret(name: str, default=None):
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 
+
+def _build_url(endpoint: str) -> str:
+    return f"{BACKEND_URL}{endpoint}" if endpoint.startswith("/") else f"{BACKEND_URL}/{endpoint}"
+
 @st.cache_resource
 def get_openai_client() -> OpenAI | None:
     """Return a cached OpenAI client or None if API key is missing."""
@@ -37,7 +41,7 @@ def cached_get(endpoint, token, query=None, nocache_key=None):
     """
     GET con caché de Streamlit. Si nocache_key cambia, se fuerza recarga.
     """
-    url = f"{BACKEND_URL}/{endpoint}"
+    url = _build_url(endpoint)
     headers = {"Authorization": f"Bearer {token}"}
     if query:
         url += "?" + urlencode(query)
@@ -51,7 +55,7 @@ def cached_get(endpoint, token, query=None, nocache_key=None):
 
 
 def cached_delete(endpoint, token, params=None):
-    url = f"{BACKEND_URL}/{endpoint}"
+    url = _build_url(endpoint)
     headers = {"Authorization": f"Bearer {token}"}
     try:
         r = requests.delete(url, headers=headers, params=params)
@@ -64,7 +68,7 @@ def cached_delete(endpoint, token, params=None):
 
 
 def cached_post(endpoint, token, payload=None, params=None):
-    url = f"{BACKEND_URL}/{endpoint}"
+    url = _build_url(endpoint)
     headers = {"Authorization": f"Bearer {token}"}
     try:
         r = requests.post(url, headers=headers, json=payload, params=params)

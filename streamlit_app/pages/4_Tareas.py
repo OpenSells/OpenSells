@@ -86,7 +86,7 @@ def norm_dom(url: str) -> str:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_nichos = cached_get("mis_nichos", token)
+datos_nichos = cached_get("/mis_nichos", token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
 @st.cache_data(ttl=30)
@@ -298,7 +298,7 @@ elif seleccion == "Nichos":
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
-    ln_data = cached_get("mis_nichos", token)
+    ln_data = cached_get("/mis_nichos", token)
     ln = ln_data.get("nichos", []) if ln_data else []
 
     if not ln:

@@ -13,6 +13,7 @@ beautifulsoup4
 requests
 phonenumbers
 scraperapi-sdk
+email-validator>=2.1.0
 
 # IA
 openai
@@ -31,4 +32,6 @@ pandas
 # Testing
 pytest
 psycopg2-binary
+testcontainers
+pytest-asyncio
 

@@ -9,7 +9,7 @@ BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 
 def _full_url(path: str) -> str:
-    return f"{BASE_URL}{path}"
+    return f"{BASE_URL}{path if path.startswith('/') else '/' + path}"
 
 
 def _build_session() -> requests.Session:

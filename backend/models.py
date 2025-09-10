@@ -160,3 +160,41 @@ class UsuarioMemoria(Base):
     email_lower = Column(String, primary_key=True, index=True)
     descripcion = Column(Text)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class HistorialExport(Base):
+    """Historial de exportaciones de CSV por usuario."""
+
+    __tablename__ = "historial"
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    filename = Column(String)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    @validates("user_email")
+    def _set_lower(self, key, value):
+        return (value or "").strip().lower()
+
+
+class LeadEstado(Base):
+    """Estado de contacto de un lead por usuario."""
+
+    __tablename__ = "lead_estado"
+
+    id = Column(Integer, primary_key=True)
+    user_email_lower = Column(String, nullable=False, index=True)
+    url = Column(String)
+    dominio = Column(String)
+    estado = Column(String, nullable=False, server_default="pendiente")
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email_lower", "dominio", name="uix_lead_estado_usuario_dominio"
+        ),
+    )
+
+    @validates("user_email_lower")
+    def _lower(self, key, value):
+        return (value or "").strip().lower()
