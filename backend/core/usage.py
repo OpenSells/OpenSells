@@ -6,6 +6,7 @@ from typing import Tuple
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import ProgrammingError
+from psycopg2.errors import UndefinedTable
 import logging
 
 from backend.core.plan_config import get_limits
@@ -31,18 +32,28 @@ def _get_row(db: Session, user_id: int, metric: str, period_key: str) -> UsageCo
             .filter_by(user_id=user_id, metric=metric, period_key=period_key)
             .first()
         )
-    except ProgrammingError as e:  # pragma: no cover - table missing
+    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
         if "usage_counters" in str(getattr(e, "orig", "")):
             logger.warning(
                 "usage_counters table missing; returning 0 for %s/%s", metric, period_key
             )
+            db.rollback()
             return None
         raise
 
 
 def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
-    row = _get_row(db, user_id, metric, period_key)
-    return row.count if row else 0
+    try:
+        row = _get_row(db, user_id, metric, period_key)
+        return row.count if row else 0
+    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
+        if "usage_counters" in str(getattr(e, "orig", "")):
+            logger.warning(
+                "usage_counters table missing; returning 0 for %s/%s", metric, period_key
+            )
+            db.rollback()
+            return 0
+        raise
 
 
 def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
@@ -51,16 +62,20 @@ def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int =
         if row:
             row.count += by
         else:
-            row = UsageCounter(user_id=user_id, metric=metric, period_key=period_key, count=by)
+            row = UsageCounter(
+                user_id=user_id, metric=metric, period_key=period_key, count=by
+            )
             db.add(row)
         db.commit()
         return row.count
-    except ProgrammingError as e:  # pragma: no cover - table missing
+    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
         if "usage_counters" in str(getattr(e, "orig", "")):
             logger.warning(
                 "usage_counters table missing; cannot increment %s/%s", metric, period_key
             )
-            raise RuntimeError("usage_counters table missing; run migrations") from e
+            db.rollback()
+            return 0
+        db.rollback()
         raise
 
 

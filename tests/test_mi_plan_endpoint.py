@@ -49,7 +49,7 @@ def test_mi_plan_usage_updates(client):
     assert usage["csv_exports"]["used"] == 1
 
 
-def test_mi_plan_without_usage_table(client, db_session):
+def test_mi_plan_without_usage_table_returns_200(client, db_session):
     db_session.execute("DROP TABLE IF EXISTS usage_counters")
     db_session.commit()
     email = f"no_table_{uuid.uuid4()}@example.com"

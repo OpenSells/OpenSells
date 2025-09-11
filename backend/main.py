@@ -98,17 +98,15 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     degraded = False
     try:
         db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
-    except Exception as e:  # pragma: no cover - table missing
-        logger.warning("usage_counters table missing or inaccessible: %s", e)
-        degraded = True
-
-    if degraded:
-        lead_used = free_used = csv_used = ai_used = 0
-    else:
         lead_used = get_count(db, usuario.id, "lead_credits", mkey)
         free_used = get_count(db, usuario.id, "free_searches", mkey)
         csv_used = get_count(db, usuario.id, "csv_exports", mkey)
         ai_used = get_count(db, usuario.id, "ai_messages", dkey)
+    except Exception as e:  # pragma: no cover - table missing
+        logger.warning("usage_counters table missing or inaccessible: %s", e)
+        db.rollback()
+        degraded = True
+        lead_used = free_used = csv_used = ai_used = 0
 
     limits = {
         "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
