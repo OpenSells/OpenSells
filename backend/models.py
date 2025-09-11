@@ -107,6 +107,7 @@ class UsageCounter(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "metric", "period_key", name="uix_usage_counter"),
+        Index("idx_usage_counters_user_metric_period", "user_id", "metric", "period_key"),
     )
 
 

@@ -27,6 +27,10 @@ from backend.core.usage import (
     month_key,
     get_count,
 )
+from sqlalchemy import text
+import logging
+
+logger = logging.getLogger(__name__)
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -91,10 +95,20 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     mkey = month_key()
     dkey = day_key()
 
-    lead_used = get_count(db, usuario.id, "lead_credits", mkey)
-    free_used = get_count(db, usuario.id, "free_searches", mkey)
-    csv_used = get_count(db, usuario.id, "csv_exports", mkey)
-    ai_used = get_count(db, usuario.id, "ai_messages", dkey)
+    degraded = False
+    try:
+        db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
+    except Exception as e:  # pragma: no cover - table missing
+        logger.warning("usage_counters table missing or inaccessible: %s", e)
+        degraded = True
+
+    if degraded:
+        lead_used = free_used = csv_used = ai_used = 0
+    else:
+        lead_used = get_count(db, usuario.id, "lead_credits", mkey)
+        free_used = get_count(db, usuario.id, "free_searches", mkey)
+        csv_used = get_count(db, usuario.id, "csv_exports", mkey)
+        ai_used = get_count(db, usuario.id, "ai_messages", dkey)
 
     limits = {
         "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
@@ -134,7 +148,10 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
             "limit": plan.tasks_active_max,
         },
     }
-    return {"plan": plan_name, "limits": limits, "usage": usage}
+    result = {"plan": plan_name, "limits": limits, "usage": usage}
+    if degraded:
+        result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
+    return result
 
 
 class MemoriaPayload(BaseModel):

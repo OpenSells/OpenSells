@@ -20,7 +20,13 @@ def upgrade():
         sa.Column('count', sa.Integer(), nullable=False, server_default='0'),
         sa.UniqueConstraint('user_id', 'metric', 'period_key', name='uix_usage_counter')
     )
+    op.create_index(
+        'idx_usage_counters_user_metric_period',
+        'usage_counters',
+        ['user_id', 'metric', 'period_key']
+    )
 
 
 def downgrade():
+    op.drop_index('idx_usage_counters_user_metric_period', table_name='usage_counters')
     op.drop_table('usage_counters')

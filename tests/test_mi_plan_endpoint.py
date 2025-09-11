@@ -47,3 +47,20 @@ def test_mi_plan_usage_updates(client):
     assert usage["ai_messages"]["used_today"] == 1
     assert usage["free_searches"]["used"] == 1
     assert usage["csv_exports"]["used"] == 1
+
+
+def test_mi_plan_without_usage_table(client, db_session):
+    db_session.execute("DROP TABLE IF EXISTS usage_counters")
+    db_session.commit()
+    email = f"no_table_{uuid.uuid4()}@example.com"
+    headers = auth(client, email)
+    r = client.get("/mi_plan", headers=headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["usage"]["lead_credits"]["used"] == 0
+    assert data.get("meta", {}).get("degraded") is True
+    # recreate table for subsequent tests
+    from backend.models import UsageCounter
+
+    UsageCounter.__table__.create(db_session.bind)
+    db_session.commit()
