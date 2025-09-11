@@ -20,7 +20,7 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Esquema multi‑tenant armonizado:** las tablas incluyen `user_email_lower` no nulo, índices compuestos y conteo de leads por dominio distinto vía `/conteo_leads`.
 - **Base de datos solo PostgreSQL:** se eliminó soporte a SQLite y se valida que `DATABASE_URL` no use ese motor.
 - **Migración a emails en minúsculas:** script `backend/scripts/migrate_emails_lowercase.py` para poblar e indexar campos `user_email_lower`.
-- **Matriz de planes centralizada:** `backend/core/plans.py` y `backend/core/usage.py` definen límites y registran consumo mensual.
+- **Matriz de planes centralizada:** `backend/core/plan_config.py` y `backend/core/usage.py` definen límites y registran consumo.
 - **Suspensión de usuarios:** columna `suspendido` en `usuarios` y guard que bloquea acceso si está activa.
 - **Depuración de tablas legado:** eliminadas referencias a `users` y `usage_counters`; la info de usuarios se gestiona solo en `usuarios` y el uso mensual en `user_usage_monthly`.
 
