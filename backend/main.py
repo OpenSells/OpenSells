@@ -90,33 +90,51 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
     mkey = month_key()
     dkey = day_key()
+
+    lead_used = get_count(db, usuario.id, "lead_credits", mkey)
+    free_used = get_count(db, usuario.id, "free_searches", mkey)
+    csv_used = get_count(db, usuario.id, "csv_exports", mkey)
+    ai_used = get_count(db, usuario.id, "ai_messages", dkey)
+
+    limits = {
+        "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
+        "leads_cap_per_search": plan.leads_cap_per_search if plan.type == "free" else None,
+        "csv_exports_per_month": plan.csv_exports_per_month if plan.type == "free" else None,
+        "csv_rows_cap_free": plan.csv_rows_cap_free if plan.type == "free" else None,
+        "lead_credits_month": plan.lead_credits_month if plan.type == "paid" else None,
+        "tasks_active_max": plan.tasks_active_max,
+        "ai_daily_limit": plan.ai_daily_limit,
+    }
+
     usage = {
         "lead_credits": {
-            "used": get_count(db, usuario.id, "lead_credits", mkey),
-            "remaining": (plan.lead_credits_month - get_count(db, usuario.id, "lead_credits", mkey)) if plan.lead_credits_month is not None else None,
+            "used": lead_used,
+            "remaining": (plan.lead_credits_month - lead_used) if plan.lead_credits_month is not None else None,
             "period": mkey,
         },
         "free_searches": {
-            "used": get_count(db, usuario.id, "free_searches", mkey),
-            "remaining": (plan.searches_per_month - get_count(db, usuario.id, "free_searches", mkey)) if plan.searches_per_month else None,
+            "used": free_used,
+            "remaining": (plan.searches_per_month - free_used) if plan.searches_per_month is not None else None,
             "period": mkey,
         },
         "csv_exports": {
-            "used": get_count(db, usuario.id, "csv_exports", mkey),
-            "remaining": (plan.csv_exports_per_month - get_count(db, usuario.id, "csv_exports", mkey)) if plan.csv_exports_per_month else None,
+            "used": csv_used,
+            "remaining": (plan.csv_exports_per_month - csv_used) if plan.csv_exports_per_month is not None else None,
             "period": mkey,
         },
         "ai_messages": {
-            "used_today": get_count(db, usuario.id, "ai_messages", dkey),
-            "remaining_today": plan.ai_daily_limit - get_count(db, usuario.id, "ai_messages", dkey),
+            "used_today": ai_used,
+            "remaining_today": plan.ai_daily_limit - ai_used,
             "period": dkey,
         },
         "tasks_active": {
-            "current": db.query(LeadTarea).filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False).count(),
+            "current": db.query(LeadTarea)
+            .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
+            .count(),
             "limit": plan.tasks_active_max,
         },
     }
-    return {"plan": plan_name, "limits": plan.__dict__, "usage": usage}
+    return {"plan": plan_name, "limits": limits, "usage": usage}
 
 
 class MemoriaPayload(BaseModel):

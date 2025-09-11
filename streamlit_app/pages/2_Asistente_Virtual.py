@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
+from streamlit_app.utils.quota_bars import render_quota_bars
 from streamlit_app.assistant_api import (
     ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
@@ -74,6 +75,7 @@ st.markdown(
 st.divider()
 
 plan = resolve_user_plan(token)["plan"]
+render_quota_bars(http_client, place="body")
 
 
 def es_intencion_extraer_leads(texto: str) -> bool:
