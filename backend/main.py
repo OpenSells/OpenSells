@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from urllib.parse import urlparse
-from datetime import datetime
 
 from backend.database import get_db
 from backend.models import (
@@ -14,9 +13,24 @@ from backend.models import (
     LeadTarea,
     Usuario,
     UsuarioMemoria,
-    UserUsageMonthly,
 )
-from backend.core.plans import resolve_user_plan
+from backend.core.plan_config import get_plan_for_user
+from backend.core.usage import (
+    can_export_csv,
+    can_start_search,
+    can_use_ai,
+    consume_ai,
+    consume_csv_export,
+    consume_free_search,
+    consume_lead_credits,
+    day_key,
+    month_key,
+    get_count,
+)
+from sqlalchemy import text
+import logging
+
+logger = logging.getLogger(__name__)
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -25,12 +39,6 @@ from backend.auth import (
 )
 
 app = FastAPI()
-
-PLAN_LIMITS = {
-    "free": {"tareas": 2, "csv_exports": 1},
-    "basico": {"tareas": 5, "csv_exports": 5},
-    "premium": {"tareas": 999, "csv_exports": 999},
-}
 
 
 def normalizar_dominio(dominio: str) -> str:
@@ -82,9 +90,66 @@ def me(usuario=Depends(get_current_user)):
 
 
 @app.get("/mi_plan")
-def mi_plan(usuario=Depends(get_current_user)):
-    plan, limits = resolve_user_plan(usuario)
-    return {"plan": plan, "limits": limits}
+def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    plan_name, plan = get_plan_for_user(usuario)
+    mkey = month_key()
+    dkey = day_key()
+
+    degraded = False
+    try:
+        db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
+        lead_used = get_count(db, usuario.id, "lead_credits", mkey)
+        free_used = get_count(db, usuario.id, "free_searches", mkey)
+        csv_used = get_count(db, usuario.id, "csv_exports", mkey)
+        ai_used = get_count(db, usuario.id, "ai_messages", dkey)
+    except Exception as e:  # pragma: no cover - table missing
+        logger.warning("usage_counters table missing or inaccessible: %s", e)
+        db.rollback()
+        degraded = True
+        lead_used = free_used = csv_used = ai_used = 0
+
+    limits = {
+        "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
+        "leads_cap_per_search": plan.leads_cap_per_search if plan.type == "free" else None,
+        "csv_exports_per_month": plan.csv_exports_per_month if plan.type == "free" else None,
+        "csv_rows_cap_free": plan.csv_rows_cap_free if plan.type == "free" else None,
+        "lead_credits_month": plan.lead_credits_month if plan.type == "paid" else None,
+        "tasks_active_max": plan.tasks_active_max,
+        "ai_daily_limit": plan.ai_daily_limit,
+    }
+
+    usage = {
+        "lead_credits": {
+            "used": lead_used,
+            "remaining": (plan.lead_credits_month - lead_used) if plan.lead_credits_month is not None else None,
+            "period": mkey,
+        },
+        "free_searches": {
+            "used": free_used,
+            "remaining": (plan.searches_per_month - free_used) if plan.searches_per_month is not None else None,
+            "period": mkey,
+        },
+        "csv_exports": {
+            "used": csv_used,
+            "remaining": (plan.csv_exports_per_month - csv_used) if plan.csv_exports_per_month is not None else None,
+            "period": mkey,
+        },
+        "ai_messages": {
+            "used_today": ai_used,
+            "remaining_today": plan.ai_daily_limit - ai_used,
+            "period": dkey,
+        },
+        "tasks_active": {
+            "current": db.query(LeadTarea)
+            .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
+            .count(),
+            "limit": plan.tasks_active_max,
+        },
+    }
+    result = {"plan": plan_name, "limits": limits, "usage": usage}
+    if degraded:
+        result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
+    return result
 
 
 class MemoriaPayload(BaseModel):
@@ -124,19 +189,6 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
     return {"nichos": [{"nicho": n, "nicho_original": o} for n, o in rows]}
 
 
-def _get_usage(db: Session, user_id: int) -> UserUsageMonthly:
-    period = datetime.utcnow().strftime("%Y%m")
-    usage = (
-        db.query(UserUsageMonthly)
-        .filter_by(user_id=user_id, period_yyyymm=period)
-        .first()
-    )
-    if not usage:
-        usage = UserUsageMonthly(user_id=user_id, period_yyyymm=period)
-        db.add(usage)
-        db.commit()
-        db.refresh(usage)
-    return usage
 
 
 class TareaPayload(BaseModel):
@@ -152,10 +204,24 @@ def crear_tarea(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    limits = PLAN_LIMITS.get(usuario.plan, PLAN_LIMITS["free"])
-    usage = _get_usage(db, usuario.id)
-    if usage.tasks >= limits["tareas"]:
-        raise HTTPException(status_code=403, detail="Límite de tareas excedido")
+    plan_name, plan = get_plan_for_user(usuario)
+    active = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
+        .count()
+    )
+    if active >= plan.tasks_active_max:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "tasks",
+                "plan": plan_name,
+                "limit": plan.tasks_active_max,
+                "remaining": 0,
+                "message": "Límite de tareas alcanzado",
+            },
+        )
     tarea = LeadTarea(
         email=usuario.email,
         texto=payload.texto,
@@ -165,7 +231,6 @@ def crear_tarea(
         completado=payload.completado,
     )
     db.add(tarea)
-    usage.tasks += 1
     db.commit()
     db.refresh(tarea)
     return {"id": tarea.id, "texto": tarea.texto}
@@ -207,15 +272,101 @@ def exportar_csv(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    limits = PLAN_LIMITS.get(usuario.plan, PLAN_LIMITS["free"])
-    usage = _get_usage(db, usuario.id)
-    if usage.csv_exports >= limits["csv_exports"]:
-        raise HTTPException(status_code=403, detail="Límite de exportaciones excedido")
+    plan_name, plan = get_plan_for_user(usuario)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "csv",
+                "plan": plan_name,
+                "limit": plan.csv_exports_per_month,
+                "remaining": remaining,
+                "message": "Límite de exportaciones alcanzado",
+            },
+        )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
-    usage.csv_exports += 1
+    consume_csv_export(db, usuario.id, plan_name)
     db.commit()
     return {"ok": True}
+
+
+class AIPayload(BaseModel):
+    prompt: str
+
+
+@app.post("/ia")
+def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    plan_name, plan = get_plan_for_user(usuario)
+    ok, remaining = can_use_ai(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "ai",
+                "plan": plan_name,
+                "limit": plan.ai_daily_limit,
+                "remaining": remaining,
+                "message": "Límite de IA alcanzado",
+            },
+        )
+    consume_ai(db, usuario.id, plan_name)
+    return {"ok": True}
+
+
+class LeadsPayload(BaseModel):
+    nuevos: int
+    duplicados: int = 0
+
+
+@app.post("/buscar_leads")
+def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    plan_name, plan = get_plan_for_user(usuario)
+    ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "search",
+                "plan": plan_name,
+                "limit": plan.searches_per_month,
+                "remaining": remaining,
+                "message": "Límite de búsquedas alcanzado",
+            },
+        )
+
+    truncated = False
+    duplicates = payload.duplicados
+    saved = payload.nuevos
+    if plan.type == "free":
+        if cap is not None and saved > cap:
+            duplicates += saved - cap
+            saved = cap
+            truncated = True
+        consume_free_search(db, usuario.id, plan_name)
+        credits_remaining = None
+    else:
+        nuevos_unicos = payload.nuevos - payload.duplicados
+        available = remaining if remaining is not None else nuevos_unicos
+        if available < nuevos_unicos:
+            duplicates += nuevos_unicos - available
+            nuevos_unicos = available
+            truncated = True
+        consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+        saved = nuevos_unicos
+        credits_remaining = (remaining - nuevos_unicos) if remaining is not None else None
+
+    db.commit()
+    return {
+        "saved": saved,
+        "duplicates": duplicates,
+        "truncated": truncated,
+        "credits_remaining": credits_remaining,
+    }
 
 
 @app.get("/historial")

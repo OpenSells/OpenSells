@@ -11,6 +11,7 @@ import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta, resolve_user_plan
+from streamlit_app.utils.quota_bars import render_quota_bars
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -39,6 +40,7 @@ if token and not user:
         st.session_state["user"] = user
 
 plan = resolve_user_plan(token)["plan"]
+quota_data = render_quota_bars(http_client, place="body")
 
 with st.sidebar:
     logout_button()
@@ -263,7 +265,15 @@ if nicho_actual:
     st.session_state.nicho_actual = nicho_actual
 
 # -------------------- Generar variantes --------------------
-if st.button("🚀 Buscar variantes"):
+remaining_searches = None
+if plan == "free" and quota_data:
+    remaining_searches = quota_data.get("usage", {}).get("free_searches", {}).get("remaining")
+disable_search = plan == "free" and remaining_searches == 0
+if st.button(
+    "🚀 Buscar variantes",
+    disabled=disable_search,
+    help="Límite de búsquedas alcanzado" if disable_search else None,
+):
     if not cliente_ideal.strip() or not nicho_actual:
         st.warning("Completa cliente ideal y nicho para continuar")
     else:

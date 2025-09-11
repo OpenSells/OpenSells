@@ -96,6 +96,21 @@ class UserUsageMonthly(Base):
     )
 
 
+class UsageCounter(Base):
+    __tablename__ = "usage_counters"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    metric = Column(String, nullable=False)
+    period_key = Column(String, nullable=False)
+    count = Column(Integer, nullable=False, server_default=text("0"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric", "period_key", name="uix_usage_counter"),
+        Index("idx_usage_counters_user_metric_period", "user_id", "metric", "period_key"),
+    )
+
+
 class LeadNota(Base):
     __tablename__ = "lead_nota"
 
