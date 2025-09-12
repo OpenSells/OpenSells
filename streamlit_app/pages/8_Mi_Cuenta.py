@@ -19,16 +19,31 @@ from streamlit_app.utils.auth_session import (
 from streamlit_app.utils.logout_button import logout_button
 
 # --- Helpers Uso del plan ---
-PRIMARY_METRICS_ORDER = [
-    "leads_mes",
+_NUM_CANDIDATES_USAGE = ["usado", "used", "count", "value", "current", "consumed"]
+_NUM_CANDIDATES_QUOTA = ["limite", "limit", "max", "quota", "cap", "allowed", "total"]
+
+# --- Config de KPIs visibles y etiquetas ---
+PRIMARY_KEYS = [
+    "leads_mes",          # leads mensuales
+    "searches_per_month", # alias búsquedas/mes si el backend lo trae
     "tareas",
-    "notas",
     "exportaciones",
     "mensajes_ia",
 ]
 
-_NUM_CANDIDATES_USAGE = ["usado", "used", "count", "value", "current", "consumed"]
-_NUM_CANDIDATES_QUOTA = ["limite", "limit", "max", "quota", "cap", "allowed", "total"]
+# mapeo -> etiqueta bonita en ES
+LABELS_ES = {
+    "leads_mes": "Leads mes",
+    "searches_per_month": "Búsquedas/mes",
+    "tareas": "Tareas",
+    "exportaciones": "Exportaciones",
+    "mensajes_ia": "Mensajes IA",
+}
+
+# posibles alias para detectar 'searches_per_month'
+ALIASES_EXTRA = {
+    "searches_per_month": ["searches_per_month", "busquedas_mes", "leads_month", "searches"],
+}
 
 
 def _to_number(x: Any, default: int = 0) -> int:
@@ -73,6 +88,18 @@ def _flatten_numbers(d: dict, for_quota: bool = False) -> dict:
         out[k] = _to_number(v, 0)
     return out
 
+
+def _resolve_aliases(d: dict) -> dict:
+    out = dict(d)
+    for std, ks in ALIASES_EXTRA.items():
+        if std in out:
+            continue
+        for k in ks:
+            if k in d:
+                out[std] = d[k]
+                break
+    return out
+
 def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     """Acepta el JSON de /mi_plan y devuelve (usage, quotas) normalizados.
     Admite formatos:
@@ -84,11 +111,11 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
 
     def _norm(d: dict) -> dict:
         aliases = {
-            "leads_mes":    ["leads_mes","leads_month","leads","searches","busquedas"],
-            "tareas":       ["tareas","tasks"],
-            "notas":        ["notas","notes"],
-            "exportaciones":["exportaciones","exports"],
-            "mensajes_ia":  ["mensajes_ia","ia_mensajes","ia_msgs","ai_messages"],
+            "leads_mes":    ["leads_mes", "leads"],
+            "tareas":       ["tareas", "tasks"],
+            "notas":        ["notas", "notes"],
+            "exportaciones": ["exportaciones", "exports"],
+            "mensajes_ia":  ["mensajes_ia", "ia_mensajes", "ia_msgs", "ai_messages"],
         }
         out = {}
         for std, ks in aliases.items():
@@ -121,37 +148,58 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     usage = _flatten_numbers(usage_raw, for_quota=False)
     quotas = _flatten_numbers(quotas_raw, for_quota=True)
 
+    usage = _resolve_aliases(usage)
+    quotas = _resolve_aliases(quotas)
+
     return usage, quotas
+
+
+def _render_row(label: str, usado: int, cupo):
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if isinstance(cupo, int) and cupo > 0:
+            pct = min(usado / cupo, 1.0)
+            st.progress(pct)
+            st.markdown(f"**{label}:** {usado} / {cupo}")
+        elif cupo == 0:
+            st.progress(1.0 if usado > 0 else 0.0)
+            st.markdown(f"**{label}:** {usado} / 0")
+        else:
+            st.progress(0.0 if usado == 0 else 1.0)
+            st.markdown(f"**{label}:** {usado} / —")
+    with col2:
+        st.metric("Usado", usado)
+
+
+def _pretty_label(key: str) -> str:
+    return LABELS_ES.get(key, key.replace("_", " ").capitalize())
+
 
 def _render_usage_section(usage: dict, quotas: dict):
     st.subheader("📊 Uso del plan")
 
-    ordered = ["leads_mes", "tareas", "notas", "exportaciones", "mensajes_ia"]
-    extras = [k for k in (usage.keys() | quotas.keys()) if k not in ordered]
-    keys = ordered + extras
+    shown = set()
+    for key in PRIMARY_KEYS:
+        if key in usage or key in quotas:
+            usado = _to_number(usage.get(key), 0)
+            cupo = quotas.get(key, None)
+            _render_row(_pretty_label(key), usado, cupo)
+            shown.add(key)
 
-    if all(quotas.get(k) is None for k in keys):
-        st.caption("Los cupos no han sido informados por el backend. Se muestran contadores a 0 / —.")
+    if not any(
+        isinstance(quotas.get(k), int) and quotas.get(k) > 0 for k in quotas
+    ):
+        st.caption(
+            "Los cupos no han sido informados por el backend. Se muestran contadores a 0 / — cuando aplique."
+        )
 
-    for k in keys:
-        usado = _to_number(usage.get(k), 0)
-        cupo = quotas.get(k, None)
-        label = k.replace("_", " ").capitalize()
-
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            if isinstance(cupo, int) and cupo > 0:
-                pct = min(usado / cupo, 1.0)
-                st.progress(pct)
-                st.markdown(f"**{label}:** {usado} / {cupo}")
-            elif cupo == 0:
-                st.progress(1.0 if usado > 0 else 0.0)
-                st.markdown(f"**{label}:** {usado} / 0")
-            else:
-                st.progress(0.0 if usado == 0 else 1.0)
-                st.markdown(f"**{label}:** {usado} / —")
-        with col2:
-            st.metric("Usado", usado)
+    extras = [k for k in (usage.keys() | quotas.keys()) if k not in shown]
+    if extras:
+        with st.expander("Detalles avanzados"):
+            for k in sorted(extras):
+                usado = _to_number(usage.get(k), 0)
+                cupo = quotas.get(k, None)
+                _render_row(_pretty_label(k), usado, cupo)
 
 load_dotenv()
 
