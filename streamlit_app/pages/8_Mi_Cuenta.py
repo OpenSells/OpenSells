@@ -6,16 +6,18 @@ import pandas as pd
 import io
 import streamlit as st
 from dotenv import load_dotenv
+from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
+from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.auth_session import (
     is_authenticated,
     remember_current_page,
     get_auth_token,
 )
 from streamlit_app.utils.logout_button import logout_button
-from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
 
+# --- Helpers Uso del plan ---
 PRIMARY_METRICS_ORDER = [
     "leads_mes",
     "tareas",
@@ -24,8 +26,72 @@ PRIMARY_METRICS_ORDER = [
     "mensajes_ia",
 ]
 
-load_dotenv()
+def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
+    """Acepta el JSON de /mi_plan y devuelve (usage, quotas) normalizados.
+    Admite formatos:
+      { plan, limites: {...}, uso: {...} }  ó  { plan, limits: {...}, usage: {...} }
+    y mapea claves frecuentes.
+    """
+    limites = mi_plan.get("limites") or mi_plan.get("limits") or {}
+    uso = mi_plan.get("uso") or mi_plan.get("usage") or {}
 
+    def _norm(d: dict) -> dict:
+        aliases = {
+            "leads_mes":    ["leads_mes","leads_month","leads","searches","busquedas"],
+            "tareas":       ["tareas","tasks"],
+            "notas":        ["notas","notes"],
+            "exportaciones":["exportaciones","exports"],
+            "mensajes_ia":  ["mensajes_ia","ia_mensajes","ia_msgs","ai_messages"],
+        }
+        out = {}
+        for std, ks in aliases.items():
+            for k in ks:
+                if k in d:
+                    out[std] = d.get(k)
+                    break
+        for k, v in d.items():
+            if k not in sum(aliases.values(), []):
+                out[k] = v
+        return out
+
+    limites_alias = dict(limites)
+    if "leads_mensuales" in limites_alias and "leads_mes" not in limites_alias:
+        limites_alias["leads_mes"] = limites_alias.pop("leads_mensuales")
+    if "ia_mensajes" in limites_alias and "mensajes_ia" not in limites_alias:
+        limites_alias["mensajes_ia"] = limites_alias.pop("ia_mensajes")
+    if "tareas_max" in limites_alias and "tareas" not in limites_alias:
+        limites_alias["tareas"] = limites_alias.pop("tareas_max")
+    if "csv_exportacion" in limites_alias and "exportaciones" not in limites_alias:
+        val = limites_alias.pop("csv_exportacion")
+        limites_alias["exportaciones"] = 999999 if val is True else (0 if val is False else val)
+
+    usage = _norm(uso or {})
+    quotas = _norm(limites_alias or {})
+    return usage, quotas
+
+def _render_usage_section(usage: dict, quotas: dict):
+    st.subheader("📊 Uso del plan")
+    if not quotas:
+        st.caption("Los cupos no han sido informados por el backend. Se muestran contadores a 0 / —.")
+    extras = [k for k in (usage.keys() | quotas.keys()) if k not in PRIMARY_METRICS_ORDER]
+    keys = PRIMARY_METRICS_ORDER + extras
+    for k in keys:
+        usado = int((usage.get(k) or 0) or 0)
+        cupo = quotas.get(k, None)
+        label = k.replace("_"," ").capitalize()
+        col1, col2 = st.columns([3,1])
+        with col1:
+            if isinstance(cupo, int) and cupo > 0:
+                pct = min(usado / cupo, 1.0) if cupo else 0.0
+                st.progress(pct)
+                st.markdown(f"**{label}:** {usado} / {cupo}")
+            else:
+                st.progress(0.0)
+                st.markdown(f"**{label}:** {usado} / —")
+        with col2:
+            st.metric("Usado", usado)
+
+load_dotenv()
 
 def _safe_secret(name: str, default=None):
     """Safely retrieve configuration from env or Streamlit secrets."""
@@ -37,59 +103,14 @@ def _safe_secret(name: str, default=None):
     except Exception:
         return default
 
-
-def render_account_data(me: dict, plan_name: str):
-    st.subheader("Datos de la cuenta")
-    estado = "suspendido" if me.get("suspendido") else "activo"
-    st.markdown(f"**Email:** {me.get('email','-')}")
-    st.markdown(f"**Plan:** {plan_name.capitalize()}")
-    st.markdown(f"**Estado:** {estado}")
-    if me.get("fecha_creacion"):
-        st.markdown(f"**Alta:** {me['fecha_creacion']}")
-
-
-def render_subscription(subscription: dict):
-    st.subheader("Suscripción")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        next_renewal = subscription.get("next_renewal") or subscription.get("current_period_end") or "—"
-        st.markdown(f"**Renovación:** {next_renewal}")
-        st.markdown(f"**Estado pago:** {subscription.get('status','—')}")
-    with col2:
-        manage_url = subscription.get("manage_url")
-        cancel_url = subscription.get("cancel_url")
-        if manage_url:
-            st.link_button("Gestionar plan", manage_url, use_container_width=True)
-        if cancel_url:
-            st.link_button("Cancelar", cancel_url, type="secondary", use_container_width=True)
-
-
-def render_usage(usage: dict, quotas: dict):
-    st.subheader("Uso del plan")
-
-    extras = [k for k in (usage.keys() | quotas.keys()) if k not in PRIMARY_METRICS_ORDER]
-    keys = PRIMARY_METRICS_ORDER + extras
-
-    if not quotas:
-        st.caption("Los cupos no han sido informados por el backend. Se muestran contadores a 0 / —.")
-
-    for k in keys:
-        usado = int(usage.get(k, 0) or 0)
-        cupo = quotas.get(k, None)
-        label = k.replace("_", " ").capitalize()
-
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            if isinstance(cupo, int) and cupo > 0:
-                pct = min(usado / cupo, 1.0)
-                st.progress(pct)
-                st.markdown(f"**{label}:** {usado} / {cupo}")
-            else:
-                st.progress(0.0)
-                st.markdown(f"**{label}:** {usado} / —")
-        with col2:
-            st.metric(label="Usado", value=usado)
-
+def is_debug_ui_enabled():
+    env_ok = os.getenv("DEBUG_UI", "").strip().lower() == "true"
+    secrets_ok = False
+    try:
+        secrets_ok = bool(st.secrets.get("DEBUG_UI", False))
+    except Exception:
+        secrets_ok = False
+    return env_ok or secrets_ok
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
@@ -102,27 +123,49 @@ if not is_authenticated():
     st.stop()
 
 token = get_auth_token()
-me, usage, quotas, subscription = fetch_account_overview(token)
-user = me
+user = cached_get("/me", token) or {}
 st.session_state["user"] = user
-
 if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
 
-plan_name = get_plan_name(user)
+# Recuperar plan y límites/uso
+try:
+    mi_plan = cached_get("/mi_plan", token) or {}
+except Exception:
+    mi_plan = {}
+plan = mi_plan.get("plan", "free")
 
 with st.sidebar:
     logout_button()
 
 headers = {"Authorization": f"Bearer {token}"}
 
-st.title("Mi Cuenta")
+# -------------------- Sección principal --------------------
+st.title("⚙️ Mi Cuenta")
 
-render_account_data(user, plan_name)
-render_subscription(subscription)
+# -------------------- Plan actual --------------------
+st.subheader("📄 Plan actual")
+if plan == "free":
+    st.success("Tu plan actual es: free")
+    st.warning(
+        "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
+    )
+    subscription_cta()
+elif plan == "basico":
+    st.success("Tu plan actual es: basico")
+elif plan == "premium":
+    st.success("Tu plan actual es: premium")
+else:
+    st.success(f"Tu plan actual es: {plan}")
 
+# --- NUEVO: Uso del plan (debajo de "📄 Plan actual") ---
+try:
+    mi_plan = cached_get("/mi_plan", token) or {}
+except Exception:
+    mi_plan = {}
+usage, quotas = _normalize_usage_and_quotas(mi_plan)
+_render_usage_section(usage, quotas)
 st.divider()
-render_usage(usage, quotas)
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
@@ -153,10 +196,11 @@ st.subheader("📊 Estadísticas de uso")
 resp_nichos = cached_get("/mis_nichos", token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
-total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
     total_leads = len(df)
+else:
+    total_leads = 0
 
 resp_tareas = cached_get("tareas_pendientes", token)
 tareas = resp_tareas or []
@@ -194,3 +238,87 @@ with st.form("form_pass"):
                     else "Error al cambiar contraseña."
                 )
 
+# -------------------- Suscripción --------------------
+st.subheader("💳 Suscripción")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("**Selecciona un plan:**")
+    planes = {
+        "Básico – 14,99€/mes": os.getenv("STRIPE_PRICE_BASICO", ""),
+        "Premium – 49,99€/mes": os.getenv("STRIPE_PRICE_PREMIUM", ""),
+    }
+    if not all(planes.values()):
+        st.error("Faltan configuraciones de precios de Stripe.")
+    else:
+        plan_elegido = st.selectbox("Planes disponibles", list(planes.keys()))
+        if st.button("💳 Iniciar suscripción"):
+            price_id = planes[plan_elegido]
+            try:
+                r = requests.post(
+                    f"{BACKEND_URL}/crear_portal_pago",
+                    headers=headers,
+                    params={"plan": price_id},
+                    timeout=30,
+                )
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                    except JSONDecodeError:
+                        st.error("Respuesta inválida del servidor.")
+                    else:
+                        url = data.get("url")
+                        if url:
+                            force_redirect(url)
+                        else:
+                            st.error("La respuesta no contiene URL de Stripe.")
+                else:
+                    st.error("No se pudo iniciar el pago.")
+                    st.error(f"Error {r.status_code}: {r.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+if is_debug_ui_enabled():
+    with st.expander("Debug sesión"):
+        st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
+        st.write("Usuario:", st.session_state.get("user"))
+        try:
+            dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
+        except Exception:
+            dbg_db = {}
+        try:
+            dbg_snapshot = requests.get(
+                f"{BACKEND_URL}/debug-user-snapshot", headers=headers
+            ).json()
+        except Exception:
+            dbg_snapshot = {}
+        st.write("Email /me:", dbg_snapshot.get("email_me"))
+        st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
+        st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
+        st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
+        st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
+
+with col2:
+    if plan not in ["basico", "premium"]:
+        st.button("🧾 Gestionar suscripción", disabled=True)
+    else:
+        if st.button("🧾 Gestionar suscripción"):
+            try:
+                r = requests.post(
+                    f"{BACKEND_URL}/crear_portal_cliente",
+                    headers=headers,
+                    timeout=30,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    url_portal = data.get("url")
+                    if url_portal:
+                        force_redirect(url_portal)
+                    else:
+                        st.error("La respuesta no contiene URL del portal.")
+                else:
+                    st.error("No se pudo abrir el portal del cliente.")
+                    st.error(f"Error {r.status_code}: {r.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")
