@@ -27,7 +27,6 @@ from streamlit_app.plan_utils import (
     subscription_cta,
 )
 from streamlit_app.cache_utils import cached_get
-from streamlit_app.utils.quota_bars import render_quota_bars
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -93,7 +92,6 @@ if auth:
     plan_info = resolve_user_plan(token)
     plan = plan_info["plan"]
     suscripcion_activa = tiene_suscripcion_activa(plan)
-    render_quota_bars(http_client, place="body")
     nichos_resp = cached_get("/mis_nichos", token) if token else {}
     nichos = nichos_resp.get("nichos", []) if isinstance(nichos_resp, dict) else []
     num_nichos = len(nichos)

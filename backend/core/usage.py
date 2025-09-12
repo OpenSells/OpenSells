@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Tuple
+from functools import wraps
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from backend.core.plan_config import get_limits
 from backend.models import UsageCounter
 
 logger = logging.getLogger(__name__)
+usage_log = logging.getLogger("usage")
 
 
 def month_key(dt: datetime | None = None) -> str:
@@ -77,6 +79,36 @@ def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int =
             return 0
         db.rollback()
         raise
+
+
+# ------ IA usage helpers ---------------------------------------------------
+
+def register_ia_message(db: Session, user) -> None:
+    """Incrementa la métrica mensual de mensajes IA para el usuario."""
+    inc_count(db, user.id, "mensajes_ia", month_key(), 1)
+    usage_log.info(f"[USAGE] mensajes_ia +1 user={user.email_lower}")
+
+
+def count_ia_when_called(db_getter, user_getter):
+    """Decorador que registra mensajes_ia +1 cuando la función realmente invoca OpenAI."""
+    def outer(fn):
+        @wraps(fn)
+        async def wrapper(*args, **kwargs):
+            kwargs.setdefault("_did_call_openai", False)
+            res = await fn(*args, **kwargs)
+            try:
+                if kwargs.get("_did_call_openai"):
+                    db = db_getter()
+                    user = user_getter()
+                    register_ia_message(db, user)
+                else:
+                    usage_log.info("[USAGE] skip_ia: no OpenAI call")
+            except Exception as e:  # pragma: no cover - logging only
+                usage_log.exception(f"[USAGE] register mensajes_ia failed: {e}")
+            return res
+        return wrapper
+
+    return outer
 
 
 # ------ limit helpers -----------------------------------------------------
@@ -170,4 +202,6 @@ __all__ = [
     "consume_csv_export",
     "consume_free_search",
     "consume_lead_credits",
+    "register_ia_message",
+    "count_ia_when_called",
 ]

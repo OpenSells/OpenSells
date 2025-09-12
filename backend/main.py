@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from urllib.parse import urlparse
+import os
 
 from backend.database import get_db
 from backend.models import (
@@ -19,18 +20,20 @@ from backend.core.usage import (
     can_export_csv,
     can_start_search,
     can_use_ai,
-    consume_ai,
     consume_csv_export,
     consume_free_search,
     consume_lead_credits,
     day_key,
     month_key,
     get_count,
+    inc_count,
+    register_ia_message,
 )
 from sqlalchemy import text
 import logging
 
 logger = logging.getLogger(__name__)
+usage_log = logging.getLogger("usage")
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -39,6 +42,11 @@ from backend.auth import (
 )
 
 app = FastAPI()
+
+if os.getenv("ENV") == "dev":
+    from backend.routers import debug
+
+    app.include_router(debug.router)
 
 
 def normalizar_dominio(dominio: str) -> str:
@@ -102,6 +110,7 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
         free_used = get_count(db, usuario.id, "free_searches", mkey)
         csv_used = get_count(db, usuario.id, "csv_exports", mkey)
         ai_used = get_count(db, usuario.id, "ai_messages", dkey)
+        ia_month_used = get_count(db, usuario.id, "mensajes_ia", mkey)
     except Exception as e:  # pragma: no cover - table missing
         logger.warning("usage_counters table missing or inaccessible: %s", e)
         db.rollback()
@@ -138,6 +147,10 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
             "used_today": ai_used,
             "remaining_today": plan.ai_daily_limit - ai_used,
             "period": dkey,
+        },
+        "mensajes_ia": {
+            "used": ia_month_used,
+            "period": mkey,
         },
         "tasks_active": {
             "current": db.query(LeadTarea)
@@ -313,7 +326,17 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
                 "message": "Límite de IA alcanzado",
             },
         )
-    consume_ai(db, usuario.id, plan_name)
+
+    # Simular la invocación a OpenAI; en producción se llamaría realmente
+    prompt = (payload.prompt or "").strip()
+    if not prompt:
+        usage_log.info("[USAGE] skip_ia: no OpenAI call")
+        return {"ok": False, "reason": "empty_prompt"}
+
+    # Si llega aquí, consideramos que se invocó correctamente
+    inc_count(db, usuario.id, "ai_messages", day_key(), 1)
+    register_ia_message(db, usuario)
+
     return {"ok": True}
 
 

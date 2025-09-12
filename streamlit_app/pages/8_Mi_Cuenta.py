@@ -7,15 +7,174 @@ import io
 import streamlit as st
 from dotenv import load_dotenv
 from json import JSONDecodeError
+from typing import Any
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-import streamlit_app.utils.http_client as http_client
-from streamlit_app.plan_utils import subscription_cta, force_redirect, resolve_user_plan
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.plan_utils import subscription_cta, force_redirect
+from streamlit_app.utils.auth_session import (
+    is_authenticated,
+    remember_current_page,
+    get_auth_token,
+)
 from streamlit_app.utils.logout_button import logout_button
 
-load_dotenv()
+# --- KPIs visibles (solo 2) y etiquetas ES ---
+PRIMARY_KEYS = ["searches_per_month", "mensajes_ia"]
 
+LABELS_ES = {
+    "searches_per_month": "Búsquedas/mes",
+    "mensajes_ia": "Mensajes IA",
+}
+
+# Aliases canónicos -> lista de alias aceptados (uso y cuotas)
+ALIASES_MAP = {
+    "searches_per_month": [
+        "searches_per_month",
+        "searches",
+        "busquedas_mes",
+        "leads_month",
+        "free_searches",
+    ],
+    "mensajes_ia": [
+        "mensajes_ia",
+        "ia_mensajes",
+        "ia_msgs",
+        "ai_messages",
+        "ai daily limit",
+        "ai_daily_limit",
+    ],
+}
+
+
+def _to_number(x: Any, default: int = 0) -> int:
+    if x is None:
+        return default
+    if isinstance(x, bool):
+        return int(x)
+    if isinstance(x, (int, float)):
+        return int(x)
+    if isinstance(x, dict):
+        for k in (
+            "usado",
+            "used",
+            "count",
+            "value",
+            "current",
+            "consumed",
+            "limit",
+            "max",
+            "quota",
+            "total",
+            "cap",
+            "allowed",
+        ):
+            if k in x:
+                return _to_number(x[k], default)
+        return default
+    if isinstance(x, str):
+        s = x.strip().replace(",", "")
+        try:
+            return int(float(s))
+        except Exception:
+            return default
+    return default
+
+
+def _flatten_numbers(d: dict, for_quota: bool = False) -> dict:
+    """Devuelve un dict con mismos keys pero valores enteros (o None si no aplica)."""
+    out: dict[str, int | None] = {}
+    for k, v in (d or {}).items():
+        if for_quota:
+            if isinstance(v, bool):
+                out[k] = None if v else 0
+                continue
+            if isinstance(v, str) and v.lower() in ("ilimitado", "unlimited", "∞"):
+                out[k] = None
+                continue
+        out[k] = _to_number(v, 0)
+    return out
+
+
+def _coalesce_aliases(raw: dict, is_quota: bool = False) -> dict:
+    """
+    Toma un dict (usage o quotas) y devuelve SOLO las claves canónicas de PRIMARY_KEYS,
+    resolviendo alias y evitando duplicados. Si hay varios alias presentes,
+    usa el valor NUMÉRICO MAYOR (más conservador para 'usado') y para cuota el MAYOR límite.
+    """
+    out = {}
+    for std, aliases in ALIASES_MAP.items():
+        values = []
+        for a in aliases:
+            if a in raw:
+                values.append(raw[a])
+        if not values:
+            continue
+        nums = []
+        saw_none = False
+        for v in values:
+            if is_quota and isinstance(v, bool) and v is True:
+                saw_none = True
+            elif is_quota and isinstance(v, str) and v.lower() in (
+                "ilimitado",
+                "unlimited",
+                "∞",
+            ):
+                saw_none = True
+            else:
+                nums.append(_to_number(v, 0))
+        if is_quota:
+            out[std] = None if saw_none else (max(nums) if nums else 0)
+        else:
+            out[std] = max(nums) if nums else 0
+    return out
+
+def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
+    """Acepta el JSON de /mi_plan y devuelve (usage, quotas) normalizados.
+    Admite formatos:
+      { plan, limites: {...}, uso: {...} }  ó  { plan, limits: {...}, usage: {...} }
+    y mapea claves frecuentes.
+    """
+    limites = mi_plan.get("limites") or mi_plan.get("limits") or {}
+    uso = mi_plan.get("uso") or mi_plan.get("usage") or {}
+
+    usage_norm = _flatten_numbers(uso or {}, for_quota=False)
+    quotas_norm = _flatten_numbers(limites or {}, for_quota=True)
+
+    usage_final = _coalesce_aliases(usage_norm, is_quota=False)
+    quotas_final = _coalesce_aliases(quotas_norm, is_quota=True)
+
+    return usage_final, quotas_final
+
+
+def _render_row(label: str, usado: int, cupo):
+    col1, col2 = st.columns([3,1])
+    with col1:
+        if isinstance(cupo, int) and cupo > 0:
+            pct = min(usado / cupo, 1.0)
+            st.progress(pct)
+            st.markdown(f"**{label}:** {usado} / {cupo}")
+        elif cupo == 0:
+            st.progress(1.0 if usado > 0 else 0.0)
+            st.markdown(f"**{label}:** {usado} / 0")
+        else:
+            st.progress(0.0 if usado == 0 else 1.0)
+            st.markdown(f"**{label}:** {usado} / —")
+    with col2:
+        st.metric("Usado", usado)
+
+
+def _pretty_label(key: str) -> str:
+    return LABELS_ES.get(key, key.replace("_"," ").capitalize())
+
+
+def _render_usage_section(usage: dict, quotas: dict):
+    st.subheader("📊 Uso del plan")
+    for key in PRIMARY_KEYS:
+        usado = _to_number(usage.get(key), 0)
+        cupo  = quotas.get(key, None)  # None => sin límite declarado
+        _render_row(_pretty_label(key), usado, cupo)
+
+load_dotenv()
 
 def _safe_secret(name: str, default=None):
     """Safely retrieve configuration from env or Streamlit secrets."""
@@ -27,7 +186,6 @@ def _safe_secret(name: str, default=None):
     except Exception:
         return default
 
-
 def is_debug_ui_enabled():
     env_ok = os.getenv("DEBUG_UI", "").strip().lower() == "true"
     secrets_ok = False
@@ -36,7 +194,6 @@ def is_debug_ui_enabled():
     except Exception:
         secrets_ok = False
     return env_ok or secrets_ok
-
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
@@ -49,25 +206,22 @@ if not is_authenticated():
     st.stop()
 
 token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
-plan = resolve_user_plan(token)["plan"]
-
+user = cached_get("/me", token) or {}
+st.session_state["user"] = user
 if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
+
+# Recuperar plan y límites/uso
+try:
+    mi_plan = cached_get("/mi_plan", token) or {}
+except Exception:
+    mi_plan = {}
+plan = mi_plan.get("plan", "free")
 
 with st.sidebar:
     logout_button()
 
 headers = {"Authorization": f"Bearer {token}"}
-
 
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")
@@ -86,6 +240,15 @@ elif plan == "premium":
     st.success("Tu plan actual es: premium")
 else:
     st.success(f"Tu plan actual es: {plan}")
+
+# --- NUEVO: Uso del plan (debajo de "📄 Plan actual") ---
+try:
+    mi_plan = cached_get("/mi_plan", token) or {}
+except Exception:
+    mi_plan = {}
+usage, quotas = _normalize_usage_and_quotas(mi_plan)
+_render_usage_section(usage, quotas)
+st.divider()
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
@@ -116,10 +279,11 @@ st.subheader("📊 Estadísticas de uso")
 resp_nichos = cached_get("/mis_nichos", token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
 leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
-total_leads = 0
 if leads_resp.status_code == 200:
     df = pd.read_csv(io.BytesIO(leads_resp.content))
     total_leads = len(df)
+else:
+    total_leads = 0
 
 resp_tareas = cached_get("tareas_pendientes", token)
 tareas = resp_tareas or []

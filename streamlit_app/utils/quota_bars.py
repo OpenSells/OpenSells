@@ -45,7 +45,7 @@ def render_quota_bars(api_client, *, place: str = "sidebar"):
     with ctx:
         if st.button("Actualizar cuotas", key=f"refresh_quota_{place}"):
             _fetch_plan.clear()
-            st.experimental_rerun()
+            st.rerun()
 
         exhausted = False
 
