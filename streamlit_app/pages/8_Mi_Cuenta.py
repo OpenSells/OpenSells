@@ -44,16 +44,33 @@ def is_debug_ui_enabled():
 
 def render_usage(usage: dict, quotas: dict):
     st.subheader("Uso del plan")
-    keys = sorted(set(list(usage.keys()) + list(quotas.keys())))
+
+    if not usage and not quotas:
+        st.info(
+            "Aún no hay datos de uso disponibles. Realiza alguna acción (búsqueda, tarea, etc.) o revisa la conexión con el backend."
+        )
+        return
+
+    ordered = ["leads_mes", "tareas", "notas", "exportaciones", "mensajes_ia"]
+    extras = [k for k in (set(usage.keys()) | set(quotas.keys())) if k not in ordered]
+    keys = ordered + extras
+
     for k in keys:
-        usado = usage.get(k, 0)
-        cupo = quotas.get(k)
+        usado = usage.get(k, 0) or 0
+        cupo = quotas.get(k, None)
         label = k.replace("_", " ").capitalize()
-        if isinstance(cupo, int) and cupo > 0:
-            st.progress(min(usado / cupo, 1.0))
-            st.markdown(f"- **{label}**: {usado} / {cupo}")
-        else:
-            st.markdown(f"- **{label}**: {usado} (sin límite declarado)")
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if isinstance(cupo, int) and cupo > 0:
+                pct = min(usado / cupo, 1.0)
+                st.progress(pct)
+                st.markdown(f"**{label}:** {usado} / {cupo}")
+            else:
+                st.progress(0 if usado == 0 else 1)
+                st.markdown(f"**{label}:** {usado} (sin límite declarado)")
+        with col2:
+            st.metric(label="Usado", value=usado)
 
 
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
