@@ -7,6 +7,7 @@ import io
 import streamlit as st
 from dotenv import load_dotenv
 from json import JSONDecodeError
+from typing import Any
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta, force_redirect
@@ -25,6 +26,52 @@ PRIMARY_METRICS_ORDER = [
     "exportaciones",
     "mensajes_ia",
 ]
+
+_NUM_CANDIDATES_USAGE = ["usado", "used", "count", "value", "current", "consumed"]
+_NUM_CANDIDATES_QUOTA = ["limite", "limit", "max", "quota", "cap", "allowed", "total"]
+
+
+def _to_number(x: Any, default: int = 0) -> int:
+    """Convierte x a int de forma segura."""
+    if x is None:
+        return default
+    if isinstance(x, bool):
+        return int(x)
+    if isinstance(x, (int, float)):
+        return int(x)
+    if isinstance(x, dict):
+        for key in _NUM_CANDIDATES_USAGE + _NUM_CANDIDATES_QUOTA:
+            if key in x and (
+                isinstance(x[key], (int, float))
+                or (
+                    isinstance(x[key], str)
+                    and x[key].strip().replace('.', '', 1).isdigit()
+                )
+            ):
+                return _to_number(x[key], default)
+        return default
+    if isinstance(x, str):
+        s = x.strip().replace(",", "")
+        try:
+            return int(float(s))
+        except Exception:
+            return default
+    return default
+
+
+def _flatten_numbers(d: dict, for_quota: bool = False) -> dict:
+    """Devuelve un dict con mismos keys pero valores enteros (o None si no aplica)."""
+    out: dict[str, int | None] = {}
+    for k, v in (d or {}).items():
+        if for_quota:
+            if isinstance(v, bool):
+                out[k] = None if v else 0
+                continue
+            if isinstance(v, str) and v.lower() in ("ilimitado", "unlimited", "∞"):
+                out[k] = None
+                continue
+        out[k] = _to_number(v, 0)
+    return out
 
 def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     """Acepta el JSON de /mi_plan y devuelve (usage, quotas) normalizados.
@@ -63,30 +110,45 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
         limites_alias["tareas"] = limites_alias.pop("tareas_max")
     if "csv_exportacion" in limites_alias and "exportaciones" not in limites_alias:
         val = limites_alias.pop("csv_exportacion")
-        limites_alias["exportaciones"] = 999999 if val is True else (0 if val is False else val)
+        if isinstance(val, bool):
+            limites_alias["exportaciones"] = None if val else 0
+        else:
+            limites_alias["exportaciones"] = val
 
-    usage = _norm(uso or {})
-    quotas = _norm(limites_alias or {})
+    usage_raw = _norm(uso or {})
+    quotas_raw = _norm(limites_alias or {})
+
+    usage = _flatten_numbers(usage_raw, for_quota=False)
+    quotas = _flatten_numbers(quotas_raw, for_quota=True)
+
     return usage, quotas
 
 def _render_usage_section(usage: dict, quotas: dict):
     st.subheader("📊 Uso del plan")
-    if not quotas:
+
+    ordered = ["leads_mes", "tareas", "notas", "exportaciones", "mensajes_ia"]
+    extras = [k for k in (usage.keys() | quotas.keys()) if k not in ordered]
+    keys = ordered + extras
+
+    if all(quotas.get(k) is None for k in keys):
         st.caption("Los cupos no han sido informados por el backend. Se muestran contadores a 0 / —.")
-    extras = [k for k in (usage.keys() | quotas.keys()) if k not in PRIMARY_METRICS_ORDER]
-    keys = PRIMARY_METRICS_ORDER + extras
+
     for k in keys:
-        usado = int((usage.get(k) or 0) or 0)
+        usado = _to_number(usage.get(k), 0)
         cupo = quotas.get(k, None)
-        label = k.replace("_"," ").capitalize()
-        col1, col2 = st.columns([3,1])
+        label = k.replace("_", " ").capitalize()
+
+        col1, col2 = st.columns([3, 1])
         with col1:
             if isinstance(cupo, int) and cupo > 0:
-                pct = min(usado / cupo, 1.0) if cupo else 0.0
+                pct = min(usado / cupo, 1.0)
                 st.progress(pct)
                 st.markdown(f"**{label}:** {usado} / {cupo}")
+            elif cupo == 0:
+                st.progress(1.0 if usado > 0 else 0.0)
+                st.markdown(f"**{label}:** {usado} / 0")
             else:
-                st.progress(0.0)
+                st.progress(0.0 if usado == 0 else 1.0)
                 st.markdown(f"**{label}:** {usado} / —")
         with col2:
             st.metric("Usado", usado)
