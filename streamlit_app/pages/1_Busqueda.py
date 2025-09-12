@@ -13,7 +13,6 @@ from streamlit_app.cache_utils import cached_get, get_openai_client, auth_header
 from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
-from streamlit_app.ui.components import render_plan_usage, fetch_plan_and_usage
 
 load_dotenv()
 
@@ -39,8 +38,6 @@ if token and not user:
         user = resp_user.json()
         st.session_state["user"] = user
 
-plan, quotas, usage = fetch_plan_and_usage(token)
-render_plan_usage(plan, quotas, usage)
 
 with st.sidebar:
     logout_button()

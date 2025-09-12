@@ -9,8 +9,7 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-import streamlit_app.utils.http_client as http_client
-from streamlit_app.plan_utils import subscription_cta, force_redirect, resolve_user_plan
+from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
 
@@ -38,6 +37,45 @@ def is_debug_ui_enabled():
     return env_ok or secrets_ok
 
 
+@st.cache_data(ttl=60)
+def fetch_account_overview(auth_token: str):
+    headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
+    try:
+        me_resp = requests.get(f"{BACKEND_URL}/me", headers=headers, timeout=10)
+        me = me_resp.json() if me_resp.ok else {}
+    except Exception:
+        me = {}
+    try:
+        usage_resp = requests.get(
+            f"{BACKEND_URL}/plan/usage", headers=headers, timeout=10
+        )
+        usage = usage_resp.json() if usage_resp.ok else {}
+    except Exception:
+        usage = {}
+    try:
+        quotas_resp = requests.get(
+            f"{BACKEND_URL}/plan/quotas", headers=headers, timeout=10
+        )
+        quotas = quotas_resp.json() if quotas_resp.ok else {}
+    except Exception:
+        quotas = {}
+    return me, usage, quotas
+
+
+def render_usage(usage: dict, quotas: dict):
+    st.subheader("Uso del plan")
+    keys = sorted(set(list(usage.keys()) + list(quotas.keys())))
+    for k in keys:
+        usado = usage.get(k, 0)
+        cupo = quotas.get(k)
+        label = k.replace("_", " ").capitalize()
+        if isinstance(cupo, int) and cupo > 0:
+            st.progress(min(usado / cupo, 1.0))
+            st.markdown(f"- **{label}**: {usado} / {cupo}")
+        else:
+            st.markdown(f"- **{label}**: {usado} (sin límite declarado)")
+
+
 BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
 st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
@@ -49,43 +87,36 @@ if not is_authenticated():
     st.stop()
 
 token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
-plan = resolve_user_plan(token)["plan"]
+me, usage, quotas = fetch_account_overview(token)
+user = me
+st.session_state["user"] = user
 
 if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
 
-with st.sidebar:
+plan = user.get("plan", "free")
+
+with st.sidebar():
     logout_button()
 
 headers = {"Authorization": f"Bearer {token}"}
 
-
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")
 
-# -------------------- Plan actual --------------------
-st.subheader("📄 Plan actual")
-if plan == "free":
-    st.success("Tu plan actual es: free")
-    st.warning(
-        "Algunas funciones están bloqueadas. Suscríbete para desbloquear la extracción y exportación de leads."
-    )
-    subscription_cta()
-elif plan == "basico":
-    st.success("Tu plan actual es: basico")
-elif plan == "premium":
-    st.success("Tu plan actual es: premium")
-else:
-    st.success(f"Tu plan actual es: {plan}")
+with st.container():
+    st.subheader("Datos de la cuenta")
+    st.markdown(f"**Email:** {user.get('email','-')}")
+    st.markdown(f"**Plan:** {plan}")
+    estado = "suspendido" if user.get("suspendido") else "activo"
+    st.markdown(f"**Estado:** {estado}")
+    if user.get("fecha_creacion"):
+        st.markdown(f"**Alta:** {user['fecha_creacion']}")
+
+st.divider()
+render_usage(usage, quotas)
+# if st.button("Ver planes / Actualizar"):
+#     st.switch_page("pages/91_Planes.py")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
