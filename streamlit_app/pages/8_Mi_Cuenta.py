@@ -10,8 +10,13 @@ from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import force_redirect
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import (
+    is_authenticated,
+    remember_current_page,
+    get_auth_token,
+)
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
 
 load_dotenv()
 
@@ -35,31 +40,6 @@ def is_debug_ui_enabled():
     except Exception:
         secrets_ok = False
     return env_ok or secrets_ok
-
-
-@st.cache_data(ttl=60)
-def fetch_account_overview(auth_token: str):
-    headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
-    try:
-        me_resp = requests.get(f"{BACKEND_URL}/me", headers=headers, timeout=10)
-        me = me_resp.json() if me_resp.ok else {}
-    except Exception:
-        me = {}
-    try:
-        usage_resp = requests.get(
-            f"{BACKEND_URL}/plan/usage", headers=headers, timeout=10
-        )
-        usage = usage_resp.json() if usage_resp.ok else {}
-    except Exception:
-        usage = {}
-    try:
-        quotas_resp = requests.get(
-            f"{BACKEND_URL}/plan/quotas", headers=headers, timeout=10
-        )
-        quotas = quotas_resp.json() if quotas_resp.ok else {}
-    except Exception:
-        quotas = {}
-    return me, usage, quotas
 
 
 def render_usage(usage: dict, quotas: dict):
@@ -94,9 +74,9 @@ st.session_state["user"] = user
 if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
 
-plan = user.get("plan", "free")
+plan_name = get_plan_name(user)
 
-with st.sidebar():
+with st.sidebar:
     logout_button()
 
 headers = {"Authorization": f"Bearer {token}"}
@@ -107,7 +87,7 @@ st.title("⚙️ Mi Cuenta")
 with st.container():
     st.subheader("Datos de la cuenta")
     st.markdown(f"**Email:** {user.get('email','-')}")
-    st.markdown(f"**Plan:** {plan}")
+    st.markdown(f"**Plan:** {plan_name.capitalize()}")
     estado = "suspendido" if user.get("suspendido") else "activo"
     st.markdown(f"**Estado:** {estado}")
     if user.get("fecha_creacion"):
@@ -250,7 +230,7 @@ if is_debug_ui_enabled():
         st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
 
 with col2:
-    if plan not in ["basico", "premium"]:
+    if plan_name not in ["basico", "premium"]:
         st.button("🧾 Gestionar suscripción", disabled=True)
     else:
         if st.button("🧾 Gestionar suscripción"):

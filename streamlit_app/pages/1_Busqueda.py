@@ -9,10 +9,20 @@ from json import JSONDecodeError
 
 import streamlit_app.utils.http_client as http_client
 
-from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
+from streamlit_app.cache_utils import (
+    cached_get,
+    get_openai_client,
+    auth_headers,
+    limpiar_cache,
+)
 from streamlit_app.plan_utils import subscription_cta
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import (
+    is_authenticated,
+    remember_current_page,
+    get_auth_token,
+)
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
 
 load_dotenv()
 
@@ -28,15 +38,10 @@ if not is_authenticated():
 BACKEND_URL = http_client.BASE_URL
 
 token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+me, usage, quotas = fetch_account_overview(token) if token else ({}, {}, {})
+user = me
+st.session_state["user"] = user
+plan_name = get_plan_name(me)
 
 
 with st.sidebar:
@@ -263,13 +268,13 @@ if nicho_actual:
 
 # -------------------- Generar variantes --------------------
 remaining_searches = None
-if plan == "free":
+if plan_name == "free":
     quota_searches = quotas.get("busquedas") or quotas.get("searches") or quotas.get("searches_per_month")
     used_searches = usage.get("busquedas") or usage.get("searches") or usage.get("searches_per_month")
     if isinstance(quota_searches, int):
         used_searches = used_searches or 0
         remaining_searches = max(quota_searches - used_searches, 0)
-disable_search = plan == "free" and remaining_searches == 0
+disable_search = plan_name == "free" and remaining_searches == 0
 if st.button(
     "🚀 Buscar variantes",
     disabled=disable_search,
@@ -322,9 +327,9 @@ if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
     seleccionadas = st.session_state.seleccionadas
 
     # Comprobar si el usuario tiene plan activo
-    # Ya tienes `plan` arriba, no es necesario volver a pedirlo
+    # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
 
-    if plan == "free":
+    if plan_name == "free":
         try:
             # Precio por defecto del plan Básico
             price_id = os.getenv("STRIPE_PRICE_BASICO", "")
