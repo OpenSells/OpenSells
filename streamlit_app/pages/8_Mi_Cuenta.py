@@ -38,32 +38,30 @@ def _safe_secret(name: str, default=None):
         return default
 
 
-def header_account_and_subscription(me: dict, subscription: dict, plan_name: str):
-    st.title("Mi Cuenta")
+def render_account_data(me: dict, plan_name: str):
+    st.subheader("Datos de la cuenta")
     estado = "suspendido" if me.get("suspendido") else "activo"
+    st.markdown(f"**Email:** {me.get('email','-')}")
+    st.markdown(f"**Plan:** {plan_name.capitalize()}")
+    st.markdown(f"**Estado:** {estado}")
+    if me.get("fecha_creacion"):
+        st.markdown(f"**Alta:** {me['fecha_creacion']}")
 
-    with st.container():
-        st.subheader("Resumen de cuenta y suscripción")
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            st.markdown(f"**Email:** {me.get('email','-')}")
-            st.markdown(f"**Plan:** {plan_name.capitalize()}")
-            st.markdown(f"**Estado:** {estado}")
-            if me.get("fecha_creacion"):
-                st.markdown(f"**Alta:** {me['fecha_creacion']}")
-        with col2:
-            if subscription:
-                next_renewal = subscription.get("next_renewal") or subscription.get("current_period_end")
-                st.markdown("**Suscripción**")
-                st.markdown(f"- Renovación: {next_renewal or '—'}")
-                st.markdown(f"- Estado pago: {subscription.get('status','—')}")
-        with col3:
-            manage_url = subscription.get("manage_url") if subscription else None
-            cancel_url = subscription.get("cancel_url") if subscription else None
-            if manage_url:
-                st.link_button("Gestionar plan", manage_url, use_container_width=True)
-            if cancel_url:
-                st.link_button("Cancelar", cancel_url, type="secondary", use_container_width=True)
+
+def render_subscription(subscription: dict):
+    st.subheader("Suscripción")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        next_renewal = subscription.get("next_renewal") or subscription.get("current_period_end") or "—"
+        st.markdown(f"**Renovación:** {next_renewal}")
+        st.markdown(f"**Estado pago:** {subscription.get('status','—')}")
+    with col2:
+        manage_url = subscription.get("manage_url")
+        cancel_url = subscription.get("cancel_url")
+        if manage_url:
+            st.link_button("Gestionar plan", manage_url, use_container_width=True)
+        if cancel_url:
+            st.link_button("Cancelar", cancel_url, type="secondary", use_container_width=True)
 
 
 def render_usage(usage: dict, quotas: dict):
@@ -118,7 +116,10 @@ with st.sidebar:
 
 headers = {"Authorization": f"Bearer {token}"}
 
-header_account_and_subscription(user, subscription, plan_name)
+st.title("Mi Cuenta")
+
+render_account_data(user, plan_name)
+render_subscription(subscription)
 
 st.divider()
 render_usage(usage, quotas)
