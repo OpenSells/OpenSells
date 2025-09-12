@@ -7,7 +7,7 @@ from datetime import date
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import resolve_user_plan, permite_recurso, subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
@@ -157,8 +157,8 @@ def render_list(items: list[dict], key_pref: str):
         cols[4].markdown(prioridad)
 
         if cols[5].button("✔️", key=f"done_{unique_key}"):
-            if not tiene_suscripcion_activa(plan):
-                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+            if not permite_recurso(plan, "tareas_max"):
+                st.warning("Tu plan no permite gestionar tareas.")
                 subscription_cta()
             else:
                 cached_post("tarea_completada", token, params={"tarea_id": t['id']})
@@ -189,8 +189,8 @@ def render_list(items: list[dict], key_pref: str):
             )
 
             if c4.button("💾", key=f"guardar_edit_{unique_key}"):
-                if not tiene_suscripcion_activa(plan):
-                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                if not permite_recurso(plan, "tareas_max"):
+                    st.warning("Tu plan no permite gestionar tareas.")
                     subscription_cta()
                 else:
                     cached_post(
@@ -248,23 +248,27 @@ elif seleccion == "General":
 
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
-                    if not tiene_suscripcion_activa(plan):
-                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    if not permite_recurso(plan, "tareas_max"):
+                        st.warning("Tu plan no permite gestionar tareas.")
                         subscription_cta()
                     else:
-                        cached_post(
-                            "tarea_lead",
-                            token,
-                            payload={
+                        resp = http_client.post(
+                            "/tarea_lead",
+                            json={
                                 "texto": texto.strip(),
                                 "tipo": "general",
                                 "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                "prioridad": prioridad
-                            }
+                                "prioridad": prioridad,
+                            },
                         )
-                        limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
-                        st.success("Tarea creada ✅")
-                        st.rerun()
+                        if resp.status_code == 200:
+                            limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
+                            st.success("Tarea creada ✅")
+                            st.rerun()
+                        else:
+                            msg = resp.json().get("detail", {}).get("message", "No se pudo crear la tarea")
+                            st.warning(msg)
+                            subscription_cta()
                 else:
                     st.warning("La descripción es obligatoria.")
 
@@ -346,24 +350,28 @@ elif seleccion == "Nichos":
                     prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho")
                     if st.form_submit_button("💾 Crear tarea"):
                         if texto.strip():
-                            if not tiene_suscripcion_activa(plan):
-                                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                            if not permite_recurso(plan, "tareas_max"):
+                                st.warning("Tu plan no permite gestionar tareas.")
                                 subscription_cta()
                             else:
-                                cached_post(
-                                    "tarea_lead",
-                                    token,
-                                    payload={
+                                resp = http_client.post(
+                                    "/tarea_lead",
+                                    json={
                                         "texto": texto.strip(),
                                         "tipo": "nicho",
                                         "nicho": nk["nicho"],
                                         "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                        "prioridad": prioridad
-                                    }
+                                        "prioridad": prioridad,
+                                    },
                                 )
-                                limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
-                                st.success("Tarea creada ✅")
-                                st.rerun()
+                                if resp.status_code == 200:
+                                    limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
+                                    st.success("Tarea creada ✅")
+                                    st.rerun()
+                                else:
+                                    msg = resp.json().get("detail", {}).get("message", "No se pudo crear la tarea")
+                                    st.warning(msg)
+                                    subscription_cta()
                         else:
                             st.warning("La descripción es obligatoria.")
 
@@ -446,23 +454,27 @@ elif seleccion == "Leads":
                 prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle")
                 if st.form_submit_button("💾 Crear tarea"):
                     if texto.strip():
-                        if not tiene_suscripcion_activa(plan):
-                            st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        if not permite_recurso(plan, "tareas_max"):
+                            st.warning("Tu plan no permite gestionar tareas.")
                             subscription_cta()
                         else:
-                            cached_post(
-                                "tarea_lead",
-                                token,
-                                payload={
+                            resp = http_client.post(
+                                "/tarea_lead",
+                                json={
                                     "texto": texto.strip(),
                                     "tipo": "lead",
                                     "dominio": norm,
                                     "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                    "prioridad": prioridad
-                                }
+                                    "prioridad": prioridad,
+                                },
                             )
-                            st.success("Tarea creada ✅")
-                            st.rerun()
+                            if resp.status_code == 200:
+                                st.success("Tarea creada ✅")
+                                st.rerun()
+                            else:
+                                msg = resp.json().get("detail", {}).get("message", "No se pudo crear la tarea")
+                                st.warning(msg)
+                                subscription_cta()
                     else:
                         st.warning("La descripción es obligatoria.")
 
@@ -480,8 +492,8 @@ elif seleccion == "Leads":
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
                 info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
-                    if not tiene_suscripcion_activa(plan):
-                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    if not permite_recurso(plan, "tareas_max"):
+                        st.warning("Tu plan no permite gestionar tareas.")
                         subscription_cta()
                     else:
                         respuesta = cached_post(

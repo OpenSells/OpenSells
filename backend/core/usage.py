@@ -10,7 +10,7 @@ from sqlalchemy.exc import ProgrammingError
 from psycopg2.errors import UndefinedTable
 import logging
 
-from backend.core.plan_config import get_limits
+from backend.core.plans import get_limits
 from backend.models import UsageCounter
 
 logger = logging.getLogger(__name__)

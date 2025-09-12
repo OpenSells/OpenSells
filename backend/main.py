@@ -15,7 +15,8 @@ from backend.models import (
     Usuario,
     UsuarioMemoria,
 )
-from backend.core.plan_config import get_plan_for_user
+from backend.core.plans import get_plan_for_user
+from backend.core.usage import _error
 from backend.core.usage import (
     can_export_csv,
     can_start_search,
@@ -224,16 +225,12 @@ def crear_tarea(
         .count()
     )
     if active >= plan.tasks_active_max:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "tasks",
-                "plan": plan_name,
-                "limit": plan.tasks_active_max,
-                "remaining": 0,
-                "message": "Límite de tareas alcanzado",
-            },
+        _error(
+            "tasks",
+            plan_name,
+            plan.tasks_active_max,
+            0,
+            f"Tu plan no permite crear más tareas este mes (límite: {plan.tasks_active_max}). Considera mejorar tu plan.",
         )
     tarea = LeadTarea(
         email=usuario.email,
@@ -286,18 +283,22 @@ def exportar_csv(
     db: Session = Depends(get_db),
 ):
     plan_name, plan = get_plan_for_user(usuario)
+    if not plan.csv_unlimited and (plan.csv_exports_per_month or 0) == 0:
+        _error(
+            "csv",
+            plan_name,
+            plan.csv_exports_per_month,
+            0,
+            "Tu plan no incluye exportación CSV.",
+        )
     ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
     if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "csv",
-                "plan": plan_name,
-                "limit": plan.csv_exports_per_month,
-                "remaining": remaining,
-                "message": "Límite de exportaciones alcanzado",
-            },
+        _error(
+            "csv",
+            plan_name,
+            plan.csv_exports_per_month,
+            remaining,
+            f"Tu plan no permite más exportaciones CSV este mes (límite: {plan.csv_exports_per_month}). Considera mejorar tu plan.",
         )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
@@ -315,16 +316,12 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
     plan_name, plan = get_plan_for_user(usuario)
     ok, remaining = can_use_ai(db, usuario.id, plan_name)
     if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "ai",
-                "plan": plan_name,
-                "limit": plan.ai_daily_limit,
-                "remaining": remaining,
-                "message": "Límite de IA alcanzado",
-            },
+        _error(
+            "ai",
+            plan_name,
+            plan.ai_daily_limit,
+            remaining,
+            f"Tu plan no permite más mensajes de IA hoy (límite: {plan.ai_daily_limit}). Considera mejorar tu plan.",
         )
 
     # Simular la invocación a OpenAI; en producción se llamaría realmente

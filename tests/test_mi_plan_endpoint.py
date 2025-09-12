@@ -12,8 +12,8 @@ def test_mi_plan_free_fields(client):
     limits = data["limits"]
     assert limits["lead_credits_month"] is None
     assert limits["searches_per_month"] == 4
-    assert limits["csv_exports_per_month"] == 1
-    assert limits["tasks_active_max"] == 3
+    assert limits["csv_exports_per_month"] == 0
+    assert limits["tasks_active_max"] == 4
     usage = data["usage"]
     assert usage["free_searches"]["remaining"] == 4
     assert usage["lead_credits"]["remaining"] is None
@@ -39,14 +39,12 @@ def test_mi_plan_usage_updates(client):
     client.post("/tareas", json={"texto": "a"}, headers=headers)
     client.post("/ia", json={"prompt": "hi"}, headers=headers)
     client.post("/buscar_leads", json={"nuevos": 5}, headers=headers)
-    client.post("/exportar_csv", json={"filename": "a.csv"}, headers=headers)
     r = client.get("/mi_plan", headers=headers)
     data = r.json()
     usage = data["usage"]
     assert usage["tasks_active"]["current"] == 1
     assert usage["mensajes_ia"]["used"] == 1
     assert usage["free_searches"]["used"] == 1
-    assert usage["csv_exports"]["used"] == 1
 
 
 def test_mi_plan_without_usage_table_returns_200(client, db_session):

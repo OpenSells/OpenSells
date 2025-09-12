@@ -66,12 +66,17 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         logger.warning("Email no encontrado en payload")
         return {"status": "ok"}
 
+    usuario = obtener_usuario_por_email(email, db)
+
     if event_type in {"checkout.session.completed", "customer.subscription.updated", "invoice.paid"}:
         price_id = _extraer_price_id(data_object)
         plan = PRICE_TO_PLAN.get(price_id)
         if not plan:
-            logger.warning("price_id desconocido: %s; asignando free", price_id)
-            plan = "free"
+            logger.warning("price_id desconocido: %s; manteniendo plan actual", price_id)
+            if usuario and (usuario.plan or "").strip():
+                plan = usuario.plan
+            else:
+                plan = "free"
         actualizar_plan_usuario(db, email, plan)
         if event_type == "invoice.paid":
             logger.info("Pago recibido para %s", email)

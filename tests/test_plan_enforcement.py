@@ -39,9 +39,9 @@ def test_free_search_lead_cap(client):
 def test_free_csv_cap(client):
     email = f"free_csv_{uuid.uuid4()}@example.com"
     headers = auth(client, email)
-    assert client.post("/exportar_csv", json={"filename": "a.csv"}, headers=headers).status_code == 200
-    r = client.post("/exportar_csv", json={"filename": "b.csv"}, headers=headers)
+    r = client.post("/exportar_csv", json={"filename": "a.csv"}, headers=headers)
     assert r.status_code == 403
+    assert r.json()["detail"]["message"] == "Tu plan no incluye exportación CSV."
 
 
 def test_free_tasks_active_cap(client):
@@ -50,8 +50,10 @@ def test_free_tasks_active_cap(client):
     assert client.post("/tareas", json={"texto": "a"}, headers=headers).status_code == 200
     assert client.post("/tareas", json={"texto": "b"}, headers=headers).status_code == 200
     assert client.post("/tareas", json={"texto": "c"}, headers=headers).status_code == 200
-    r = client.post("/tareas", json={"texto": "d"}, headers=headers)
+    assert client.post("/tareas", json={"texto": "d"}, headers=headers).status_code == 200
+    r = client.post("/tareas", json={"texto": "e"}, headers=headers)
     assert r.status_code == 403
+    assert "Tu plan no permite crear más tareas" in r.json()["detail"]["message"]
 
 
 def test_free_ai_daily(client):
@@ -112,3 +114,43 @@ def test_starter_ai_daily(client, db_session):
         assert client.post("/ia", json={"prompt": "hi"}, headers=headers).status_code == 200
     r = client.post("/ia", json={"prompt": "hi"}, headers=headers)
     assert r.status_code == 403
+
+
+def test_webhook_unknown_price_preserves_plan(client, db_session):
+    email = f"hook_preserve_{uuid.uuid4()}@example.com"
+    headers = auth(client, email)
+    set_plan(db_session, email, "starter")
+    payload = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "customer_email": email,
+                "lines": {"data": [{"price": {"id": "unknown_price"}}]},
+            }
+        },
+    }
+    client.post("/webhook/stripe", json=payload)
+    from backend.models import Usuario
+
+    plan = db_session.query(Usuario).filter_by(email=email.lower()).first().plan
+    assert plan == "starter"
+
+
+def test_webhook_unknown_price_sets_free_if_no_plan(client, db_session):
+    email = f"hook_free_{uuid.uuid4()}@example.com"
+    headers = auth(client, email)
+    set_plan(db_session, email, None)
+    payload = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "customer_email": email,
+                "lines": {"data": [{"price": {"id": "unknown_price"}}]},
+            }
+        },
+    }
+    client.post("/webhook/stripe", json=payload)
+    from backend.models import Usuario
+
+    plan = db_session.query(Usuario).filter_by(email=email.lower()).first().plan
+    assert plan == "free"
