@@ -7,13 +7,19 @@ DEV_DEBUG = os.getenv("WRAPPER_DEBUG", "0") == "1"
 
 CANDIDATE_USAGE = ["/plan/usage", "/usage", "/stats/usage", "/me/usage"]
 CANDIDATE_QUOTAS = ["/plan/quotas", "/quotas", "/plan/limits", "/limits"]
+CANDIDATE_SUBSCR = [
+    "/subscription/summary",
+    "/billing/summary",
+    "/plan/subscription",
+    "/stripe/subscription",
+]
 
 
 @st.cache_data(ttl=60)
 def fetch_account_overview(auth_token: str):
-    """Devuelve (me, usage, quotas) dicts. Nunca lanza; retorna {} en fallos."""
+    """Devuelve (me, usage, quotas, subscription). Nunca lanza; retorna {} en fallos."""
     headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
-    me, usage, quotas = {}, {}, {}
+    me, usage, quotas, subscription = {}, {}, {}, {}
 
     # Datos de cuenta
     try:
@@ -43,6 +49,16 @@ def fetch_account_overview(auth_token: str):
         except Exception:
             continue
 
+    # Suscripción
+    for path in CANDIDATE_SUBSCR:
+        try:
+            r = requests.get(f"{BACKEND_URL}{path}", headers=headers, timeout=10)
+            if r.ok and isinstance(r.json(), dict):
+                subscription = r.json() or {}
+                break
+        except Exception:
+            continue
+
     # Normalizar claves
     def norm(d: dict) -> dict:
         out: dict = {}
@@ -67,10 +83,10 @@ def fetch_account_overview(auth_token: str):
     quotas = norm(quotas or {})
 
     if DEV_DEBUG:
-        st.caption("Debug: respuestas crudas de uso/cuotas")
-        st.json({"usage_raw": usage, "quotas_raw": quotas})
+        st.caption("Debug Mi Cuenta")
+        st.json({"me": me, "usage": usage, "quotas": quotas, "subscription": subscription})
 
-    return me, usage, quotas
+    return me, usage, quotas, subscription
 
 
 def get_plan_name(me: dict | None) -> str:

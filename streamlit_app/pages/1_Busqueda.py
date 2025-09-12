@@ -38,7 +38,7 @@ if not is_authenticated():
 BACKEND_URL = http_client.BASE_URL
 
 token = get_auth_token()
-me, usage, quotas = fetch_account_overview(token) if token else ({}, {}, {})
+me, usage, quotas, _ = fetch_account_overview(token) if token else ({}, {}, {}, {})
 user = me
 st.session_state["user"] = user
 plan_name = get_plan_name(me)

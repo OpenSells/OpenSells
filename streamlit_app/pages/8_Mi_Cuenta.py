@@ -6,10 +6,8 @@ import pandas as pd
 import io
 import streamlit as st
 from dotenv import load_dotenv
-from json import JSONDecodeError
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.plan_utils import force_redirect
 from streamlit_app.utils.auth_session import (
     is_authenticated,
     remember_current_page,
@@ -17,6 +15,14 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
+
+PRIMARY_METRICS_ORDER = [
+    "leads_mes",
+    "tareas",
+    "notas",
+    "exportaciones",
+    "mensajes_ia",
+]
 
 load_dotenv()
 
@@ -32,31 +38,45 @@ def _safe_secret(name: str, default=None):
         return default
 
 
-def is_debug_ui_enabled():
-    env_ok = os.getenv("DEBUG_UI", "").strip().lower() == "true"
-    secrets_ok = False
-    try:
-        secrets_ok = bool(st.secrets.get("DEBUG_UI", False))
-    except Exception:
-        secrets_ok = False
-    return env_ok or secrets_ok
+def header_account_and_subscription(me: dict, subscription: dict, plan_name: str):
+    st.title("Mi Cuenta")
+    estado = "suspendido" if me.get("suspendido") else "activo"
+
+    with st.container():
+        st.subheader("Resumen de cuenta y suscripción")
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            st.markdown(f"**Email:** {me.get('email','-')}")
+            st.markdown(f"**Plan:** {plan_name.capitalize()}")
+            st.markdown(f"**Estado:** {estado}")
+            if me.get("fecha_creacion"):
+                st.markdown(f"**Alta:** {me['fecha_creacion']}")
+        with col2:
+            if subscription:
+                next_renewal = subscription.get("next_renewal") or subscription.get("current_period_end")
+                st.markdown("**Suscripción**")
+                st.markdown(f"- Renovación: {next_renewal or '—'}")
+                st.markdown(f"- Estado pago: {subscription.get('status','—')}")
+        with col3:
+            manage_url = subscription.get("manage_url") if subscription else None
+            cancel_url = subscription.get("cancel_url") if subscription else None
+            if manage_url:
+                st.link_button("Gestionar plan", manage_url, use_container_width=True)
+            if cancel_url:
+                st.link_button("Cancelar", cancel_url, type="secondary", use_container_width=True)
 
 
 def render_usage(usage: dict, quotas: dict):
     st.subheader("Uso del plan")
 
-    if not usage and not quotas:
-        st.info(
-            "Aún no hay datos de uso disponibles. Realiza alguna acción (búsqueda, tarea, etc.) o revisa la conexión con el backend."
-        )
-        return
+    extras = [k for k in (usage.keys() | quotas.keys()) if k not in PRIMARY_METRICS_ORDER]
+    keys = PRIMARY_METRICS_ORDER + extras
 
-    ordered = ["leads_mes", "tareas", "notas", "exportaciones", "mensajes_ia"]
-    extras = [k for k in (set(usage.keys()) | set(quotas.keys())) if k not in ordered]
-    keys = ordered + extras
+    if not quotas:
+        st.caption("Los cupos no han sido informados por el backend. Se muestran contadores a 0 / —.")
 
     for k in keys:
-        usado = usage.get(k, 0) or 0
+        usado = int(usage.get(k, 0) or 0)
         cupo = quotas.get(k, None)
         label = k.replace("_", " ").capitalize()
 
@@ -67,8 +87,8 @@ def render_usage(usage: dict, quotas: dict):
                 st.progress(pct)
                 st.markdown(f"**{label}:** {usado} / {cupo}")
             else:
-                st.progress(0 if usado == 0 else 1)
-                st.markdown(f"**{label}:** {usado} (sin límite declarado)")
+                st.progress(0.0)
+                st.markdown(f"**{label}:** {usado} / —")
         with col2:
             st.metric(label="Usado", value=usado)
 
@@ -84,7 +104,7 @@ if not is_authenticated():
     st.stop()
 
 token = get_auth_token()
-me, usage, quotas = fetch_account_overview(token)
+me, usage, quotas, subscription = fetch_account_overview(token)
 user = me
 st.session_state["user"] = user
 
@@ -98,22 +118,10 @@ with st.sidebar:
 
 headers = {"Authorization": f"Bearer {token}"}
 
-# -------------------- Sección principal --------------------
-st.title("⚙️ Mi Cuenta")
-
-with st.container():
-    st.subheader("Datos de la cuenta")
-    st.markdown(f"**Email:** {user.get('email','-')}")
-    st.markdown(f"**Plan:** {plan_name.capitalize()}")
-    estado = "suspendido" if user.get("suspendido") else "activo"
-    st.markdown(f"**Estado:** {estado}")
-    if user.get("fecha_creacion"):
-        st.markdown(f"**Alta:** {user['fecha_creacion']}")
+header_account_and_subscription(user, subscription, plan_name)
 
 st.divider()
 render_usage(usage, quotas)
-# if st.button("Ver planes / Actualizar"):
-#     st.switch_page("pages/91_Planes.py")
 
 # -------------------- Memoria del usuario --------------------
 st.subheader("🧠 Memoria personalizada")
@@ -185,87 +193,3 @@ with st.form("form_pass"):
                     else "Error al cambiar contraseña."
                 )
 
-# -------------------- Suscripción --------------------
-st.subheader("💳 Suscripción")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("**Selecciona un plan:**")
-    planes = {
-        "Básico – 14,99€/mes": os.getenv("STRIPE_PRICE_BASICO", ""),
-        "Premium – 49,99€/mes": os.getenv("STRIPE_PRICE_PREMIUM", ""),
-    }
-    if not all(planes.values()):
-        st.error("Faltan configuraciones de precios de Stripe.")
-    else:
-        plan_elegido = st.selectbox("Planes disponibles", list(planes.keys()))
-        if st.button("💳 Iniciar suscripción"):
-            price_id = planes[plan_elegido]
-            try:
-                r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_pago",
-                    headers=headers,
-                    params={"plan": price_id},
-                    timeout=30,
-                )
-                if r.status_code == 200:
-                    try:
-                        data = r.json()
-                    except JSONDecodeError:
-                        st.error("Respuesta inválida del servidor.")
-                    else:
-                        url = data.get("url")
-                        if url:
-                            force_redirect(url)
-                        else:
-                            st.error("La respuesta no contiene URL de Stripe.")
-                else:
-                    st.error("No se pudo iniciar el pago.")
-                    st.error(f"Error {r.status_code}: {r.text}")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-if is_debug_ui_enabled():
-    with st.expander("Debug sesión"):
-        st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
-        st.write("Usuario:", st.session_state.get("user"))
-        try:
-            dbg_db = requests.get(f"{BACKEND_URL}/debug-db").json()
-        except Exception:
-            dbg_db = {}
-        try:
-            dbg_snapshot = requests.get(
-                f"{BACKEND_URL}/debug-user-snapshot", headers=headers
-            ).json()
-        except Exception:
-            dbg_snapshot = {}
-        st.write("Email /me:", dbg_snapshot.get("email_me"))
-        st.write("Email /me lower:", dbg_snapshot.get("email_me_lower"))
-        st.write("DB URL prefix:", (dbg_db.get("database_url") or "")[:16])
-        st.write("# Nichos:", dbg_snapshot.get("nichos_count"))
-        st.write("# Leads:", dbg_snapshot.get("leads_total_count"))
-
-with col2:
-    if plan_name not in ["basico", "premium"]:
-        st.button("🧾 Gestionar suscripción", disabled=True)
-    else:
-        if st.button("🧾 Gestionar suscripción"):
-            try:
-                r = requests.post(
-                    f"{BACKEND_URL}/crear_portal_cliente",
-                    headers=headers,
-                    timeout=30,
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    url_portal = data.get("url")
-                    if url_portal:
-                        force_redirect(url_portal)
-                    else:
-                        st.error("La respuesta no contiene URL del portal.")
-                else:
-                    st.error("No se pudo abrir el portal del cliente.")
-                    st.error(f"Error {r.status_code}: {r.text}")
-            except Exception as e:
-                st.error(f"Error: {e}")
