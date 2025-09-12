@@ -18,36 +18,35 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 
-# --- Helpers Uso del plan ---
-_NUM_CANDIDATES_USAGE = ["usado", "used", "count", "value", "current", "consumed"]
-_NUM_CANDIDATES_QUOTA = ["limite", "limit", "max", "quota", "cap", "allowed", "total"]
+# --- KPIs visibles (solo 2) y etiquetas ES ---
+PRIMARY_KEYS = ["searches_per_month", "mensajes_ia"]
 
-# --- Config de KPIs visibles y etiquetas ---
-PRIMARY_KEYS = [
-    "leads_mes",          # leads mensuales
-    "searches_per_month", # alias búsquedas/mes si el backend lo trae
-    "tareas",
-    "exportaciones",
-    "mensajes_ia",
-]
-
-# mapeo -> etiqueta bonita en ES
 LABELS_ES = {
-    "leads_mes": "Leads mes",
     "searches_per_month": "Búsquedas/mes",
-    "tareas": "Tareas",
-    "exportaciones": "Exportaciones",
     "mensajes_ia": "Mensajes IA",
 }
 
-# posibles alias para detectar 'searches_per_month'
-ALIASES_EXTRA = {
-    "searches_per_month": ["searches_per_month", "busquedas_mes", "leads_month", "searches"],
+# Aliases canónicos -> lista de alias aceptados (uso y cuotas)
+ALIASES_MAP = {
+    "searches_per_month": [
+        "searches_per_month",
+        "searches",
+        "busquedas_mes",
+        "leads_month",
+        "free_searches",
+    ],
+    "mensajes_ia": [
+        "mensajes_ia",
+        "ia_mensajes",
+        "ia_msgs",
+        "ai_messages",
+        "ai daily limit",
+        "ai_daily_limit",
+    ],
 }
 
 
 def _to_number(x: Any, default: int = 0) -> int:
-    """Convierte x a int de forma segura."""
     if x is None:
         return default
     if isinstance(x, bool):
@@ -55,15 +54,22 @@ def _to_number(x: Any, default: int = 0) -> int:
     if isinstance(x, (int, float)):
         return int(x)
     if isinstance(x, dict):
-        for key in _NUM_CANDIDATES_USAGE + _NUM_CANDIDATES_QUOTA:
-            if key in x and (
-                isinstance(x[key], (int, float))
-                or (
-                    isinstance(x[key], str)
-                    and x[key].strip().replace('.', '', 1).isdigit()
-                )
-            ):
-                return _to_number(x[key], default)
+        for k in (
+            "usado",
+            "used",
+            "count",
+            "value",
+            "current",
+            "consumed",
+            "limit",
+            "max",
+            "quota",
+            "total",
+            "cap",
+            "allowed",
+        ):
+            if k in x:
+                return _to_number(x[k], default)
         return default
     if isinstance(x, str):
         s = x.strip().replace(",", "")
@@ -89,15 +95,37 @@ def _flatten_numbers(d: dict, for_quota: bool = False) -> dict:
     return out
 
 
-def _resolve_aliases(d: dict) -> dict:
-    out = dict(d)
-    for std, ks in ALIASES_EXTRA.items():
-        if std in out:
+def _coalesce_aliases(raw: dict, is_quota: bool = False) -> dict:
+    """
+    Toma un dict (usage o quotas) y devuelve SOLO las claves canónicas de PRIMARY_KEYS,
+    resolviendo alias y evitando duplicados. Si hay varios alias presentes,
+    usa el valor NUMÉRICO MAYOR (más conservador para 'usado') y para cuota el MAYOR límite.
+    """
+    out = {}
+    for std, aliases in ALIASES_MAP.items():
+        values = []
+        for a in aliases:
+            if a in raw:
+                values.append(raw[a])
+        if not values:
             continue
-        for k in ks:
-            if k in d:
-                out[std] = d[k]
-                break
+        nums = []
+        saw_none = False
+        for v in values:
+            if is_quota and isinstance(v, bool) and v is True:
+                saw_none = True
+            elif is_quota and isinstance(v, str) and v.lower() in (
+                "ilimitado",
+                "unlimited",
+                "∞",
+            ):
+                saw_none = True
+            else:
+                nums.append(_to_number(v, 0))
+        if is_quota:
+            out[std] = None if saw_none else (max(nums) if nums else 0)
+        else:
+            out[std] = max(nums) if nums else 0
     return out
 
 def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
@@ -109,53 +137,17 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     limites = mi_plan.get("limites") or mi_plan.get("limits") or {}
     uso = mi_plan.get("uso") or mi_plan.get("usage") or {}
 
-    def _norm(d: dict) -> dict:
-        aliases = {
-            "leads_mes":    ["leads_mes", "leads"],
-            "tareas":       ["tareas", "tasks"],
-            "notas":        ["notas", "notes"],
-            "exportaciones": ["exportaciones", "exports"],
-            "mensajes_ia":  ["mensajes_ia", "ia_mensajes", "ia_msgs", "ai_messages"],
-        }
-        out = {}
-        for std, ks in aliases.items():
-            for k in ks:
-                if k in d:
-                    out[std] = d.get(k)
-                    break
-        for k, v in d.items():
-            if k not in sum(aliases.values(), []):
-                out[k] = v
-        return out
+    usage_norm = _flatten_numbers(uso or {}, for_quota=False)
+    quotas_norm = _flatten_numbers(limites or {}, for_quota=True)
 
-    limites_alias = dict(limites)
-    if "leads_mensuales" in limites_alias and "leads_mes" not in limites_alias:
-        limites_alias["leads_mes"] = limites_alias.pop("leads_mensuales")
-    if "ia_mensajes" in limites_alias and "mensajes_ia" not in limites_alias:
-        limites_alias["mensajes_ia"] = limites_alias.pop("ia_mensajes")
-    if "tareas_max" in limites_alias and "tareas" not in limites_alias:
-        limites_alias["tareas"] = limites_alias.pop("tareas_max")
-    if "csv_exportacion" in limites_alias and "exportaciones" not in limites_alias:
-        val = limites_alias.pop("csv_exportacion")
-        if isinstance(val, bool):
-            limites_alias["exportaciones"] = None if val else 0
-        else:
-            limites_alias["exportaciones"] = val
+    usage_final = _coalesce_aliases(usage_norm, is_quota=False)
+    quotas_final = _coalesce_aliases(quotas_norm, is_quota=True)
 
-    usage_raw = _norm(uso or {})
-    quotas_raw = _norm(limites_alias or {})
-
-    usage = _flatten_numbers(usage_raw, for_quota=False)
-    quotas = _flatten_numbers(quotas_raw, for_quota=True)
-
-    usage = _resolve_aliases(usage)
-    quotas = _resolve_aliases(quotas)
-
-    return usage, quotas
+    return usage_final, quotas_final
 
 
 def _render_row(label: str, usado: int, cupo):
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([3,1])
     with col1:
         if isinstance(cupo, int) and cupo > 0:
             pct = min(usado / cupo, 1.0)
@@ -172,34 +164,15 @@ def _render_row(label: str, usado: int, cupo):
 
 
 def _pretty_label(key: str) -> str:
-    return LABELS_ES.get(key, key.replace("_", " ").capitalize())
+    return LABELS_ES.get(key, key.replace("_"," ").capitalize())
 
 
 def _render_usage_section(usage: dict, quotas: dict):
     st.subheader("📊 Uso del plan")
-
-    shown = set()
     for key in PRIMARY_KEYS:
-        if key in usage or key in quotas:
-            usado = _to_number(usage.get(key), 0)
-            cupo = quotas.get(key, None)
-            _render_row(_pretty_label(key), usado, cupo)
-            shown.add(key)
-
-    if not any(
-        isinstance(quotas.get(k), int) and quotas.get(k) > 0 for k in quotas
-    ):
-        st.caption(
-            "Los cupos no han sido informados por el backend. Se muestran contadores a 0 / — cuando aplique."
-        )
-
-    extras = [k for k in (usage.keys() | quotas.keys()) if k not in shown]
-    if extras:
-        with st.expander("Detalles avanzados"):
-            for k in sorted(extras):
-                usado = _to_number(usage.get(k), 0)
-                cupo = quotas.get(k, None)
-                _render_row(_pretty_label(k), usado, cupo)
+        usado = _to_number(usage.get(key), 0)
+        cupo  = quotas.get(key, None)  # None => sin límite declarado
+        _render_row(_pretty_label(key), usado, cupo)
 
 load_dotenv()
 
