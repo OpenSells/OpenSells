@@ -44,7 +44,7 @@ def test_mi_plan_usage_updates(client):
     data = r.json()
     usage = data["usage"]
     assert usage["tasks_active"]["current"] == 1
-    assert usage["ai_messages"]["used_today"] == 1
+    assert usage["mensajes_ia"]["used"] == 1
     assert usage["free_searches"]["used"] == 1
     assert usage["csv_exports"]["used"] == 1
 
