@@ -10,10 +10,10 @@ from json import JSONDecodeError
 import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import cached_get, get_openai_client, auth_headers, limpiar_cache
-from streamlit_app.plan_utils import subscription_cta, resolve_user_plan
-from streamlit_app.utils.quota_bars import render_quota_bars
+from streamlit_app.plan_utils import subscription_cta
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.ui.components import render_plan_usage, fetch_plan_and_usage
 
 load_dotenv()
 
@@ -39,8 +39,8 @@ if token and not user:
         user = resp_user.json()
         st.session_state["user"] = user
 
-plan = resolve_user_plan(token)["plan"]
-quota_data = render_quota_bars(http_client, place="body")
+plan, quotas, usage = fetch_plan_and_usage(token)
+render_plan_usage(plan, quotas, usage)
 
 with st.sidebar:
     logout_button()
@@ -266,8 +266,12 @@ if nicho_actual:
 
 # -------------------- Generar variantes --------------------
 remaining_searches = None
-if plan == "free" and quota_data:
-    remaining_searches = quota_data.get("usage", {}).get("free_searches", {}).get("remaining")
+if plan == "free":
+    quota_searches = quotas.get("busquedas") or quotas.get("searches") or quotas.get("searches_per_month")
+    used_searches = usage.get("busquedas") or usage.get("searches") or usage.get("searches_per_month")
+    if isinstance(quota_searches, int):
+        used_searches = used_searches or 0
+        remaining_searches = max(quota_searches - used_searches, 0)
 disable_search = plan == "free" and remaining_searches == 0
 if st.button(
     "🚀 Buscar variantes",

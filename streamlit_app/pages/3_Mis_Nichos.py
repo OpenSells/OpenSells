@@ -24,7 +24,6 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.utils.quota_bars import render_quota_bars
 from streamlit_app.utils.auth_session import (
     is_authenticated,
     remember_current_page,
@@ -84,7 +83,6 @@ if token and not user:
         user = resp_user.json()
         st.session_state["user"] = user
 plan = resolve_user_plan(token)["plan"]
-render_quota_bars(http_client, place="body")
 
 with st.sidebar:
     logout_button()
