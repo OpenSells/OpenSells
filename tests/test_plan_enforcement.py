@@ -41,7 +41,9 @@ def test_free_csv_cap(client):
     headers = auth(client, email)
     r = client.post("/exportar_csv", json={"filename": "a.csv"}, headers=headers)
     assert r.status_code == 403
-    assert r.json()["detail"]["message"] == "Tu plan no incluye exportación CSV."
+    data = r.json()["detail"]
+    assert data["code"] == "CSV_NOT_INCLUDED"
+    assert data["message"] == "Tu plan no incluye exportación CSV."
 
 
 def test_free_tasks_active_cap(client):
@@ -53,7 +55,9 @@ def test_free_tasks_active_cap(client):
     assert client.post("/tareas", json={"texto": "d"}, headers=headers).status_code == 200
     r = client.post("/tareas", json={"texto": "e"}, headers=headers)
     assert r.status_code == 403
-    assert "Tu plan no permite crear más tareas" in r.json()["detail"]["message"]
+    data = r.json()["detail"]
+    assert data["code"] == "TASKS_QUOTA_REACHED"
+    assert "Tu plan no permite crear más tareas" in data["message"]
 
 
 def test_free_ai_daily(client):
@@ -63,7 +67,9 @@ def test_free_ai_daily(client):
         assert client.post("/ia", json={"prompt": "hi"}, headers=headers).status_code == 200
     r = client.post("/ia", json={"prompt": "hi"}, headers=headers)
     assert r.status_code == 403
-    assert "Has alcanzado el límite de mensajes de IA" in r.json()["detail"]["message"]
+    data = r.json()["detail"]
+    assert data["code"] == "IA_QUOTA_REACHED"
+    assert "Has alcanzado el límite de mensajes de IA" in data["message"]
 
 
 # --- Starter plan tests ----------------------------------------------------
@@ -105,6 +111,7 @@ def test_starter_tasks_active_cap(client, db_session):
         assert client.post("/tareas", json={"texto": str(i)}, headers=headers).status_code == 200
     r = client.post("/tareas", json={"texto": "x"}, headers=headers)
     assert r.status_code == 403
+    assert r.json()["detail"]["code"] == "TASKS_QUOTA_REACHED"
 
 
 def test_starter_ai_daily(client, db_session):

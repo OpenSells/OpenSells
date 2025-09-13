@@ -93,6 +93,16 @@ No existe prefijo global; todas las rutas se sirven desde la raíz del dominio.
 | POST | /estado_lead | Upsert del estado de un dominio |
 | GET | /estado_lead | Consultar estado de un dominio |
 
+### Formato de errores
+
+Todas las respuestas de error del backend siguen el esquema:
+
+```json
+{"detail": {"code": "SOME_CODE", "message": "Texto claro de error"}}
+```
+
+Esto permite al frontend mostrar mensajes consistentes y detectar el tipo de error a partir de `code`.
+
 ## 🗄️ Base de datos
 
 - SQLite ya no es soportado. Configura siempre `DATABASE_URL` apuntando a PostgreSQL.

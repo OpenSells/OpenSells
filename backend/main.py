@@ -16,7 +16,7 @@ from backend.models import (
     UsuarioMemoria,
 )
 from backend.core.plans import get_plan_for_user
-from backend.core.usage import _error
+from backend.core.error_handlers import setup_error_handlers
 from backend.core.usage import (
     can_export_csv,
     can_start_search,
@@ -45,6 +45,7 @@ from backend.auth import (
 )
 
 app = FastAPI()
+setup_error_handlers(app)
 
 if os.getenv("ENV") == "dev":
     from backend.routers import debug
@@ -197,15 +198,21 @@ def crear_tarea(
 ):
     plan_name, plan = get_plan_for_user(usuario)
     if plan.tareas_max <= 0:
-        _error("tasks", plan_name, 0, 0, "Tu plan no incluye tareas.")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TASKS_NOT_INCLUDED",
+                "message": "Tu plan no incluye tareas.",
+            },
+        )
     usadas = tareas_usadas_mes(db, usuario.id)
     if usadas >= plan.tareas_max:
-        _error(
-            "tasks",
-            plan_name,
-            plan.tareas_max,
-            0,
-            f"Tu plan no permite crear más tareas este mes (límite: {plan.tareas_max}). Considera mejorar tu plan.",
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TASKS_QUOTA_REACHED",
+                "message": f"Tu plan no permite crear más tareas este mes (límite: {plan.tareas_max}). Considera mejorar tu plan.",
+            },
         )
     tarea = LeadTarea(
         email=usuario.email,
@@ -260,21 +267,21 @@ def exportar_csv(
 ):
     plan_name, plan = get_plan_for_user(usuario)
     if not plan.csv_unlimited and (plan.csv_exports_per_month or 0) == 0:
-        _error(
-            "csv",
-            plan_name,
-            plan.csv_exports_per_month,
-            0,
-            "Tu plan no incluye exportación CSV.",
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CSV_NOT_INCLUDED",
+                "message": "Tu plan no incluye exportación CSV.",
+            },
         )
     ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
     if not ok:
-        _error(
-            "csv",
-            plan_name,
-            plan.csv_exports_per_month,
-            remaining,
-            f"Tu plan no permite más exportaciones CSV este mes (límite: {plan.csv_exports_per_month}). Considera mejorar tu plan.",
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CSV_QUOTA_REACHED",
+                "message": f"Tu plan no permite más exportaciones CSV este mes (límite: {plan.csv_exports_per_month}). Considera mejorar tu plan.",
+            },
         )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
@@ -292,12 +299,12 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
     plan_name, plan = get_plan_for_user(usuario)
     ok, remaining = can_use_ai(db, usuario.id, plan_name)
     if not ok:
-        _error(
-            "ai",
-            plan_name,
-            plan.ia_mensajes,
-            remaining,
-            f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {plan.ia_mensajes}).",
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "IA_QUOTA_REACHED",
+                "message": f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {plan.ia_mensajes}).",
+            },
         )
 
     # Simular la invocación a OpenAI; en producción se llamaría realmente
@@ -324,14 +331,7 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
     if not ok:
         raise HTTPException(
             status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "search",
-                "plan": plan_name,
-                "limit": plan.searches_per_month,
-                "remaining": remaining,
-                "message": "Límite de búsquedas alcanzado",
-            },
+            detail={"code": "SEARCH_QUOTA_REACHED", "message": "Límite de búsquedas alcanzado"},
         )
 
     truncated = False

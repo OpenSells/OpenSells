@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
+from streamlit_app.utils.http_utils import parse_error_message
 from streamlit_app.assistant_api import (
     ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
@@ -103,10 +104,11 @@ def _auth_headers():
 
 def _handle_resp(r):
     """Gestiona respuestas 401/403 mostrando mensajes adecuados."""
+    msg = parse_error_message(r)
     if r.status_code == 403:
-        st.warning("Tu plan no permite esta acción.")
+        st.warning(msg)
         subscription_cta()
-    return {"error": r.text, "status": r.status_code}
+    return {"error": msg, "status": r.status_code}
 
 
 # ────────────────── Funciones de herramientas ─────────────────────
@@ -185,7 +187,9 @@ def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "me
         except ValueError:
             return {"error": "fecha_invalida"}
     r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    if r.status_code == 200:
+        return r.json()
+    return {"error": parse_error_message(r), "status": r.status_code}
 
 
 def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str = "media"):
@@ -197,7 +201,9 @@ def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str
             return {"error": "fecha_invalida"}
     st.session_state["lead_actual"] = dominio
     r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    if r.status_code == 200:
+        return r.json()
+    return {"error": parse_error_message(r), "status": r.status_code}
 
 
 def completar_tarea(tarea_id: int):
@@ -223,7 +229,9 @@ def historial_lead(dominio: str):
 
 def api_mis_nichos():
     r = http_client.get("/mis_nichos", headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    if r.status_code == 200:
+        return r.json()
+    return {"error": parse_error_message(r), "status": r.status_code}
 
 
 def obtener_memoria():
@@ -266,7 +274,9 @@ def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
 
 def api_leads_por_nicho(nicho: str):
     r = http_client.get(f"/leads_por_nicho?nicho={nicho}", headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    if r.status_code == 200:
+        return r.json()
+    return {"error": parse_error_message(r), "status": r.status_code}
 
 
 def mover_lead(dominio: str, origen: str, destino: str):
@@ -346,7 +356,7 @@ def api_tareas_pendientes():
     if r.status_code == 403:
         st.warning("Tu plan no permite ver tareas pendientes desde esta vista")
         subscription_cta()
-    return {"error": r.text, "status": r.status_code}
+    return {"error": parse_error_message(r), "status": r.status_code}
 
 
 def _render_lead_actions():

@@ -110,18 +110,15 @@ def count_ia_when_called(db_getter, user_getter):
 
 # ------ limit helpers -----------------------------------------------------
 
-def _error(feature: str, plan: str, limit: int | None, remaining: int | None, message: str):
-    raise HTTPException(
-        status_code=403,
-        detail={
-            "error": "limit_exceeded",
-            "feature": feature,
-            "plan": plan,
-            "limit": limit,
-            "remaining": remaining,
-            "message": message,
-        },
-    )
+def _error(
+    feature: str,
+    plan: str,
+    limit: int | None,
+    remaining: int | None,
+    message: str,
+    code: str = "LIMIT_EXCEEDED",
+):
+    raise HTTPException(status_code=403, detail={"code": code, "message": message})
 
 
 def tareas_usadas_mes(db: Session, user_id: int) -> int:
@@ -152,6 +149,7 @@ def consume_ai(db: Session, user_id: int, plan_name: str):
             get_limits(plan_name).ia_mensajes,
             remaining,
             f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {get_limits(plan_name).ia_mensajes}).",
+            code="IA_QUOTA_REACHED",
         )
     inc_count(db, user_id, "mensajes_ia", month_key(), 1)
 
@@ -169,7 +167,14 @@ def can_export_csv(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int
 def consume_csv_export(db: Session, user_id: int, plan_name: str):
     ok, remaining, _ = can_export_csv(db, user_id, plan_name)
     if not ok:
-        _error("csv", plan_name, get_limits(plan_name).csv_exports_per_month, remaining, "Límite de exportaciones alcanzado")
+        _error(
+            "csv",
+            plan_name,
+            get_limits(plan_name).csv_exports_per_month,
+            remaining,
+            "Límite de exportaciones alcanzado",
+            code="CSV_QUOTA_REACHED",
+        )
     inc_count(db, user_id, "csv_exports", month_key(), 1)
 
 
@@ -190,7 +195,14 @@ def can_start_search(db: Session, user_id: int, plan_name: str) -> Tuple[bool, i
 def consume_free_search(db: Session, user_id: int, plan_name: str):
     ok, remaining, _ = can_start_search(db, user_id, plan_name)
     if not ok:
-        _error("search", plan_name, get_limits(plan_name).searches_per_month, remaining, "Límite de búsquedas alcanzado")
+        _error(
+            "search",
+            plan_name,
+            get_limits(plan_name).searches_per_month,
+            remaining,
+            "Límite de búsquedas alcanzado",
+            code="SEARCH_QUOTA_REACHED",
+        )
     inc_count(db, user_id, "free_searches", month_key(), 1)
 
 
@@ -200,7 +212,14 @@ def consume_lead_credits(db: Session, user_id: int, plan_name: str, n: int):
     used = get_count(db, user_id, "lead_credits", period)
     if plan.lead_credits_month is not None and used + n > plan.lead_credits_month:
         remaining = plan.lead_credits_month - used
-        _error("lead_credits", plan_name, plan.lead_credits_month, remaining, "Créditos de lead insuficientes")
+        _error(
+            "lead_credits",
+            plan_name,
+            plan.lead_credits_month,
+            remaining,
+            "Créditos de lead insuficientes",
+            code="LEAD_CREDITS_EXCEEDED",
+        )
     inc_count(db, user_id, "lead_credits", period, n)
 
 
