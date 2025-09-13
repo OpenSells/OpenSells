@@ -52,6 +52,8 @@ if token and not user:
 with st.sidebar:
     logout_button()
 
+debug = st.sidebar.checkbox("Debug tareas", value=False)
+
 plan = resolve_user_plan(token)["plan"]
 
 HDR = {"Authorization": f"Bearer {token}"}
@@ -131,10 +133,13 @@ map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if
 
 @st.cache_data(ttl=30)
 def fetch_tareas_pendientes(tipo: str):
+    params = {"solo_pendientes": True}
+    if tipo in ("general", "nicho", "lead"):
+        params["tipo"] = tipo
     resp = http_client.get(
         "/tareas_pendientes",
         headers=HDR,
-        params={"tipo": tipo, "solo_pendientes": "true"},
+        params=params,
     )
     if resp.status_code == 200:
         return resp.json()
@@ -260,6 +265,8 @@ seleccion = st.radio(
 )
 label_to_tipo = {"Pendientes": "todas", "General": "general", "Nichos": "nicho", "Leads": "lead"}
 todos = fetch_tareas_pendientes(label_to_tipo[seleccion])
+if debug:
+    st.caption(f"debug: {label_to_tipo[seleccion]}={len(ensure_list(todos))}")
 
 if seleccion == "Pendientes":
     st.subheader("Pendientes")
@@ -293,8 +300,11 @@ elif seleccion == "General":
                                 "prioridad": prioridad
                             }
                         )
-                        limpiar_cache()  # ✅ Limpia la caché para que se vea la nueva tarea
-                        st.success("Tarea creada ✅")
+                        st.success("Tarea creada correctamente.")
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
                         st.rerun()
                 else:
                     st.warning("La descripción es obligatoria.")
@@ -392,14 +402,19 @@ elif seleccion == "Nichos":
                                         "prioridad": prioridad
                                     }
                                 )
-                                limpiar_cache()  # ✅ Limpia la caché para reflejar el cambio
-                                st.success("Tarea creada ✅")
+                                st.success("Tarea creada correctamente.")
+                                try:
+                                    st.cache_data.clear()
+                                except Exception:
+                                    pass
                                 st.rerun()
                         else:
                             st.warning("La descripción es obligatoria.")
 
             tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk["nicho"]]
             st.markdown("#### 📋 Tareas activas")
+            if debug:
+                st.caption(f"debug: nicho={len(tareas_n)}")
             render_list(tareas_n, f"n{nk['nicho']}")
 
             # Toggle historial
@@ -492,7 +507,11 @@ elif seleccion == "Leads":
                                     "prioridad": prioridad
                                 }
                             )
-                            st.success("Tarea creada ✅")
+                            st.success("Tarea creada correctamente.")
+                            try:
+                                st.cache_data.clear()
+                            except Exception:
+                                pass
                             st.rerun()
                     else:
                         st.warning("La descripción es obligatoria.")
@@ -538,6 +557,8 @@ elif seleccion == "Leads":
             nocache_key=time.time()
         )
         tareas_l = ensure_list(tareas_datos)
+        if debug:
+            st.caption(f"debug: lead={len(tareas_l)}")
         render_list(
             [t for t in tareas_l if not t.get("completado", False)],
             f"lead_t_{norm}"
