@@ -20,19 +20,16 @@ from backend.core.error_handlers import setup_error_handlers
 from backend.core.usage import (
     can_export_csv,
     can_start_search,
-    can_use_ai,
     consume_csv_export,
     consume_free_search,
     consume_lead_credits,
-    month_key,
-    get_count,
-    inc_count,
     tareas_usadas_mes,
     ia_mensajes_usados_mes,
     leads_extraidos_mes,
     consume_ai,
+    inc_tareas,
+    inc_leads,
 )
-from sqlalchemy import text
 import logging
 
 logger = logging.getLogger(__name__)
@@ -104,19 +101,10 @@ def me(usuario=Depends(get_current_user)):
 @app.get("/mi_plan")
 def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
-    mkey = month_key()
 
-    degraded = False
-    try:
-        db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
-        leads_usados = leads_extraidos_mes(db, usuario.id)
-        tareas_usadas = tareas_usadas_mes(db, usuario.id)
-        ia_usados = ia_mensajes_usados_mes(db, usuario.id)
-    except Exception as e:  # pragma: no cover - table missing
-        logger.warning("usage_counters table missing or inaccessible: %s", e)
-        db.rollback()
-        degraded = True
-        leads_usados = tareas_usadas = ia_usados = 0
+    leads_usados = leads_extraidos_mes(db, usuario.email_lower)
+    tareas_usadas = tareas_usadas_mes(db, usuario.email_lower)
+    ia_usados = ia_mensajes_usados_mes(db, usuario.email_lower)
 
     leads_totales = plan.lead_credits_month
     if leads_totales is not None:
@@ -124,7 +112,7 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     else:
         leads_restantes = None
 
-    result = {
+    return {
         "plan": plan_name,
         "leads_mensuales": leads_totales,
         "leads_usados_mes": leads_usados,
@@ -139,9 +127,6 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
         "permite_notas": plan.permite_notas,
         "permite_tareas": plan.tareas_max > 0,
     }
-    if degraded:
-        result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
-    return result
 
 
 class MemoriaPayload(BaseModel):
@@ -188,14 +173,13 @@ class TareaPayload(BaseModel):
     dominio: str | None = None
     nicho: str | None = None
     completado: bool = False
+    tipo: str = "general"
+    fecha: str | None = None
+    prioridad: str | None = "media"
+    auto: bool = False
 
 
-@app.post("/tareas")
-def crear_tarea(
-    payload: TareaPayload,
-    usuario=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def _crear_tarea(payload: TareaPayload, usuario, db: Session):
     plan_name, plan = get_plan_for_user(usuario)
     if plan.tareas_max <= 0:
         raise HTTPException(
@@ -205,7 +189,7 @@ def crear_tarea(
                 "message": "Tu plan no incluye tareas.",
             },
         )
-    usadas = tareas_usadas_mes(db, usuario.id)
+    usadas = tareas_usadas_mes(db, usuario.email_lower)
     if usadas >= plan.tareas_max:
         raise HTTPException(
             status_code=403,
@@ -221,12 +205,34 @@ def crear_tarea(
         nicho=payload.nicho,
         user_email_lower=usuario.email_lower,
         completado=payload.completado,
+        tipo=payload.tipo,
+        fecha=payload.fecha,
+        prioridad=payload.prioridad,
+        auto=payload.auto,
     )
     db.add(tarea)
-    inc_count(db, usuario.id, "tareas", month_key(), 1)
+    inc_tareas(db, usuario.email_lower)
     db.commit()
     db.refresh(tarea)
     return {"id": tarea.id, "texto": tarea.texto}
+
+
+@app.post("/tareas")
+def crear_tarea(
+    payload: TareaPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _crear_tarea(payload, usuario, db)
+
+
+@app.post("/tarea_lead")
+def crear_tarea_legacy(
+    payload: TareaPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _crear_tarea(payload, usuario, db)
 
 
 @app.get("/tareas")
@@ -236,23 +242,44 @@ def listar_tareas(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    return {"tareas": _listar_tareas(usuario, db, completado, nicho)}
+
+
+@app.get("/tareas_pendientes")
+def tareas_pendientes(
+    tipo: str | None = None,
+    solo_pendientes: bool | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tareas = _listar_tareas(usuario, db, False if solo_pendientes else None)
+    if tipo:
+        tareas = [t for t in tareas if t.get("tipo") == tipo]
+    return tareas
+
+
+def _listar_tareas(usuario, db: Session, completado: bool | None = None, nicho: str | None = None):
     q = db.query(LeadTarea).filter(LeadTarea.user_email_lower == usuario.email_lower)
     if completado is not None:
         q = q.filter(LeadTarea.completado == completado)
     if nicho:
         q = q.filter(LeadTarea.nicho == nicho)
     tareas = q.all()
-    return {
-        "tareas": [
-            {
-                "id": t.id,
-                "texto": t.texto,
-                "completado": t.completado,
-                "nicho": t.nicho,
-            }
-            for t in tareas
-        ]
-    }
+    return [
+        {
+            "id": t.id,
+            "texto": t.texto,
+            "completado": t.completado,
+            "nicho": t.nicho,
+            "dominio": t.dominio,
+            "tipo": t.tipo,
+            "fecha": t.fecha,
+            "prioridad": t.prioridad,
+            "auto": t.auto,
+            "timestamp": t.timestamp,
+        }
+        for t in tareas
+    ]
 
 
 class ExportPayload(BaseModel):
@@ -274,7 +301,7 @@ def exportar_csv(
                 "message": "Tu plan no incluye exportación CSV.",
             },
         )
-    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    ok, remaining, _ = can_export_csv(db, usuario.email_lower, plan_name)
     if not ok:
         raise HTTPException(
             status_code=403,
@@ -285,7 +312,7 @@ def exportar_csv(
         )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
-    consume_csv_export(db, usuario.id, plan_name)
+    consume_csv_export(db, usuario.email_lower, plan_name)
     db.commit()
     return {"ok": True}
 
@@ -296,16 +323,7 @@ class AIPayload(BaseModel):
 
 @app.post("/ia")
 def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    plan_name, plan = get_plan_for_user(usuario)
-    ok, remaining = can_use_ai(db, usuario.id, plan_name)
-    if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "IA_QUOTA_REACHED",
-                "message": f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {plan.ia_mensajes}).",
-            },
-        )
+    plan_name, _ = get_plan_for_user(usuario)
 
     # Simular la invocación a OpenAI; en producción se llamaría realmente
     prompt = (payload.prompt or "").strip()
@@ -314,7 +332,7 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
         return {"ok": False, "reason": "empty_prompt"}
 
     # Si llega aquí, consideramos que se invocó correctamente
-    consume_ai(db, usuario.id, plan_name)
+    consume_ai(db, usuario.email_lower, plan_name)
 
     return {"ok": True}
 
@@ -327,7 +345,7 @@ class LeadsPayload(BaseModel):
 @app.post("/buscar_leads")
 def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
-    ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
+    ok, remaining, cap = can_start_search(db, usuario.email_lower, plan_name)
     if not ok:
         raise HTTPException(
             status_code=403,
@@ -342,7 +360,8 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
             duplicates += saved - cap
             saved = cap
             truncated = True
-        consume_free_search(db, usuario.id, plan_name)
+        consume_free_search(db, usuario.email_lower, plan_name)
+        inc_leads(db, usuario.email_lower, saved)
         credits_remaining = None
     else:
         nuevos_unicos = payload.nuevos - payload.duplicados
@@ -351,7 +370,7 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
             duplicates += nuevos_unicos - available
             nuevos_unicos = available
             truncated = True
-        consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+        consume_lead_credits(db, usuario.email_lower, plan_name, nuevos_unicos)
         saved = nuevos_unicos
         credits_remaining = (remaining - nuevos_unicos) if remaining is not None else None
 

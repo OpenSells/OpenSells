@@ -20,4 +20,3 @@
 
 ## Tablas legadas eliminadas
 - users (reemplazada por `usuarios`)
-- usage_counters (reemplazada por `user_usage_monthly`)

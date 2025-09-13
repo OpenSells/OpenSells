@@ -22,7 +22,7 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Migración a emails en minúsculas:** script `backend/scripts/migrate_emails_lowercase.py` para poblar e indexar campos `user_email_lower`.
 - **Matriz de planes centralizada:** `backend/core/plans.py` y `backend/core/usage.py` definen límites y registran consumo.
 - **Suspensión de usuarios:** columna `suspendido` en `usuarios` y guard que bloquea acceso si está activa.
-- **Depuración de tablas legado:** eliminadas referencias a `users` y `usage_counters`; la info de usuarios se gestiona solo en `usuarios` y el uso mensual en `user_usage_monthly`.
+- **Depuración de tablas legado:** eliminadas referencias a `users`; el uso mensual se gestiona únicamente en `user_usage_monthly`.
 
 ## 📊 Estado del proyecto
 
@@ -32,7 +32,8 @@ Integra autenticación JWT, multitenencia mediante `user_email_lower` y planes d
 - **Multi‑tenant:** clave `user_email_lower` en todas las tablas; endpoint `/debug-user-snapshot` para verificar sesión y prefijo de la base de datos.
 - **Memoria del asistente:** conversaciones almacenadas en PostgreSQL con soporte de migración desde SQLite.
 - **Control de uso:** `backend/core/usage.py` registra leads, mensajes de IA, tareas y exportaciones por mes.
-- **Límites por plan:** `/mi_plan` expone consumos reales; para reiniciar cuotas en desarrollo basta con vaciar `usage_counters`.
+- **Límites por plan:** `/mi_plan` expone consumos reales; para reiniciar cuotas en desarrollo basta con vaciar `user_usage_monthly`.
+- **Compatibilidad:** se mantienen alias temporales `/tarea_lead` y `/tareas_pendientes` que redirigen a `/tareas`.
 - **Pruebas:** `pytest` cubre el backend y funcionalidades clave.
 
 ## 📁 Estructura del repositorio

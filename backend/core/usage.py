@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Tuple
-from datetime import datetime
 from functools import wraps
 from typing import Tuple
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import ProgrammingError
-from psycopg2.errors import UndefinedTable
-import logging
 
 from backend.core.plans import get_limits
-from backend.models import UsageCounter
+from backend.models import UserUsageMonthly
+import logging
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
@@ -24,70 +20,94 @@ def month_key(dt: datetime | None = None) -> str:
     return dt.strftime("%Y-%m")
 
 
-def _get_row(db: Session, user_id: int, metric: str, period_key: str) -> UsageCounter | None:
-    try:
-        return (
-            db.query(UsageCounter)
-            .filter_by(user_id=user_id, metric=metric, period_key=period_key)
-            .first()
-        )
-    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
-        if "usage_counters" in str(getattr(e, "orig", "")):
-            logger.warning(
-                "usage_counters table missing; returning 0 for %s/%s", metric, period_key
-            )
-            db.rollback()
-            return None
-        raise
+def _get_row(db: Session, user_email_lower: str, period_key: str) -> UserUsageMonthly | None:
+    return (
+        db.query(UserUsageMonthly)
+        .filter_by(user_email_lower=user_email_lower, period_yyyymm=period_key)
+        .first()
+    )
 
 
-def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
-    try:
-        row = _get_row(db, user_id, metric, period_key)
-        return row.count if row else 0
-    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
-        if "usage_counters" in str(getattr(e, "orig", "")):
-            logger.warning(
-                "usage_counters table missing; returning 0 for %s/%s", metric, period_key
-            )
-            db.rollback()
-            return 0
-        raise
-
-
-def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
-    try:
-        row = _get_row(db, user_id, metric, period_key)
-        if row:
-            row.count += by
-        else:
-            row = UsageCounter(
-                user_id=user_id, metric=metric, period_key=period_key, count=by
-            )
-            db.add(row)
+def _get_or_create(db: Session, user_email_lower: str, period_key: str) -> UserUsageMonthly:
+    row = _get_row(db, user_email_lower, period_key)
+    if not row:
+        row = UserUsageMonthly(user_email_lower=user_email_lower, period_yyyymm=period_key)
+        db.add(row)
         db.commit()
-        return row.count
-    except (ProgrammingError, UndefinedTable) as e:  # pragma: no cover - table missing
-        if "usage_counters" in str(getattr(e, "orig", "")):
-            logger.warning(
-                "usage_counters table missing; cannot increment %s/%s", metric, period_key
-            )
-            db.rollback()
-            return 0
-        db.rollback()
-        raise
+        db.refresh(row)
+    return row
+
+
+def tareas_usadas_mes(db: Session, user_email_lower: str) -> int:
+    row = _get_row(db, user_email_lower, month_key())
+    return row.tasks if row else 0
+
+
+def inc_tareas(db: Session, user_email_lower: str, by: int = 1) -> int:
+    row = _get_or_create(db, user_email_lower, month_key())
+    row.tasks += by
+    db.commit()
+    return row.tasks
+
+
+def ia_mensajes_usados_mes(db: Session, user_email_lower: str) -> int:
+    row = _get_row(db, user_email_lower, month_key())
+    return row.ia_msgs if row else 0
+
+
+def inc_ia_mensajes(db: Session, user_email_lower: str, by: int = 1) -> int:
+    row = _get_or_create(db, user_email_lower, month_key())
+    row.ia_msgs += by
+    db.commit()
+    return row.ia_msgs
+
+
+def leads_extraidos_mes(db: Session, user_email_lower: str) -> int:
+    row = _get_row(db, user_email_lower, month_key())
+    return row.leads if row else 0
+
+
+def inc_leads(db: Session, user_email_lower: str, by: int) -> int:
+    row = _get_or_create(db, user_email_lower, month_key())
+    row.leads += by
+    db.commit()
+    return row.leads
+
+
+def csv_exports_mes(db: Session, user_email_lower: str) -> int:
+    row = _get_row(db, user_email_lower, month_key())
+    return row.csv_exports if row else 0
+
+
+def inc_csv_exports(db: Session, user_email_lower: str, by: int = 1) -> int:
+    row = _get_or_create(db, user_email_lower, month_key())
+    row.csv_exports += by
+    db.commit()
+    return row.csv_exports
+
+
+def free_searches_mes(db: Session, user_email_lower: str) -> int:
+    row = _get_row(db, user_email_lower, month_key())
+    return row.searches if row else 0
+
+
+def inc_free_searches(db: Session, user_email_lower: str, by: int = 1) -> int:
+    row = _get_or_create(db, user_email_lower, month_key())
+    row.searches += by
+    db.commit()
+    return row.searches
 
 
 # ------ IA usage helpers ---------------------------------------------------
 
 def register_ia_message(db: Session, user) -> None:
-    """Incrementa la métrica mensual de mensajes IA para el usuario."""
-    inc_count(db, user.id, "mensajes_ia", month_key(), 1)
+    inc_ia_mensajes(db, user.email_lower, 1)
     usage_log.info(f"[USAGE] mensajes_ia +1 user={user.email_lower}")
 
 
 def count_ia_when_called(db_getter, user_getter):
     """Decorador que registra mensajes_ia +1 cuando la función realmente invoca OpenAI."""
+
     def outer(fn):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
@@ -103,6 +123,7 @@ def count_ia_when_called(db_getter, user_getter):
             except Exception as e:  # pragma: no cover - logging only
                 usage_log.exception(f"[USAGE] register mensajes_ia failed: {e}")
             return res
+
         return wrapper
 
     return outer
@@ -110,38 +131,19 @@ def count_ia_when_called(db_getter, user_getter):
 
 # ------ limit helpers -----------------------------------------------------
 
-def _error(
-    feature: str,
-    plan: str,
-    limit: int | None,
-    remaining: int | None,
-    message: str,
-    code: str = "LIMIT_EXCEEDED",
-):
+def _error(feature: str, plan: str, limit: int | None, remaining: int | None, message: str, code: str = "LIMIT_EXCEEDED"):
     raise HTTPException(status_code=403, detail={"code": code, "message": message})
 
 
-def tareas_usadas_mes(db: Session, user_id: int) -> int:
-    return get_count(db, user_id, "tareas", month_key())
-
-
-def ia_mensajes_usados_mes(db: Session, user_id: int) -> int:
-    return get_count(db, user_id, "mensajes_ia", month_key())
-
-
-def leads_extraidos_mes(db: Session, user_id: int) -> int:
-    return get_count(db, user_id, "lead_credits", month_key())
-
-
-def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int]:
+def can_use_ai(db: Session, user_email_lower: str, plan_name: str) -> Tuple[bool, int]:
     plan = get_limits(plan_name)
-    used = ia_mensajes_usados_mes(db, user_id)
+    used = ia_mensajes_usados_mes(db, user_email_lower)
     remaining = plan.ia_mensajes - used
     return (remaining > 0, remaining)
 
 
-def consume_ai(db: Session, user_id: int, plan_name: str):
-    ok, remaining = can_use_ai(db, user_id, plan_name)
+def consume_ai(db: Session, user_email_lower: str, plan_name: str):
+    ok, remaining = can_use_ai(db, user_email_lower, plan_name)
     if not ok:
         _error(
             "ai",
@@ -151,21 +153,20 @@ def consume_ai(db: Session, user_id: int, plan_name: str):
             f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {get_limits(plan_name).ia_mensajes}).",
             code="IA_QUOTA_REACHED",
         )
-    inc_count(db, user_id, "mensajes_ia", month_key(), 1)
+    inc_ia_mensajes(db, user_email_lower, 1)
 
 
-def can_export_csv(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None, int | None]:
+def can_export_csv(db: Session, user_email_lower: str, plan_name: str) -> Tuple[bool, int | None, int | None]:
     plan = get_limits(plan_name)
     if plan.csv_unlimited:
         return True, None, None
-    period = month_key()
-    used = get_count(db, user_id, "csv_exports", period)
+    used = csv_exports_mes(db, user_email_lower)
     remaining = (plan.csv_exports_per_month or 0) - used
     return remaining > 0, remaining, plan.csv_rows_cap_free
 
 
-def consume_csv_export(db: Session, user_id: int, plan_name: str):
-    ok, remaining, _ = can_export_csv(db, user_id, plan_name)
+def consume_csv_export(db: Session, user_email_lower: str, plan_name: str):
+    ok, remaining, _ = can_export_csv(db, user_email_lower, plan_name)
     if not ok:
         _error(
             "csv",
@@ -175,25 +176,23 @@ def consume_csv_export(db: Session, user_id: int, plan_name: str):
             "Límite de exportaciones alcanzado",
             code="CSV_QUOTA_REACHED",
         )
-    inc_count(db, user_id, "csv_exports", month_key(), 1)
+    inc_csv_exports(db, user_email_lower, 1)
 
 
-def can_start_search(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None, int | None]:
+def can_start_search(db: Session, user_email_lower: str, plan_name: str) -> Tuple[bool, int | None, int | None]:
     plan = get_limits(plan_name)
     if plan.type == "free":
-        period = month_key()
-        used = get_count(db, user_id, "free_searches", period)
+        used = free_searches_mes(db, user_email_lower)
         remaining = plan.searches_per_month - used
         return remaining > 0, remaining, plan.leads_cap_per_search
     else:
-        period = month_key()
-        used = get_count(db, user_id, "lead_credits", period)
+        used = leads_extraidos_mes(db, user_email_lower)
         remaining = (plan.lead_credits_month or 0) - used
         return True, remaining, None
 
 
-def consume_free_search(db: Session, user_id: int, plan_name: str):
-    ok, remaining, _ = can_start_search(db, user_id, plan_name)
+def consume_free_search(db: Session, user_email_lower: str, plan_name: str):
+    ok, remaining, _ = can_start_search(db, user_email_lower, plan_name)
     if not ok:
         _error(
             "search",
@@ -203,40 +202,20 @@ def consume_free_search(db: Session, user_id: int, plan_name: str):
             "Límite de búsquedas alcanzado",
             code="SEARCH_QUOTA_REACHED",
         )
-    inc_count(db, user_id, "free_searches", month_key(), 1)
+    inc_free_searches(db, user_email_lower, 1)
 
 
-def consume_lead_credits(db: Session, user_id: int, plan_name: str, n: int):
+def consume_lead_credits(db: Session, user_email_lower: str, plan_name: str, used: int):
     plan = get_limits(plan_name)
-    period = month_key()
-    used = get_count(db, user_id, "lead_credits", period)
-    if plan.lead_credits_month is not None and used + n > plan.lead_credits_month:
-        remaining = plan.lead_credits_month - used
-        _error(
-            "lead_credits",
-            plan_name,
-            plan.lead_credits_month,
-            remaining,
-            "Créditos de lead insuficientes",
-            code="LEAD_CREDITS_EXCEEDED",
-        )
-    inc_count(db, user_id, "lead_credits", period, n)
-
-
-__all__ = [
-    "month_key",
-    "get_count",
-    "inc_count",
-    "tareas_usadas_mes",
-    "ia_mensajes_usados_mes",
-    "leads_extraidos_mes",
-    "can_use_ai",
-    "can_export_csv",
-    "can_start_search",
-    "consume_ai",
-    "consume_csv_export",
-    "consume_free_search",
-    "consume_lead_credits",
-    "register_ia_message",
-    "count_ia_when_called",
-]
+    if plan.lead_credits_month is not None:
+        current = leads_extraidos_mes(db, user_email_lower)
+        if current + used > plan.lead_credits_month:
+            _error(
+                "leads",
+                plan_name,
+                plan.lead_credits_month,
+                plan.lead_credits_month - current,
+                "Límite de leads alcanzado",
+                code="LEADS_QUOTA_REACHED",
+            )
+    inc_leads(db, user_email_lower, used)

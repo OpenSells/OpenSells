@@ -38,20 +38,6 @@ def test_mi_plan_usage_updates(client):
     data = r.json()
     assert data["tareas_usadas_mes"] == 1
     assert data["ia_usados_mes"] == 1
+    assert data["leads_usados_mes"] == 5
 
 
-def test_mi_plan_without_usage_table_returns_200(client, db_session):
-    db_session.execute("DROP TABLE IF EXISTS usage_counters")
-    db_session.commit()
-    email = f"no_table_{uuid.uuid4()}@example.com"
-    headers = auth(client, email)
-    r = client.get("/mi_plan", headers=headers)
-    assert r.status_code == 200
-    data = r.json()
-    assert data["leads_usados_mes"] == 0
-    assert data.get("meta", {}).get("degraded") is True
-    # recreate table for subsequent tests
-    from backend.models import UsageCounter
-
-    UsageCounter.__table__.create(db_session.bind)
-    db_session.commit()
