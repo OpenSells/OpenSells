@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from urllib.parse import urlparse
-import os
+import os, csv, io
 
 from backend.database import get_db
 from backend.models import (
@@ -317,6 +318,47 @@ def exportar_csv(
     consume_csv_export(db, usuario.id, plan_name)
     db.commit()
     return {"ok": True}
+
+
+@app.get("/exportar_todos_mis_leads")
+def exportar_todos_mis_leads(
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan_name, plan = get_plan_for_user(usuario)
+    if not plan.csv_unlimited and (plan.csv_exports_per_month or 0) == 0:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CSV_NOT_INCLUDED",
+                "message": "Tu plan no incluye exportación CSV.",
+            },
+        )
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "CSV_QUOTA_REACHED",
+                "message": f"Tu plan no permite más exportaciones CSV este mes (límite: {plan.csv_exports_per_month}). Considera mejorar tu plan.",
+            },
+        )
+    rows = (
+        db.query(LeadExtraido.dominio, LeadExtraido.email, LeadExtraido.nicho)
+        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
+        .all()
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["dominio", "email", "nicho"])
+    for dominio, email, nicho in rows:
+        writer.writerow([dominio, email, nicho or ""])
+    consume_csv_export(db, usuario.id, plan_name)
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=leads.csv"},
+    )
 
 
 class AIPayload(BaseModel):

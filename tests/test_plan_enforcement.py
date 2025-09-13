@@ -46,6 +46,24 @@ def test_free_csv_cap(client):
     assert data["message"] == "Tu plan no incluye exportación CSV."
 
 
+def test_exportar_todos_mis_leads_free_forbidden(client):
+    email = f"free_all_leads_{uuid.uuid4()}@example.com"
+    headers = auth(client, email)
+    r = client.get("/exportar_todos_mis_leads", headers=headers)
+    assert r.status_code == 403
+    data = r.json()["detail"]
+    assert data["code"] == "CSV_NOT_INCLUDED"
+
+
+def test_exportar_todos_mis_leads_paid_ok(client, db_session):
+    email = f"starter_all_leads_{uuid.uuid4()}@example.com"
+    headers = auth(client, email)
+    set_plan(db_session, email, "starter")
+    r = client.get("/exportar_todos_mis_leads", headers=headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+
+
 def test_free_tasks_active_cap(client):
     email = f"free_tasks_{uuid.uuid4()}@example.com"
     headers = auth(client, email)

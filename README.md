@@ -90,6 +90,7 @@ No existe prefijo global; todas las rutas se sirven desde la raíz del dominio.
 | POST | /tareas | Crear tarea |
 | GET | /tareas | Listar tareas |
 | POST | /exportar_csv | Registrar exportación de CSV |
+| GET | /exportar_todos_mis_leads | (legacy) Exportar todos los leads del usuario |
 | GET | /historial | Historial de exportaciones |
 | POST | /estado_lead | Upsert del estado de un dominio |
 | GET | /estado_lead | Consultar estado de un dominio |
