@@ -24,11 +24,13 @@ from backend.core.usage import (
     consume_csv_export,
     consume_free_search,
     consume_lead_credits,
-    day_key,
     month_key,
     get_count,
     inc_count,
-    register_ia_message,
+    tareas_usadas_mes,
+    ia_mensajes_usados_mes,
+    leads_extraidos_mes,
+    consume_ai,
 )
 from sqlalchemy import text
 import logging
@@ -102,65 +104,40 @@ def me(usuario=Depends(get_current_user)):
 def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
     mkey = month_key()
-    dkey = day_key()
 
     degraded = False
     try:
         db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
-        lead_used = get_count(db, usuario.id, "lead_credits", mkey)
-        free_used = get_count(db, usuario.id, "free_searches", mkey)
-        csv_used = get_count(db, usuario.id, "csv_exports", mkey)
-        ai_used = get_count(db, usuario.id, "ai_messages", dkey)
-        ia_month_used = get_count(db, usuario.id, "mensajes_ia", mkey)
+        leads_usados = leads_extraidos_mes(db, usuario.id)
+        tareas_usadas = tareas_usadas_mes(db, usuario.id)
+        ia_usados = ia_mensajes_usados_mes(db, usuario.id)
     except Exception as e:  # pragma: no cover - table missing
         logger.warning("usage_counters table missing or inaccessible: %s", e)
         db.rollback()
         degraded = True
-        lead_used = free_used = csv_used = ai_used = 0
+        leads_usados = tareas_usadas = ia_usados = 0
 
-    limits = {
-        "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
-        "leads_cap_per_search": plan.leads_cap_per_search if plan.type == "free" else None,
-        "csv_exports_per_month": plan.csv_exports_per_month if plan.type == "free" else None,
-        "csv_rows_cap_free": plan.csv_rows_cap_free if plan.type == "free" else None,
-        "lead_credits_month": plan.lead_credits_month if plan.type == "paid" else None,
-        "tasks_active_max": plan.tasks_active_max,
-        "ai_daily_limit": plan.ai_daily_limit,
-    }
+    leads_totales = plan.lead_credits_month
+    if leads_totales is not None:
+        leads_restantes = max(leads_totales - leads_usados, 0)
+    else:
+        leads_restantes = None
 
-    usage = {
-        "lead_credits": {
-            "used": lead_used,
-            "remaining": (plan.lead_credits_month - lead_used) if plan.lead_credits_month is not None else None,
-            "period": mkey,
-        },
-        "free_searches": {
-            "used": free_used,
-            "remaining": (plan.searches_per_month - free_used) if plan.searches_per_month is not None else None,
-            "period": mkey,
-        },
-        "csv_exports": {
-            "used": csv_used,
-            "remaining": (plan.csv_exports_per_month - csv_used) if plan.csv_exports_per_month is not None else None,
-            "period": mkey,
-        },
-        "ai_messages": {
-            "used_today": ai_used,
-            "remaining_today": plan.ai_daily_limit - ai_used,
-            "period": dkey,
-        },
-        "mensajes_ia": {
-            "used": ia_month_used,
-            "period": mkey,
-        },
-        "tasks_active": {
-            "current": db.query(LeadTarea)
-            .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
-            .count(),
-            "limit": plan.tasks_active_max,
-        },
+    result = {
+        "plan": plan_name,
+        "leads_mensuales": leads_totales,
+        "leads_usados_mes": leads_usados,
+        "leads_restantes": leads_restantes,
+        "ia_mensajes": plan.ia_mensajes,
+        "ia_usados_mes": ia_usados,
+        "ia_restantes": max(plan.ia_mensajes - ia_usados, 0),
+        "tareas_max": plan.tareas_max,
+        "tareas_usadas_mes": tareas_usadas,
+        "tareas_restantes": max(plan.tareas_max - tareas_usadas, 0),
+        "csv_exportacion": plan.csv_exportacion,
+        "permite_notas": plan.permite_notas,
+        "permite_tareas": plan.tareas_max > 0,
     }
-    result = {"plan": plan_name, "limits": limits, "usage": usage}
     if degraded:
         result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
     return result
@@ -219,18 +196,16 @@ def crear_tarea(
     db: Session = Depends(get_db),
 ):
     plan_name, plan = get_plan_for_user(usuario)
-    active = (
-        db.query(LeadTarea)
-        .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
-        .count()
-    )
-    if active >= plan.tasks_active_max:
+    if plan.tareas_max <= 0:
+        _error("tasks", plan_name, 0, 0, "Tu plan no incluye tareas.")
+    usadas = tareas_usadas_mes(db, usuario.id)
+    if usadas >= plan.tareas_max:
         _error(
             "tasks",
             plan_name,
-            plan.tasks_active_max,
+            plan.tareas_max,
             0,
-            f"Tu plan no permite crear más tareas este mes (límite: {plan.tasks_active_max}). Considera mejorar tu plan.",
+            f"Tu plan no permite crear más tareas este mes (límite: {plan.tareas_max}). Considera mejorar tu plan.",
         )
     tarea = LeadTarea(
         email=usuario.email,
@@ -241,6 +216,7 @@ def crear_tarea(
         completado=payload.completado,
     )
     db.add(tarea)
+    inc_count(db, usuario.id, "tareas", month_key(), 1)
     db.commit()
     db.refresh(tarea)
     return {"id": tarea.id, "texto": tarea.texto}
@@ -319,9 +295,9 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
         _error(
             "ai",
             plan_name,
-            plan.ai_daily_limit,
+            plan.ia_mensajes,
             remaining,
-            f"Tu plan no permite más mensajes de IA hoy (límite: {plan.ai_daily_limit}). Considera mejorar tu plan.",
+            f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {plan.ia_mensajes}).",
         )
 
     # Simular la invocación a OpenAI; en producción se llamaría realmente
@@ -331,8 +307,7 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
         return {"ok": False, "reason": "empty_prompt"}
 
     # Si llega aquí, consideramos que se invocó correctamente
-    inc_count(db, usuario.id, "ai_messages", day_key(), 1)
-    register_ia_message(db, usuario)
+    consume_ai(db, usuario.id, plan_name)
 
     return {"ok": True}
 

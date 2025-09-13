@@ -1,9 +1,4 @@
-"""Utilidades relacionadas con los planes y sus límites.
-
-Este módulo se comparte entre distintas páginas de Streamlit.  Recupera el
-plan del usuario desde el backend y expone funciones auxiliares para que la
-interfaz reaccione según los límites disponibles.
-"""
+"""Utilidades relacionadas con los planes y sus límites."""
 
 from __future__ import annotations
 
@@ -14,59 +9,61 @@ from streamlit_app.cache_utils import cached_get
 from streamlit_js_eval import streamlit_js_eval
 import streamlit.components.v1 as components
 
-# ---------------------------------------------------------------------------
-# Límite por defecto y caché
-# ---------------------------------------------------------------------------
-
-DEFAULT_LIMITS = {
-    "leads_por_mes": 40,
-    "mensajes_ia_por_mes": 5,
+DEFAULT_PLAN = {
+    "plan": "free",
+    "leads_mensuales": 40,
+    "leads_usados_mes": 0,
+    "leads_restantes": 40,
+    "ia_mensajes": 5,
+    "ia_usados_mes": 0,
+    "ia_restantes": 5,
     "tareas_max": 4,
+    "tareas_usadas_mes": 0,
+    "tareas_restantes": 4,
+    "csv_exportacion": False,
     "permite_notas": False,
-    "permite_export_csv": False,
-    "soporte": "email",
+    "permite_tareas": True,
 }
 
-PLAN_CACHE = {"free": DEFAULT_LIMITS}
+PLAN_CACHE = {"free": DEFAULT_PLAN}
 
 
 # ---------------------------------------------------------------------------
-# Funciones auxiliares
+# Fetch helpers
 # ---------------------------------------------------------------------------
 
 
 def resolve_user_plan(token: str) -> dict:
     """Obtiene el plan y límites desde el backend."""
-
     try:
         data = cached_get("/mi_plan", token, nocache_key=time.time())
-        if data and "plan" in data:
-            plan = (data.get("plan") or "free").strip().lower()
-            limits = data.get("limits") or DEFAULT_LIMITS
-            PLAN_CACHE[plan] = limits
-            return {"plan": plan, "limits": limits}
+        if data and data.get("plan"):
+            PLAN_CACHE[data["plan"]] = data
+            return data
     except Exception:
         pass
-    return {"plan": "free", "limits": DEFAULT_LIMITS}
+    return DEFAULT_PLAN
 
 
 def tiene_suscripcion_activa(plan: str) -> bool:
     """Indica si el plan permite funciones avanzadas."""
-
     return plan != "free"
 
 
-def obtener_limite(plan: str, clave: str):
-    """Obtiene el límite configurado para un recurso."""
-
-    return PLAN_CACHE.get(plan, PLAN_CACHE["free"]).get(clave)
+def puede_gestionar_tareas(mi_plan: dict) -> bool:
+    return bool(mi_plan.get("permite_tareas", int(mi_plan.get("tareas_max", 0)) > 0))
 
 
-def permite_recurso(plan: str, clave: str) -> bool:
-    """Comprueba si el recurso indicado está habilitado para el plan."""
+def tareas_restantes(mi_plan: dict) -> int:
+    return max(
+        0,
+        int(mi_plan.get("tareas_max", 0)) - int(mi_plan.get("tareas_usadas_mes", 0)),
+    )
 
-    valor = obtener_limite(plan, clave)
-    return bool(valor)
+
+# ---------------------------------------------------------------------------
+# UI helpers
+# ---------------------------------------------------------------------------
 
 
 def subscription_cta():
@@ -89,16 +86,18 @@ def force_redirect(url: str) -> None:
     except Exception:
         pass
     components.html(
-        f"""
+        (
+            """
         <script>
         (function(){{
           try{{ window.top.location.href = "{url}"; }}catch(e){{}}
           setTimeout(function(){{
             try{{ window.top.location.href = "{url}"; }}catch(e){{}}
           }}, 80);
-        }})();
+        })();
         </script>
-        """,
+        """
+        ).format(url=url),
         height=0,
     )
     st.stop()
@@ -107,8 +106,8 @@ def force_redirect(url: str) -> None:
 __all__ = [
     "resolve_user_plan",
     "tiene_suscripcion_activa",
-    "obtener_limite",
-    "permite_recurso",
+    "puede_gestionar_tareas",
+    "tareas_restantes",
     "subscription_cta",
     "force_redirect",
 ]

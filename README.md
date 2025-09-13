@@ -132,8 +132,8 @@ El mapeo de estos `price_id` al nombre interno del plan se define en `backend/co
 
 La matriz de planes se centraliza en `backend/core/plans.py` y expone límites como `leads_mensuales`, `ia_mensajes`, `tareas_max`, `permite_notas` y `csv_exportacion`. El uso mensual se gestiona en `backend/core/usage.py` y el endpoint `GET /mi_plan` devuelve el plan y sus límites, consumidos en el frontend mediante `resolve_user_plan`.
 
-| Plan | Leads mensuales | Mensajes IA/día | Tareas activas | Exportación CSV | Notas |
-| ---- | --------------- | ---------------- | -------------- | ---------------- | ----- |
+| Plan | Leads mensuales | Mensajes IA/mes | Tareas/mes | Exportación CSV | Notas |
+| ---- | --------------- | --------------- | --------- | --------------- | ----- |
 | Free | 40 | 5 | 4 | ❌ | ❌ |
 
 ## 🕷️ Scraper de contactos

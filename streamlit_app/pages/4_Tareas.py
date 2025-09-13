@@ -7,7 +7,12 @@ from datetime import date
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
-from streamlit_app.plan_utils import resolve_user_plan, permite_recurso, subscription_cta
+from streamlit_app.plan_utils import (
+    resolve_user_plan,
+    subscription_cta,
+    puede_gestionar_tareas,
+    tareas_restantes,
+)
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
@@ -51,7 +56,10 @@ if token and not user:
 with st.sidebar:
     logout_button()
 
-plan = resolve_user_plan(token)["plan"]
+mi_plan = resolve_user_plan(token)
+plan = mi_plan["plan"]
+permite_tareas = puede_gestionar_tareas(mi_plan)
+tareas_rest = tareas_restantes(mi_plan)
 
 HDR = {"Authorization": f"Bearer {token}"}
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
@@ -157,7 +165,7 @@ def render_list(items: list[dict], key_pref: str):
         cols[4].markdown(prioridad)
 
         if cols[5].button("✔️", key=f"done_{unique_key}"):
-            if not permite_recurso(plan, "tareas_max"):
+            if not permite_tareas:
                 st.warning("Tu plan no permite gestionar tareas.")
                 subscription_cta()
             else:
@@ -189,7 +197,7 @@ def render_list(items: list[dict], key_pref: str):
             )
 
             if c4.button("💾", key=f"guardar_edit_{unique_key}"):
-                if not permite_recurso(plan, "tareas_max"):
+                if not permite_tareas:
                     st.warning("Tu plan no permite gestionar tareas.")
                     subscription_cta()
                 else:
@@ -248,7 +256,7 @@ elif seleccion == "General":
 
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
-                    if not permite_recurso(plan, "tareas_max"):
+                    if not permite_tareas:
                         st.warning("Tu plan no permite gestionar tareas.")
                         subscription_cta()
                     else:
@@ -350,7 +358,7 @@ elif seleccion == "Nichos":
                     prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho")
                     if st.form_submit_button("💾 Crear tarea"):
                         if texto.strip():
-                            if not permite_recurso(plan, "tareas_max"):
+                            if not permite_tareas:
                                 st.warning("Tu plan no permite gestionar tareas.")
                                 subscription_cta()
                             else:
@@ -454,7 +462,7 @@ elif seleccion == "Leads":
                 prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle")
                 if st.form_submit_button("💾 Crear tarea"):
                     if texto.strip():
-                        if not permite_recurso(plan, "tareas_max"):
+                        if not permite_tareas:
                             st.warning("Tu plan no permite gestionar tareas.")
                             subscription_cta()
                         else:
@@ -492,7 +500,7 @@ elif seleccion == "Leads":
                 tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
                 info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
                 if st.form_submit_button("💾 Guardar información"):
-                    if not permite_recurso(plan, "tareas_max"):
+                    if not permite_tareas:
                         st.warning("Tu plan no permite gestionar tareas.")
                         subscription_cta()
                     else:

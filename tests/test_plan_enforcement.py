@@ -63,6 +63,7 @@ def test_free_ai_daily(client):
         assert client.post("/ia", json={"prompt": "hi"}, headers=headers).status_code == 200
     r = client.post("/ia", json={"prompt": "hi"}, headers=headers)
     assert r.status_code == 403
+    assert "Has alcanzado el límite de mensajes de IA" in r.json()["detail"]["message"]
 
 
 # --- Starter plan tests ----------------------------------------------------
@@ -74,7 +75,7 @@ def test_starter_credits_consumption(client, db_session):
     r = client.post("/buscar_leads", json={"nuevos": 35, "duplicados": 5}, headers=headers)
     assert r.json()["saved"] == 30
     r2 = client.get("/mi_plan", headers=headers)
-    assert r2.json()["usage"]["lead_credits"]["used"] == 30
+    assert r2.json()["leads_usados_mes"] == 30
 
 
 def test_starter_credits_truncation(client, db_session):

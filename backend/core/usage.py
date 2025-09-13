@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Tuple
+from datetime import datetime
 from functools import wraps
+from typing import Tuple
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -20,11 +22,6 @@ usage_log = logging.getLogger("usage")
 def month_key(dt: datetime | None = None) -> str:
     dt = dt or datetime.utcnow()
     return dt.strftime("%Y-%m")
-
-
-def day_key(dt: datetime | None = None) -> str:
-    dt = dt or datetime.utcnow()
-    return dt.strftime("%Y-%m-%d")
 
 
 def _get_row(db: Session, user_id: int, metric: str, period_key: str) -> UsageCounter | None:
@@ -127,19 +124,36 @@ def _error(feature: str, plan: str, limit: int | None, remaining: int | None, me
     )
 
 
+def tareas_usadas_mes(db: Session, user_id: int) -> int:
+    return get_count(db, user_id, "tareas", month_key())
+
+
+def ia_mensajes_usados_mes(db: Session, user_id: int) -> int:
+    return get_count(db, user_id, "mensajes_ia", month_key())
+
+
+def leads_extraidos_mes(db: Session, user_id: int) -> int:
+    return get_count(db, user_id, "lead_credits", month_key())
+
+
 def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int]:
     plan = get_limits(plan_name)
-    period = day_key()
-    used = get_count(db, user_id, "ai_messages", period)
-    remaining = plan.ai_daily_limit - used
+    used = ia_mensajes_usados_mes(db, user_id)
+    remaining = plan.ia_mensajes - used
     return (remaining > 0, remaining)
 
 
 def consume_ai(db: Session, user_id: int, plan_name: str):
     ok, remaining = can_use_ai(db, user_id, plan_name)
     if not ok:
-        _error("ai", plan_name, get_limits(plan_name).ai_daily_limit, remaining, "Límite diario de IA excedido")
-    inc_count(db, user_id, "ai_messages", day_key(), 1)
+        _error(
+            "ai",
+            plan_name,
+            get_limits(plan_name).ia_mensajes,
+            remaining,
+            f"Has alcanzado el límite de mensajes de IA de tu plan para este mes (límite: {get_limits(plan_name).ia_mensajes}).",
+        )
+    inc_count(db, user_id, "mensajes_ia", month_key(), 1)
 
 
 def can_export_csv(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None, int | None]:
@@ -192,9 +206,11 @@ def consume_lead_credits(db: Session, user_id: int, plan_name: str, n: int):
 
 __all__ = [
     "month_key",
-    "day_key",
     "get_count",
     "inc_count",
+    "tareas_usadas_mes",
+    "ia_mensajes_usados_mes",
+    "leads_extraidos_mes",
     "can_use_ai",
     "can_export_csv",
     "can_start_search",

@@ -1,5 +1,7 @@
 import uuid
 
+import uuid
+
 from tests.test_plan_enforcement import auth, set_plan
 
 
@@ -9,14 +11,9 @@ def test_mi_plan_free_fields(client):
     r = client.get("/mi_plan", headers=headers)
     data = r.json()
     assert data["plan"] == "free"
-    limits = data["limits"]
-    assert limits["lead_credits_month"] is None
-    assert limits["searches_per_month"] == 4
-    assert limits["csv_exports_per_month"] == 0
-    assert limits["tasks_active_max"] == 4
-    usage = data["usage"]
-    assert usage["free_searches"]["remaining"] == 4
-    assert usage["lead_credits"]["remaining"] is None
+    assert data["tareas_max"] == 4
+    assert data["ia_mensajes"] == 5
+    assert data["csv_exportacion"] is False
 
 
 def test_mi_plan_starter_fields(client, db_session):
@@ -25,12 +22,10 @@ def test_mi_plan_starter_fields(client, db_session):
     set_plan(db_session, email, "starter")
     r = client.get("/mi_plan", headers=headers)
     data = r.json()
-    limits = data["limits"]
     assert data["plan"] == "starter"
-    assert limits["lead_credits_month"] == 150
-    assert limits["searches_per_month"] is None
-    assert limits["csv_exports_per_month"] is None
-    assert limits["tasks_active_max"] == 20
+    assert data["tareas_max"] == 20
+    assert data["ia_mensajes"] == 20
+    assert data["csv_exportacion"] is True
 
 
 def test_mi_plan_usage_updates(client):
@@ -41,10 +36,8 @@ def test_mi_plan_usage_updates(client):
     client.post("/buscar_leads", json={"nuevos": 5}, headers=headers)
     r = client.get("/mi_plan", headers=headers)
     data = r.json()
-    usage = data["usage"]
-    assert usage["tasks_active"]["current"] == 1
-    assert usage["mensajes_ia"]["used"] == 1
-    assert usage["free_searches"]["used"] == 1
+    assert data["tareas_usadas_mes"] == 1
+    assert data["ia_usados_mes"] == 1
 
 
 def test_mi_plan_without_usage_table_returns_200(client, db_session):
@@ -55,7 +48,7 @@ def test_mi_plan_without_usage_table_returns_200(client, db_session):
     r = client.get("/mi_plan", headers=headers)
     assert r.status_code == 200
     data = r.json()
-    assert data["usage"]["lead_credits"]["used"] == 0
+    assert data["leads_usados_mes"] == 0
     assert data.get("meta", {}).get("degraded") is True
     # recreate table for subsequent tests
     from backend.models import UsageCounter
