@@ -5,7 +5,7 @@ import streamlit as st
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 DEV_DEBUG = os.getenv("WRAPPER_DEBUG", "0") == "1"
 
-CANDIDATE_PLAN = ["/mi_plan"]
+CANDIDATE_PLAN = ["/plan/quotas", "/mi_plan"]
 CANDIDATE_USAGE = ["/plan/usage", "/usage", "/stats/usage", "/me/usage"]
 CANDIDATE_QUOTAS = ["/plan/quotas", "/quotas", "/plan/limits", "/limits"]
 CANDIDATE_SUBSCR = [

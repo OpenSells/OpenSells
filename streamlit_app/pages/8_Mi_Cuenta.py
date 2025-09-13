@@ -129,7 +129,7 @@ def _coalesce_aliases(raw: dict, is_quota: bool = False) -> dict:
     return out
 
 def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
-    """Acepta el JSON de /mi_plan y devuelve (usage, quotas) normalizados.
+    """Acepta el JSON de /plan/quotas y devuelve (usage, quotas) normalizados.
     Admite formatos:
       { plan, limites: {...}, uso: {...} }  ó  { plan, limits: {...}, usage: {...} }
     y mapea claves frecuentes.
@@ -213,7 +213,7 @@ if "auth_email" not in st.session_state and user:
 
 # Recuperar plan y límites/uso
 try:
-    mi_plan = cached_get("/mi_plan", token) or {}
+    mi_plan = cached_get("/plan/quotas", token) or {}
 except Exception:
     mi_plan = {}
 plan = mi_plan.get("plan", "free")
@@ -243,7 +243,7 @@ else:
 
 # --- NUEVO: Uso del plan (debajo de "📄 Plan actual") ---
 try:
-    mi_plan = cached_get("/mi_plan", token) or {}
+    mi_plan = cached_get("/plan/quotas", token) or {}
 except Exception:
     mi_plan = {}
 usage, quotas = _normalize_usage_and_quotas(mi_plan)
