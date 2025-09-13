@@ -22,6 +22,31 @@ def test_user_usage_monthly_unique(db_session):
     assert rows
 
 
+def test_user_usage_monthly_columns(db_session):
+    rows = db_session.execute(
+        text(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name='user_usage_monthly'
+            """
+        )
+    ).fetchall()
+    cols = {r[0] for r in rows}
+    expected = {
+        "id",
+        "user_id",
+        "period_yyyymm",
+        "leads",
+        "ia_msgs",
+        "tasks",
+        "csv_exports",
+        "searches",
+        "created_at",
+        "updated_at",
+    }
+    assert expected.issubset(cols)
+
+
 def test_leads_extraidos_unique(db_session):
     rows = db_session.execute(text("""
         SELECT conname

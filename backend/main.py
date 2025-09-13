@@ -102,9 +102,9 @@ def me(usuario=Depends(get_current_user)):
 def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
 
-    leads_usados = leads_extraidos_mes(db, usuario.email_lower)
-    tareas_usadas = tareas_usadas_mes(db, usuario.email_lower)
-    ia_usados = ia_mensajes_usados_mes(db, usuario.email_lower)
+    leads_usados = leads_extraidos_mes(db, usuario.id)
+    tareas_usadas = tareas_usadas_mes(db, usuario.id)
+    ia_usados = ia_mensajes_usados_mes(db, usuario.id)
 
     leads_totales = plan.lead_credits_month
     if leads_totales is not None:
@@ -189,7 +189,7 @@ def _crear_tarea(payload: TareaPayload, usuario, db: Session):
                 "message": "Tu plan no incluye tareas.",
             },
         )
-    usadas = tareas_usadas_mes(db, usuario.email_lower)
+    usadas = tareas_usadas_mes(db, usuario.id)
     if usadas >= plan.tareas_max:
         raise HTTPException(
             status_code=403,
@@ -211,7 +211,7 @@ def _crear_tarea(payload: TareaPayload, usuario, db: Session):
         auto=payload.auto,
     )
     db.add(tarea)
-    inc_tareas(db, usuario.email_lower)
+    inc_tareas(db, usuario.id)
     db.commit()
     db.refresh(tarea)
     return {"id": tarea.id, "texto": tarea.texto}
@@ -232,6 +232,7 @@ def crear_tarea_legacy(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    logger.warning("Deprecated endpoint /tarea_lead called")
     return _crear_tarea(payload, usuario, db)
 
 
@@ -252,6 +253,7 @@ def tareas_pendientes(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    logger.warning("Deprecated endpoint /tareas_pendientes called")
     tareas = _listar_tareas(usuario, db, False if solo_pendientes else None)
     if tipo:
         tareas = [t for t in tareas if t.get("tipo") == tipo]
@@ -301,7 +303,7 @@ def exportar_csv(
                 "message": "Tu plan no incluye exportación CSV.",
             },
         )
-    ok, remaining, _ = can_export_csv(db, usuario.email_lower, plan_name)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
     if not ok:
         raise HTTPException(
             status_code=403,
@@ -312,7 +314,7 @@ def exportar_csv(
         )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
     db.add(registro)
-    consume_csv_export(db, usuario.email_lower, plan_name)
+    consume_csv_export(db, usuario.id, plan_name)
     db.commit()
     return {"ok": True}
 
@@ -332,7 +334,7 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
         return {"ok": False, "reason": "empty_prompt"}
 
     # Si llega aquí, consideramos que se invocó correctamente
-    consume_ai(db, usuario.email_lower, plan_name)
+    consume_ai(db, usuario.id, plan_name)
 
     return {"ok": True}
 
@@ -345,7 +347,7 @@ class LeadsPayload(BaseModel):
 @app.post("/buscar_leads")
 def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     plan_name, plan = get_plan_for_user(usuario)
-    ok, remaining, cap = can_start_search(db, usuario.email_lower, plan_name)
+    ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
     if not ok:
         raise HTTPException(
             status_code=403,
@@ -360,8 +362,8 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
             duplicates += saved - cap
             saved = cap
             truncated = True
-        consume_free_search(db, usuario.email_lower, plan_name)
-        inc_leads(db, usuario.email_lower, saved)
+        consume_free_search(db, usuario.id, plan_name)
+        inc_leads(db, usuario.id, saved)
         credits_remaining = None
     else:
         nuevos_unicos = payload.nuevos - payload.duplicados
@@ -370,7 +372,7 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
             duplicates += nuevos_unicos - available
             nuevos_unicos = available
             truncated = True
-        consume_lead_credits(db, usuario.email_lower, plan_name, nuevos_unicos)
+        consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
         saved = nuevos_unicos
         credits_remaining = (remaining - nuevos_unicos) if remaining is not None else None
 

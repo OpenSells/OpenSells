@@ -82,7 +82,7 @@ class UserUsageMonthly(Base):
     __tablename__ = "user_usage_monthly"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_email_lower = Column(String, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
     period_yyyymm = Column(String, nullable=False)
     leads = Column(Integer, default=0)
     ia_msgs = Column(Integer, default=0)
@@ -93,7 +93,7 @@ class UserUsageMonthly(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        UniqueConstraint("user_email_lower", "period_yyyymm", name="uix_user_period"),
+        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
     )
 
 

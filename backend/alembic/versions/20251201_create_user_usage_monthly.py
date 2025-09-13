@@ -15,7 +15,7 @@ def upgrade():
     op.create_table(
         'user_usage_monthly',
         sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('user_email_lower', sa.String(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
         sa.Column('period_yyyymm', sa.String(), nullable=False),
         sa.Column('leads', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('ia_msgs', sa.Integer(), nullable=False, server_default='0'),
@@ -24,11 +24,11 @@ def upgrade():
         sa.Column('searches', sa.Integer(), nullable=False, server_default='0'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now()),
-        sa.UniqueConstraint('user_email_lower', 'period_yyyymm', name='uix_user_period')
+        sa.UniqueConstraint('user_id', 'period_yyyymm', name='uix_user_period')
     )
-    op.create_index('ix_user_usage_monthly_email', 'user_usage_monthly', ['user_email_lower'])
+    op.create_index('ix_user_usage_monthly_user', 'user_usage_monthly', ['user_id'])
 
 
 def downgrade():
-    op.drop_index('ix_user_usage_monthly_email', table_name='user_usage_monthly')
+    op.drop_index('ix_user_usage_monthly_user', table_name='user_usage_monthly')
     op.drop_table('user_usage_monthly')
