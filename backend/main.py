@@ -15,8 +15,8 @@ from backend.models import (
     Usuario,
     UsuarioMemoria,
 )
-from backend.core.plan_config import get_plan_for_user
-from backend.core.usage import (
+from backend.core.plan_service import PlanService
+from backend.core.usage_helpers import (
     can_export_csv,
     can_start_search,
     can_use_ai,
@@ -24,12 +24,10 @@ from backend.core.usage import (
     consume_free_search,
     consume_lead_credits,
     day_key,
-    month_key,
-    get_count,
     inc_count,
     register_ia_message,
 )
-from sqlalchemy import text
+from backend.core.usage_service import UsageService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -47,6 +45,7 @@ if os.getenv("ENV") == "dev":
     from backend.routers import debug
 
     app.include_router(debug.router)
+
 
 
 def normalizar_dominio(dominio: str) -> str:
@@ -99,70 +98,43 @@ def me(usuario=Depends(get_current_user)):
 
 @app.get("/mi_plan")
 def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    plan_name, plan = get_plan_for_user(usuario)
-    mkey = month_key()
-    dkey = day_key()
+    svc = PlanService(db)
+    return svc.get_quotas(usuario)
 
-    degraded = False
-    try:
-        db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
-        lead_used = get_count(db, usuario.id, "lead_credits", mkey)
-        free_used = get_count(db, usuario.id, "free_searches", mkey)
-        csv_used = get_count(db, usuario.id, "csv_exports", mkey)
-        ai_used = get_count(db, usuario.id, "ai_messages", dkey)
-        ia_month_used = get_count(db, usuario.id, "mensajes_ia", mkey)
-    except Exception as e:  # pragma: no cover - table missing
-        logger.warning("usage_counters table missing or inaccessible: %s", e)
-        db.rollback()
-        degraded = True
-        lead_used = free_used = csv_used = ai_used = 0
 
-    limits = {
-        "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
-        "leads_cap_per_search": plan.leads_cap_per_search if plan.type == "free" else None,
-        "csv_exports_per_month": plan.csv_exports_per_month if plan.type == "free" else None,
-        "csv_rows_cap_free": plan.csv_rows_cap_free if plan.type == "free" else None,
-        "lead_credits_month": plan.lead_credits_month if plan.type == "paid" else None,
-        "tasks_active_max": plan.tasks_active_max,
-        "ai_daily_limit": plan.ai_daily_limit,
-    }
+@app.get("/plan/usage")
+@app.get("/usage")
+@app.get("/stats/usage")
+@app.get("/me/usage")
+def plan_usage(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    svc = PlanService(db)
+    quotas = svc.get_quotas(usuario)
+    return {"plan": quotas["plan"], "usage": quotas["usage"]}
 
-    usage = {
-        "lead_credits": {
-            "used": lead_used,
-            "remaining": (plan.lead_credits_month - lead_used) if plan.lead_credits_month is not None else None,
-            "period": mkey,
-        },
-        "free_searches": {
-            "used": free_used,
-            "remaining": (plan.searches_per_month - free_used) if plan.searches_per_month is not None else None,
-            "period": mkey,
-        },
-        "csv_exports": {
-            "used": csv_used,
-            "remaining": (plan.csv_exports_per_month - csv_used) if plan.csv_exports_per_month is not None else None,
-            "period": mkey,
-        },
-        "ai_messages": {
-            "used_today": ai_used,
-            "remaining_today": plan.ai_daily_limit - ai_used,
-            "period": dkey,
-        },
-        "mensajes_ia": {
-            "used": ia_month_used,
-            "period": mkey,
-        },
-        "tasks_active": {
-            "current": db.query(LeadTarea)
-            .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
-            .count(),
-            "limit": plan.tasks_active_max,
-        },
-    }
-    result = {"plan": plan_name, "limits": limits, "usage": usage}
-    if degraded:
-        result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
-    return result
+
+@app.get("/plan/limits")
+@app.get("/limits")
+def plan_limits(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    svc = PlanService(db)
+    plan_name, _ = svc.get_effective_plan(usuario)
+    limits = svc.get_limits(plan_name)
+    return {"plan": plan_name, "limits": limits}
+
+
+@app.get("/plan/quotas")
+def plan_quotas(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    svc = PlanService(db)
+    return svc.get_quotas(usuario)
+
+
+@app.get("/plan/subscription")
+@app.get("/subscription/summary")
+@app.get("/billing/summary")
+@app.get("/stripe/subscription")
+def plan_subscription(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    svc = PlanService(db)
+    plan_name, _ = svc.get_effective_plan(usuario)
+    return {"plan": plan_name, "stripe": None, "status": "disabled"}
 
 
 class MemoriaPayload(BaseModel):
@@ -205,74 +177,133 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 
 class TareaPayload(BaseModel):
+    tipo: str = "general"
     texto: str
-    dominio: str | None = None
+    fecha: str | None = None
+    prioridad: str = "media"
     nicho: str | None = None
+    dominio: str | None = None
     completado: bool = False
 
 
-@app.post("/tareas")
+@app.post("/tareas", status_code=201)
 def crear_tarea(
     payload: TareaPayload,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    plan_name, plan = get_plan_for_user(usuario)
-    active = (
-        db.query(LeadTarea)
-        .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
-        .count()
-    )
-    if active >= plan.tasks_active_max:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "tasks",
-                "plan": plan_name,
-                "limit": plan.tasks_active_max,
-                "remaining": 0,
-                "message": "Límite de tareas alcanzado",
-            },
+    svc = PlanService(db)
+    quotas = svc.get_quotas(usuario)
+    remaining = quotas["remaining"]["tasks_active"]
+    if remaining is not None and remaining <= 0:
+        logger.info(
+            "quota_reject feature=tasks user_id=%s plan=%s limit=%s used=%s",
+            usuario.id,
+            quotas["plan"],
+            quotas["limits"]["tasks_active_max"],
+            quotas["limits"]["tasks_active_max"] - remaining,
         )
-    tarea = LeadTarea(
-        email=usuario.email,
-        texto=payload.texto,
-        dominio=payload.dominio,
-        nicho=payload.nicho,
-        user_email_lower=usuario.email_lower,
-        completado=payload.completado,
+        raise HTTPException(
+            status_code=422,
+            detail="Tareas máximas alcanzadas para tu plan.",
+        )
+    try:
+        tarea = LeadTarea(
+            email=usuario.email,
+            texto=payload.texto,
+            dominio=payload.dominio,
+            nicho=payload.nicho,
+            user_email_lower=usuario.email_lower,
+            completado=payload.completado,
+            tipo=payload.tipo,
+            fecha=payload.fecha,
+            prioridad=payload.prioridad,
+        )
+        db.add(tarea)
+        db.flush()
+        UsageService(db).increment(usuario.id, "tasks", 1)
+        db.commit()
+        db.refresh(tarea)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error al crear la tarea")
+    logger.info(
+        "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
+        usuario.email_lower,
+        payload.tipo,
+        payload.dominio,
+        payload.nicho,
+        tarea.id,
     )
-    db.add(tarea)
-    db.commit()
-    db.refresh(tarea)
-    return {"id": tarea.id, "texto": tarea.texto}
+    return {
+        "id": tarea.id,
+        "texto": tarea.texto,
+        "tipo": tarea.tipo,
+        "dominio": tarea.dominio,
+        "nicho": tarea.nicho,
+        "fecha": tarea.fecha,
+        "prioridad": tarea.prioridad,
+        "completado": tarea.completado,
+    }
 
 
 @app.get("/tareas")
 def listar_tareas(
-    completado: bool | None = None,
+    tipo: str | None = None,
     nicho: str | None = None,
+    dominio: str | None = None,
+    solo_pendientes: bool = False,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(LeadTarea).filter(LeadTarea.user_email_lower == usuario.email_lower)
-    if completado is not None:
-        q = q.filter(LeadTarea.completado == completado)
+    if tipo:
+        q = q.filter(LeadTarea.tipo == tipo)
     if nicho:
         q = q.filter(LeadTarea.nicho == nicho)
+    if dominio:
+        q = q.filter(LeadTarea.dominio == dominio)
+    if solo_pendientes:
+        q = q.filter(LeadTarea.completado == False)
     tareas = q.all()
     return {
         "tareas": [
             {
                 "id": t.id,
                 "texto": t.texto,
-                "completado": t.completado,
+                "tipo": t.tipo,
                 "nicho": t.nicho,
+                "dominio": t.dominio,
+                "fecha": t.fecha,
+                "prioridad": t.prioridad,
+                "completado": t.completado,
             }
             for t in tareas
         ]
     }
+
+
+@app.post("/tarea_lead", status_code=201)
+def crear_tarea_lead(
+    payload: TareaPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    data = payload.dict()
+    data["tipo"] = "lead"
+    return crear_tarea(TareaPayload(**data), usuario, db)
+
+
+@app.get("/tareas_pendientes")
+def tareas_pendientes(
+    tipo: str | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return listar_tareas(tipo=tipo, solo_pendientes=True, usuario=usuario, db=db)
 
 
 class ExportPayload(BaseModel):
@@ -285,7 +316,8 @@ def exportar_csv(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    plan_name, plan = get_plan_for_user(usuario)
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
     ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
     if not ok:
         raise HTTPException(
@@ -312,7 +344,8 @@ class AIPayload(BaseModel):
 
 @app.post("/ia")
 def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    plan_name, plan = get_plan_for_user(usuario)
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
     ok, remaining = can_use_ai(db, usuario.id, plan_name)
     if not ok:
         raise HTTPException(
@@ -347,7 +380,8 @@ class LeadsPayload(BaseModel):
 
 @app.post("/buscar_leads")
 def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    plan_name, plan = get_plan_for_user(usuario)
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
     ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
     if not ok:
         raise HTTPException(

@@ -9,21 +9,21 @@ from streamlit_app.utils.auth_session import get_auth_token
 
 @st.cache_data(ttl=15, hash_funcs={types.ModuleType: id})
 def _fetch_plan(api_client) -> Dict[str, Any]:
-    resp = api_client.get("/mi_plan")
+    resp = api_client.get("/plan/quotas")
     if hasattr(resp, "status_code"):
         if resp.status_code != 200:
-            raise RuntimeError(f"/mi_plan {resp.status_code}")
+            raise RuntimeError(f"/plan/quotas {resp.status_code}")
         try:
             return resp.json()
         except Exception as e:  # pragma: no cover - network errors
-            raise RuntimeError(f"/mi_plan invalid JSON: {e}")
+            raise RuntimeError(f"/plan/quotas invalid JSON: {e}")
     if isinstance(resp, dict):
         return resp
-    raise RuntimeError("Unexpected /mi_plan response type.")
+    raise RuntimeError("Unexpected /plan/quotas response type.")
 
 
 def render_quota_bars(api_client, *, place: str = "sidebar"):
-    """Render quota bars for the current user and return the /mi_plan payload."""
+    """Render quota bars for the current user and return the /plan/quotas payload."""
 
     token = get_auth_token()
     if not token:
