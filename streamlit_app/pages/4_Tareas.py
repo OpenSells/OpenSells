@@ -99,14 +99,13 @@ datos_nichos = cached_get("/mis_nichos", token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
 
 @st.cache_data(ttl=30)
-def fetch_tareas_pendientes(tipo: str):
-    resp = http_client.get(
-        "/tareas_pendientes",
-        headers=HDR,
-        params={"tipo": tipo, "solo_pendientes": "true"},
-    )
+def fetch_tareas(tipo: str):
+    params = {"solo_pendientes": "true"}
+    if tipo != "todas":
+        params["tipo"] = tipo
+    resp = http_client.get("/tareas", headers=HDR, params=params)
     if resp.status_code == 200:
-        return resp.json()
+        return resp.json().get("tareas", [])
     return []
 
 # ────────────────── Render tabla ────────────────────
@@ -237,7 +236,7 @@ seleccion = st.radio(
     horizontal=True,
 )
 label_to_tipo = {"Pendientes": "todas", "General": "general", "Nichos": "nicho", "Leads": "lead"}
-todos = fetch_tareas_pendientes(label_to_tipo[seleccion])
+todos = fetch_tareas(label_to_tipo[seleccion])
 
 if seleccion == "Pendientes":
     st.subheader("Pendientes")
@@ -262,7 +261,7 @@ elif seleccion == "General":
                         subscription_cta()
                     else:
                         resp = http_client.post(
-                            "/tarea_lead",
+                            "/tareas",
                             json={
                                 "texto": texto.strip(),
                                 "tipo": "general",
@@ -365,7 +364,7 @@ elif seleccion == "Nichos":
                                 subscription_cta()
                             else:
                                 resp = http_client.post(
-                                    "/tarea_lead",
+                                    "/tareas",
                                     json={
                                         "texto": texto.strip(),
                                         "tipo": "nicho",
@@ -470,7 +469,7 @@ elif seleccion == "Leads":
                             subscription_cta()
                         else:
                             resp = http_client.post(
-                                "/tarea_lead",
+                                "/tareas",
                                 json={
                                     "texto": texto.strip(),
                                     "tipo": "lead",
@@ -526,7 +525,7 @@ elif seleccion == "Leads":
 
         st.markdown("#### 📋 Tareas activas")
         tareas_datos = cached_get(
-            "tareas_lead",
+            "/tareas",
             token,
             query={"dominio": norm},
             nocache_key=time.time()

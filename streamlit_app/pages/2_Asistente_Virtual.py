@@ -171,7 +171,7 @@ def actualizar_nota_lead(dominio: str, nota: str):
 def obtener_tareas_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/tareas_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/tareas", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -186,7 +186,7 @@ def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "me
             datetime.fromisoformat(fecha)
         except ValueError:
             return {"error": "fecha_invalida"}
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    r = http_client.post("/tareas", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
     if r.status_code == 200:
         return r.json()
     return {"error": parse_error_message(r), "status": r.status_code}
@@ -200,7 +200,7 @@ def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str
         except ValueError:
             return {"error": "fecha_invalida"}
     st.session_state["lead_actual"] = dominio
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    r = http_client.post("/tareas", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
     if r.status_code == 200:
         return r.json()
     return {"error": parse_error_message(r), "status": r.status_code}
@@ -350,7 +350,7 @@ def historial_tareas(tipo: str = "general", nicho: str | None = None):
 
 
 def api_tareas_pendientes():
-    r = http_client.get("/tareas_pendientes", headers=_auth_headers())
+    r = http_client.get("/tareas", headers=_auth_headers(), params={"solo_pendientes": "true"})
     if r.status_code == 200:
         return r.json()
     if r.status_code == 403:
@@ -772,7 +772,7 @@ tool_defs = [
 
 def build_system_prompt() -> str:
     nichos = cached_get("/mis_nichos", token).get("nichos", [])
-    tareas = cached_get("tareas_pendientes", token) or []
+    tareas = cached_get("/tareas", token, query={"solo_pendientes": "true"}).get("tareas", [])
     resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (

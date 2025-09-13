@@ -285,8 +285,8 @@ if leads_resp.status_code == 200:
 else:
     total_leads = 0
 
-resp_tareas = cached_get("tareas_pendientes", token)
-tareas = resp_tareas or []
+resp_tareas = cached_get("/tareas", token, query={"solo_pendientes": "true"})
+tareas = resp_tareas.get("tareas", []) if isinstance(resp_tareas, dict) else []
 
 st.markdown(
     f"""

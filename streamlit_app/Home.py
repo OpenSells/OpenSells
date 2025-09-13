@@ -95,11 +95,11 @@ if auth:
     nichos_resp = cached_get("/mis_nichos", token) if token else {}
     nichos = nichos_resp.get("nichos", []) if isinstance(nichos_resp, dict) else []
     num_nichos = len(nichos)
-    tareas_resp = cached_get("tareas_pendientes", token) if token else []
+    tareas_resp = cached_get("/tareas", token, query={"solo_pendientes": "true"}) if token else {}
     if isinstance(tareas_resp, dict):
         tareas = tareas_resp.get("tareas", [])
     else:
-        tareas = tareas_resp or []
+        tareas = []
     num_tareas = len(tareas)
 
     with st.sidebar:

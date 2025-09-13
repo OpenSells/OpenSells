@@ -74,10 +74,10 @@ def cached_post(endpoint, token, payload=None, params=None):
         r = requests.post(url, headers=headers, json=payload, params=params)
         if r.status_code == 200:
             # Limpiar cache relevante si es una acción conocida
-            if endpoint in ["tarea_completada", "editar_tarea", "tarea_lead"]:
+            if endpoint in ["tarea_completada", "editar_tarea", "/tareas"]:
                 if "_cache" in st.session_state:
                     for key in list(st.session_state._cache.keys()):
-                        if "tareas_pendientes" in key or "tareas_lead" in key or "tareas_nicho" in key:
+                        if "tareas" in key:
                             del st.session_state._cache[key]
             return r.json()
     except Exception as e:
