@@ -27,6 +27,7 @@ from backend.core.usage import (
     inc_count,
     register_ia_message,
 )
+from backend.core.usage_service import UsageService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -176,43 +177,35 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 
 class TareaPayload(BaseModel):
+    tipo: str = "general"
     texto: str
-    dominio: str | None = None
+    fecha: str | None = None
+    prioridad: str = "media"
     nicho: str | None = None
+    dominio: str | None = None
     completado: bool = False
 
 
-@app.post("/tareas")
+@app.post("/tareas", status_code=201)
 def crear_tarea(
     payload: TareaPayload,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     svc = PlanService(db)
-    plan_name, plan = svc.get_effective_plan(usuario)
-    active = (
-        db.query(LeadTarea)
-        .filter(LeadTarea.user_email_lower == usuario.email_lower, LeadTarea.completado == False)
-        .count()
-    )
-    if active >= plan.tasks_active_max:
+    quotas = svc.get_quotas(usuario)
+    remaining = quotas["remaining"]["tasks_active"]
+    if remaining is not None and remaining <= 0:
         logger.info(
             "quota_reject feature=tasks user_id=%s plan=%s limit=%s used=%s",
             usuario.id,
-            plan_name,
-            plan.tasks_active_max,
-            active,
+            quotas["plan"],
+            quotas["limits"]["tasks_active_max"],
+            quotas["limits"]["tasks_active_max"] - remaining,
         )
         raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "tasks",
-                "plan": plan_name,
-                "limit": plan.tasks_active_max,
-                "remaining": 0,
-                "message": "Límite de tareas alcanzado",
-            },
+            status_code=422,
+            detail="Tareas máximas alcanzadas para tu plan.",
         )
     tarea = LeadTarea(
         email=usuario.email,
@@ -221,37 +214,88 @@ def crear_tarea(
         nicho=payload.nicho,
         user_email_lower=usuario.email_lower,
         completado=payload.completado,
+        tipo=payload.tipo,
+        fecha=payload.fecha,
+        prioridad=payload.prioridad,
     )
     db.add(tarea)
     db.commit()
     db.refresh(tarea)
-    return {"id": tarea.id, "texto": tarea.texto}
+    UsageService(db).increment(usuario.id, "tasks", 1)
+    logger.info(
+        "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
+        usuario.email_lower,
+        payload.tipo,
+        payload.dominio,
+        payload.nicho,
+        tarea.id,
+    )
+    return {
+        "id": tarea.id,
+        "texto": tarea.texto,
+        "tipo": tarea.tipo,
+        "dominio": tarea.dominio,
+        "nicho": tarea.nicho,
+        "fecha": tarea.fecha,
+        "prioridad": tarea.prioridad,
+        "completado": tarea.completado,
+    }
 
 
 @app.get("/tareas")
 def listar_tareas(
-    completado: bool | None = None,
+    tipo: str | None = None,
     nicho: str | None = None,
+    dominio: str | None = None,
+    solo_pendientes: bool = False,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(LeadTarea).filter(LeadTarea.user_email_lower == usuario.email_lower)
-    if completado is not None:
-        q = q.filter(LeadTarea.completado == completado)
+    if tipo:
+        q = q.filter(LeadTarea.tipo == tipo)
     if nicho:
         q = q.filter(LeadTarea.nicho == nicho)
+    if dominio:
+        q = q.filter(LeadTarea.dominio == dominio)
+    if solo_pendientes:
+        q = q.filter(LeadTarea.completado == False)
     tareas = q.all()
     return {
         "tareas": [
             {
                 "id": t.id,
                 "texto": t.texto,
-                "completado": t.completado,
+                "tipo": t.tipo,
                 "nicho": t.nicho,
+                "dominio": t.dominio,
+                "fecha": t.fecha,
+                "prioridad": t.prioridad,
+                "completado": t.completado,
             }
             for t in tareas
         ]
     }
+
+
+@app.post("/tarea_lead", status_code=201)
+def crear_tarea_lead(
+    payload: TareaPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    data = payload.dict()
+    data["tipo"] = "lead"
+    return crear_tarea(TareaPayload(**data), usuario, db)
+
+
+@app.get("/tareas_pendientes")
+def tareas_pendientes(
+    tipo: str | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return listar_tareas(tipo=tipo, solo_pendientes=True, usuario=usuario, db=db)
 
 
 class ExportPayload(BaseModel):

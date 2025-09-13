@@ -5,15 +5,10 @@ from dataclasses import asdict
 from typing import Tuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from backend.core.plan_config import PLANES, get_limits as _get_plan_limits
 from backend.core.stripe_mapping import stripe_price_to_plan
-from backend.core.usage import (
-    day_key,
-    month_key,
-    get_count,
-)
+from backend.core.usage_service import UsageService
 from backend.models import LeadTarea
 
 logger = logging.getLogger(__name__)
@@ -62,22 +57,9 @@ class PlanService:
     # ------------------------------------------------------------------
     def get_quotas(self, user) -> dict:
         plan_name, plan = self.get_effective_plan(user)
-        mkey = month_key()
-        dkey = day_key()
-
-        degraded = False
-        try:
-            self.db.execute(text("SELECT 1 FROM usage_counters LIMIT 1"))
-            lead_used = get_count(self.db, user.id, "lead_credits", mkey)
-            free_used = get_count(self.db, user.id, "free_searches", mkey)
-            csv_used = get_count(self.db, user.id, "csv_exports", mkey)
-            ai_used = get_count(self.db, user.id, "ai_messages", dkey)
-            ia_month_used = get_count(self.db, user.id, "mensajes_ia", mkey)
-        except Exception as e:  # pragma: no cover - table missing
-            logger.warning("usage_counters table missing or inaccessible: %s", e)
-            self.db.rollback()
-            degraded = True
-            lead_used = free_used = csv_used = ai_used = ia_month_used = 0
+        usage_svc = UsageService(self.db)
+        period = usage_svc.get_period_yyyymm()
+        counts = usage_svc.get_usage(user.id, period)
 
         tasks_current = (
             self.db.query(LeadTarea)
@@ -99,43 +81,31 @@ class PlanService:
         }
 
         usage = {
-            "lead_credits": {
-                "used": lead_used,
-                "remaining": (plan.lead_credits_month - lead_used)
+            "leads": {
+                "used": counts["leads"],
+                "remaining": (plan.lead_credits_month - counts["leads"])
                 if plan.lead_credits_month is not None
                 else None,
-                "period": mkey,
+                "period": period,
             },
-            "free_searches": {
-                "used": free_used,
-                "remaining": (plan.searches_per_month - free_used)
-                if plan.searches_per_month is not None
-                else None,
-                "period": mkey,
-            },
+            "ia_msgs": {"used": counts["ia_msgs"], "period": period},
+            "tasks": {"used": counts["tasks"], "period": period},
             "csv_exports": {
-                "used": csv_used,
-                "remaining": (plan.csv_exports_per_month - csv_used)
+                "used": counts["csv_exports"],
+                "remaining": (plan.csv_exports_per_month - counts["csv_exports"])
                 if plan.csv_exports_per_month is not None
                 else None,
-                "period": mkey,
+                "period": period,
             },
-            "ai_messages": {
-                "used_today": ai_used,
-                "remaining_today": plan.ai_daily_limit - ai_used,
-                "period": dkey,
-            },
-            "mensajes_ia": {"used": ia_month_used, "period": mkey},
             "tasks_active": {"current": tasks_current, "limit": plan.tasks_active_max},
         }
 
         remaining = {
-            "lead_credits": usage["lead_credits"]["remaining"],
-            "free_searches": usage["free_searches"]["remaining"],
+            "leads": usage["leads"]["remaining"],
             "csv_exports": usage["csv_exports"]["remaining"],
-            "ai_messages": usage["ai_messages"]["remaining_today"],
             "tasks_active": plan.tasks_active_max - tasks_current,
-            "mensajes_ia": None,
+            "ia_msgs": None,
+            "tasks": None,
         }
 
         result = {
@@ -144,8 +114,6 @@ class PlanService:
             "usage": usage,
             "remaining": remaining,
         }
-        if degraded:
-            result["meta"] = {"degraded": True, "reason": "usage_counters_missing"}
         return result
 
     # ------------------------------------------------------------------

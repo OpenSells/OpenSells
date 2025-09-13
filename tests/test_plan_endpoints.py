@@ -1,6 +1,6 @@
 import uuid
 
-from tests.test_plan_enforcement import auth, set_plan
+from tests.helpers import auth, set_plan
 
 
 def test_plan_quotas_pro(client, db_session):
@@ -43,12 +43,12 @@ def test_task_creation_and_limit(client, db_session):
     email_pro = f"protask_{uuid.uuid4()}@example.com"
     headers_pro = auth(client, email_pro)
     set_plan(db_session, email_pro, "pro")
-    assert client.post("/tareas", json={"texto": "hola"}, headers=headers_pro).status_code == 200
+    assert client.post("/tareas", json={"texto": "hola"}, headers=headers_pro).status_code == 201
 
     email_free = f"freetask_{uuid.uuid4()}@example.com"
     headers_free = auth(client, email_free)
     for i in range(3):
-        assert client.post("/tareas", json={"texto": str(i)}, headers=headers_free).status_code == 200
+        assert client.post("/tareas", json={"texto": str(i)}, headers=headers_free).status_code == 201
     r = client.post("/tareas", json={"texto": "x"}, headers=headers_free)
-    assert r.status_code == 403
-    assert r.json()["detail"]["error"] == "limit_exceeded"
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Tareas máximas alcanzadas para tu plan."
