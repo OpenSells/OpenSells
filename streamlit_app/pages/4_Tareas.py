@@ -4,6 +4,7 @@ from hashlib import md5
 from urllib.parse import urlparse
 import time
 from datetime import date
+from typing import Any, Dict, Iterable, List
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
@@ -58,6 +59,8 @@ ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()
 
+PRIO_ORDER = {"alta": 0, "media": 1, "baja": 2}
+
 # Redirección automática desde enlace
 params = st.query_params
 
@@ -85,6 +88,43 @@ def norm_dom(url: str) -> str:
     return urlparse(url).netloc.replace("www.", "").split("/")[0]
 
 
+def ensure_list(payload: Any) -> List[Dict[str, Any]]:
+    """
+    Normaliza la respuesta del backend a una lista de tareas.
+    Acepta: lista directa, dict con 'items'/'tareas'/'results'/'data',
+    o dict id->objeto (devuelve sus values).
+    """
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("items", "tareas", "results", "data"):
+            val = payload.get(key)
+            if isinstance(val, list):
+                return val
+        values = list(payload.values())
+        if values and all(isinstance(v, dict) for v in values):
+            return values
+        return [payload]
+    return []
+
+
+def sort_tareas(iterable: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Orden: prioridad (alta>media>baja), luego fecha asc (YYYY-MM-DD), luego timestamp asc si existe.
+    """
+    tareas = list(iterable)
+
+    def _key(t: Dict[str, Any]):
+        prio = PRIO_ORDER.get((t.get("prioridad") or "").lower(), 99)
+        fecha = t.get("fecha") or "9999-12-31"
+        ts = t.get("timestamp") or ""
+        return (prio, fecha, ts)
+
+    return sorted(tareas, key=_key)
+
+
 # ────────────────── Datos base ──────────────────────
 datos_nichos = cached_get("/mis_nichos", token)
 map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
@@ -101,24 +141,15 @@ def fetch_tareas_pendientes(tipo: str):
     return []
 
 # ────────────────── Render tabla ────────────────────
-def render_list(items: list[dict], key_pref: str):
-    prio_map = {"alta": 0, "media": 1, "baja": 2}
-    items.sort(
-        key=lambda t: (
-            t.get("completado", False),
-            prio_map.get(t.get("prioridad"), 999),
-            not t.get("auto", False),
-            t.get("fecha") is None,
-            t.get("fecha"),
-            t.get("timestamp"),
-        )
-    )
+def render_list(items, prefix: str):
+    items = sort_tareas(ensure_list(items))
+
     if not items:
-        st.info("Sin tareas.")
+        st.info("No hay tareas para mostrar.")
         return
 
     for i, t in enumerate(items):
-        unique_key = f"{key_pref}_{t['id']}_{i}"
+        unique_key = f"{prefix}_{t['id']}_{i}"
         cols = st.columns([1, 3, 2, 1.5, 1.5, 0.8, 0.8])
 
         tipo = ICON.get(t.get("tipo"), "❔")
@@ -367,7 +398,7 @@ elif seleccion == "Nichos":
                         else:
                             st.warning("La descripción es obligatoria.")
 
-            tareas_n = [t for t in todos if t.get("nicho") == nk["nicho"]]
+            tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk["nicho"]]
             st.markdown("#### 📋 Tareas activas")
             render_list(tareas_n, f"n{nk['nicho']}")
 
@@ -506,7 +537,7 @@ elif seleccion == "Leads":
             query={"dominio": norm},
             nocache_key=time.time()
         )
-        tareas_l = tareas_datos.get("tareas", []) if tareas_datos else []
+        tareas_l = ensure_list(tareas_datos)
         render_list(
             [t for t in tareas_l if not t.get("completado", False)],
             f"lead_t_{norm}"
