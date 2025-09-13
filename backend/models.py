@@ -82,8 +82,8 @@ class UserUsageMonthly(Base):
     __tablename__ = "user_usage_monthly"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False)
-    period_yyyymm = Column(String, nullable=False)
+    user_id = Column(Integer, index=True, nullable=False)
+    period_yyyymm = Column(String, index=True, nullable=False)
     leads = Column(Integer, default=0)
     ia_msgs = Column(Integer, default=0)
     tasks = Column(Integer, default=0)
@@ -92,22 +92,7 @@ class UserUsageMonthly(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_period"),
-    )
-
-
-class UsageCounter(Base):
-    __tablename__ = "usage_counters"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, nullable=False)
-    metric = Column(String, nullable=False)
-    period_key = Column(String, nullable=False)
-    count = Column(Integer, nullable=False, server_default=text("0"))
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "metric", "period_key", name="uix_usage_counter"),
-        Index("idx_usage_counters_user_metric_period", "user_id", "metric", "period_key"),
+        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_usage_monthly"),
     )
 
 

@@ -16,7 +16,7 @@ from backend.models import (
     UsuarioMemoria,
 )
 from backend.core.plan_service import PlanService
-from backend.core.usage import (
+from backend.core.usage_helpers import (
     can_export_csv,
     can_start_search,
     can_use_ai,
@@ -207,21 +207,29 @@ def crear_tarea(
             status_code=422,
             detail="Tareas máximas alcanzadas para tu plan.",
         )
-    tarea = LeadTarea(
-        email=usuario.email,
-        texto=payload.texto,
-        dominio=payload.dominio,
-        nicho=payload.nicho,
-        user_email_lower=usuario.email_lower,
-        completado=payload.completado,
-        tipo=payload.tipo,
-        fecha=payload.fecha,
-        prioridad=payload.prioridad,
-    )
-    db.add(tarea)
-    db.commit()
-    db.refresh(tarea)
-    UsageService(db).increment(usuario.id, "tasks", 1)
+    try:
+        tarea = LeadTarea(
+            email=usuario.email,
+            texto=payload.texto,
+            dominio=payload.dominio,
+            nicho=payload.nicho,
+            user_email_lower=usuario.email_lower,
+            completado=payload.completado,
+            tipo=payload.tipo,
+            fecha=payload.fecha,
+            prioridad=payload.prioridad,
+        )
+        db.add(tarea)
+        db.flush()
+        UsageService(db).increment(usuario.id, "tasks", 1)
+        db.commit()
+        db.refresh(tarea)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error al crear la tarea")
     logger.info(
         "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
         usuario.email_lower,
