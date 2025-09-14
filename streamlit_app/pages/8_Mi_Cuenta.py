@@ -167,12 +167,20 @@ def _pretty_label(key: str) -> str:
     return LABELS_ES.get(key, key.replace("_"," ").capitalize())
 
 
-def _render_usage_section(usage: dict, quotas: dict):
+def _render_usage_section(mi_plan: dict):
     st.subheader("📊 Uso del plan")
-    for key in PRIMARY_KEYS:
-        usado = _to_number(usage.get(key), 0)
-        cupo  = quotas.get(key, None)  # None => sin límite declarado
-        _render_row(_pretty_label(key), usado, cupo)
+    counters = mi_plan.get("counters", {})
+    limits = mi_plan.get("limits", {})
+    _render_row(
+        "Búsquedas este mes",
+        counters.get("searches_used", 0),
+        limits.get("searches_per_month"),
+    )
+    _render_row(
+        "Leads extraídos este mes",
+        counters.get("leads_used", 0),
+        limits.get("leads_per_month"),
+    )
 
 load_dotenv()
 
@@ -213,7 +221,7 @@ if "auth_email" not in st.session_state and user:
 
 # Recuperar plan y límites/uso
 try:
-    mi_plan = cached_get("/plan/quotas", token) or {}
+    mi_plan = cached_get("/plan/usage", token) or {}
 except Exception:
     mi_plan = {}
 plan = mi_plan.get("plan", "free")
@@ -243,11 +251,10 @@ else:
 
 # --- NUEVO: Uso del plan (debajo de "📄 Plan actual") ---
 try:
-    mi_plan = cached_get("/plan/quotas", token) or {}
+    mi_plan = cached_get("/plan/usage", token) or {}
 except Exception:
     mi_plan = {}
-usage, quotas = _normalize_usage_and_quotas(mi_plan)
-_render_usage_section(usage, quotas)
+_render_usage_section(mi_plan)
 st.divider()
 
 # -------------------- Memoria del usuario --------------------

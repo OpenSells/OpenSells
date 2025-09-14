@@ -5,6 +5,8 @@ from sqlalchemy import (
     DateTime,
     Text,
     Boolean,
+    Date,
+    ForeignKey,
     func,
     text,
     UniqueConstraint,
@@ -93,6 +95,22 @@ class UserUsageMonthly(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "period_yyyymm", name="uix_user_usage_monthly"),
+    )
+
+
+class UsageCounter(Base):
+    __tablename__ = "usage_counters"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    period_month = Column(Date, nullable=False)
+    leads_used = Column(Integer, nullable=False, default=0)
+    searches_used = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "period_month", name="uix_usage_user_period"),
+        Index("idx_usage_user_period", "user_id", "period_month"),
     )
 
 

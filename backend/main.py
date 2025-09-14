@@ -18,16 +18,14 @@ from backend.models import (
 from backend.core.plan_service import PlanService
 from backend.core.usage_helpers import (
     can_export_csv,
-    can_start_search,
     can_use_ai,
     consume_csv_export,
-    consume_free_search,
-    consume_lead_credits,
     day_key,
     inc_count,
     register_ia_message,
 )
-from backend.core.usage_service import UsageService
+from backend.services.usage import UsageCounterService
+from backend.config.plans import PLAN_LIMITS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -107,9 +105,29 @@ def mi_plan(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
 @app.get("/stats/usage")
 @app.get("/me/usage")
 def plan_usage(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    svc = PlanService(db)
-    quotas = svc.get_quotas(usuario)
-    return {"plan": quotas["plan"], "usage": quotas["usage"]}
+    plan_name = (usuario.plan or "free").strip().lower()
+    svc = UsageCounterService(db)
+    period = svc.get_current_period_date()
+    row = svc.get_or_create_usage(usuario.id, period)
+    limits = PLAN_LIMITS.get(
+        plan_name, {"leads_per_month": None, "searches_per_month": None}
+    )
+    counters = {"leads_used": row.leads_used, "searches_used": row.searches_used}
+    remaining = {
+        "leads": None
+        if not limits.get("leads_per_month")
+        else max(limits["leads_per_month"] - row.leads_used, 0),
+        "searches": None
+        if not limits.get("searches_per_month")
+        else max(limits["searches_per_month"] - row.searches_used, 0),
+    }
+    return {
+        "period_month": period.isoformat(),
+        "plan": plan_name,
+        "counters": counters,
+        "limits": limits,
+        "remaining": remaining,
+    }
 
 
 @app.get("/plan/limits")
@@ -119,6 +137,24 @@ def plan_limits(usuario=Depends(get_current_user), db: Session = Depends(get_db)
     plan_name, _ = svc.get_effective_plan(usuario)
     limits = svc.get_limits(plan_name)
     return {"plan": plan_name, "limits": limits}
+
+
+class BumpPayload(BaseModel):
+    kind: str
+    amount: int = 1
+
+
+@app.post("/plan/usage/bump")
+def plan_usage_bump(
+    payload: BumpPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    svc = UsageCounterService(db)
+    if payload.kind == "leads":
+        row = svc.increment_leads(usuario.id, payload.amount)
+    else:
+        row = svc.increment_searches(usuario.id, payload.amount)
+    db.commit()
+    return {"leads_used": row.leads_used, "searches_used": row.searches_used}
 
 
 @app.get("/plan/quotas")
@@ -382,40 +418,58 @@ class LeadsPayload(BaseModel):
 def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     svc = PlanService(db)
     plan_name, plan = svc.get_effective_plan(usuario)
-    ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
-    if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "search",
-                "plan": plan_name,
-                "limit": plan.searches_per_month,
-                "remaining": remaining,
-                "message": "Límite de búsquedas alcanzado",
-            },
-        )
+    usage_svc = UsageCounterService(db)
+    period = usage_svc.get_current_period_date()
+    usage = usage_svc.get_or_create_usage(usuario.id, period)
+    limits = PLAN_LIMITS.get(plan_name, {})
 
     truncated = False
     duplicates = payload.duplicados
     saved = payload.nuevos
-    if plan.type == "free":
+    if plan_name == "free":
+        limit = limits.get("searches_per_month")
+        if limit is not None and usage.searches_used >= limit:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "quota_exceeded",
+                    "plan": plan_name,
+                    "limit_type": "searches_per_month",
+                    "message": "Has alcanzado el límite mensual de búsquedas de tu plan.",
+                },
+            )
+        cap = plan.leads_cap_per_search
         if cap is not None and saved > cap:
             duplicates += saved - cap
             saved = cap
             truncated = True
-        consume_free_search(db, usuario.id, plan_name)
+        usage_svc.increment_searches(usuario.id, 1)
         credits_remaining = None
     else:
+        limit = limits.get("leads_per_month")
         nuevos_unicos = payload.nuevos - payload.duplicados
-        available = remaining if remaining is not None else nuevos_unicos
+        if limit is not None and usage.leads_used >= limit:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "quota_exceeded",
+                    "plan": plan_name,
+                    "limit_type": "leads_per_month",
+                    "message": "Has alcanzado el límite mensual de leads de tu plan.",
+                },
+            )
+        available = (
+            limit - usage.leads_used if limit is not None else nuevos_unicos
+        )
         if available < nuevos_unicos:
             duplicates += nuevos_unicos - available
             nuevos_unicos = available
             truncated = True
-        consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+        usage_svc.increment_leads(usuario.id, nuevos_unicos)
         saved = nuevos_unicos
-        credits_remaining = (remaining - nuevos_unicos) if remaining is not None else None
+        credits_remaining = (
+            (limit - usage.leads_used - nuevos_unicos) if limit is not None else None
+        )
 
     db.commit()
     return {
