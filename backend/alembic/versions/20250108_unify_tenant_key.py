@@ -3,14 +3,19 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20250108_unify_tenant_key'
-down_revision = None
+down_revision = '20240101_initial_schema'
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    # 1) Add user_email_lower to lead_nota
-    op.add_column('lead_nota', sa.Column('user_email_lower', sa.String(length=255), nullable=True))
+    conn = op.get_bind()
+    # 1) Add user_email_lower to lead_nota if missing
+    conn.execute(
+        sa.text(
+            "ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS user_email_lower VARCHAR(255)"
+        )
+    )
     # 2) Backfill from leads_extraidos based on url and user
     op.execute(
         """
@@ -33,18 +38,52 @@ def upgrade():
             pass
     # 4) Enforce NOT NULL and index
     op.alter_column('lead_nota', 'user_email_lower', existing_type=sa.String(length=255), nullable=False)
-    op.create_index('ix_lead_nota_user_email_lower_url', 'lead_nota', ['user_email_lower', 'url'])
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relname = 'ix_lead_nota_user_email_lower_url'
+                      AND n.nspname = 'public'
+                ) THEN
+                    CREATE INDEX ix_lead_nota_user_email_lower_url ON lead_nota (user_email_lower, url);
+                END IF;
+            END$$;
+            """
+        )
+    )
 
     # 5) Unique constraint on leads_extraidos (user_email_lower, url)
-    op.create_unique_constraint(
-        'uq_leads_extraidos_user_url', 'leads_extraidos', ['user_email_lower', 'url']
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'uq_leads_extraidos_user_url'
+                      AND conrelid = 'leads_extraidos'::regclass
+                ) THEN
+                    ALTER TABLE leads_extraidos
+                    ADD CONSTRAINT uq_leads_extraidos_user_url
+                    UNIQUE (user_email_lower, url);
+                END IF;
+            END$$;
+            """
+        )
     )
 
     # 6) Composite index on lead_tarea for common lookups
-    op.create_index(
-        'ix_lead_tarea_user_dom_comp_prio_fecha_ts',
-        'lead_tarea',
-        ['user_email_lower', 'dominio', 'completado', 'prioridad', 'fecha', 'timestamp']
+    conn.execute(
+        sa.text(
+            """
+            CREATE INDEX IF NOT EXISTS ix_lead_tarea_user_dom_comp_prio_fecha_ts
+            ON lead_tarea (user_email_lower, dominio, completado, prioridad, fecha, timestamp)
+            """
+        )
     )
 
 
