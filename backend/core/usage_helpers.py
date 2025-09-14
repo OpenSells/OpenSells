@@ -27,23 +27,39 @@ def day_key(dt: datetime | None = None) -> str:
 _metric_map = {
     "ai_messages": "ia_msgs",
     "csv_exports": "csv_exports",
-    "free_searches": "leads",
-    "lead_credits": "leads",
+    "free_searches": "free_searches",
+    "lead_credits": "lead_credits",
+    "tasks": "tasks",
 }
 
 
-def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
+def _resolve_metric(metric: str, plan_type: str | None = None) -> str | None:
+    if metric == "leads":
+        return "free_searches" if plan_type == "free" else "lead_credits"
+    return _metric_map.get(metric)
+
+
+def get_count(
+    db: Session, user_id: int, metric: str, period_key: str, plan_type: str | None = None
+) -> int:
     svc = UsageService(db)
     period = period_key[:6]
-    kind = _metric_map.get(metric)
+    kind = _resolve_metric(metric, plan_type)
     if not kind:
         return 0
     return svc.get_usage(user_id, period).get(kind, 0)
 
 
-def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
+def inc_count(
+    db: Session,
+    user_id: int,
+    metric: str,
+    period_key: str,
+    by: int = 1,
+    plan_type: str | None = None,
+) -> int:
     svc = UsageService(db)
-    kind = _metric_map.get(metric)
+    kind = _resolve_metric(metric, plan_type)
     if not kind:
         return 0
     svc.increment(user_id, kind, by)

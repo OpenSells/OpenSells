@@ -84,6 +84,8 @@ class UserUsageMonthly(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, index=True, nullable=False)
     period_yyyymm = Column(String, index=True, nullable=False)
+    free_searches = Column(Integer, default=0, nullable=False)
+    lead_credits = Column(Integer, default=0, nullable=False)
     leads = Column(Integer, default=0)
     ia_msgs = Column(Integer, default=0)
     tasks = Column(Integer, default=0)

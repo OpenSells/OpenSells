@@ -369,6 +369,7 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
     # Si llega aquí, consideramos que se invocó correctamente
     inc_count(db, usuario.id, "ai_messages", day_key(), 1)
     register_ia_message(db, usuario)
+    db.commit()
 
     return {"ok": True}
 

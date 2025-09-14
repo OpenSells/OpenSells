@@ -10,7 +10,14 @@ from backend.models import UserUsageMonthly
 
 logger = logging.getLogger(__name__)
 
-VALID_KINDS = {"leads", "ia_msgs", "tasks", "csv_exports"}
+VALID_KINDS = {
+    "leads",
+    "free_searches",
+    "lead_credits",
+    "ia_msgs",
+    "tasks",
+    "csv_exports",
+}
 
 
 class UsageService:
@@ -26,6 +33,8 @@ class UsageService:
         stmt = pg_insert(UserUsageMonthly).values(
             user_id=user_id,
             period_yyyymm=period,
+            free_searches=0,
+            lead_credits=0,
             leads=0,
             ia_msgs=0,
             tasks=0,
@@ -69,9 +78,18 @@ class UsageService:
             .one_or_none()
         )
         if not row:
-            return {"leads": 0, "ia_msgs": 0, "tasks": 0, "csv_exports": 0}
+            return {
+                "leads": 0,
+                "free_searches": 0,
+                "lead_credits": 0,
+                "ia_msgs": 0,
+                "tasks": 0,
+                "csv_exports": 0,
+            }
         return {
             "leads": row.leads or 0,
+            "free_searches": row.free_searches or 0,
+            "lead_credits": row.lead_credits or 0,
             "ia_msgs": row.ia_msgs or 0,
             "tasks": row.tasks or 0,
             "csv_exports": row.csv_exports or 0,

@@ -61,6 +61,19 @@ class PlanService:
         period = usage_svc.get_period_yyyymm()
         counts = usage_svc.get_usage(user.id, period)
 
+        used_leads = (
+            counts["free_searches"] if plan.type == "free" else counts["lead_credits"]
+        )
+        remaining_leads = (
+            plan.searches_per_month - used_leads
+            if plan.type == "free"
+            else (
+                (plan.lead_credits_month - used_leads)
+                if plan.lead_credits_month is not None
+                else None
+            )
+        )
+
         tasks_current = (
             self.db.query(LeadTarea)
             .filter(
@@ -81,13 +94,9 @@ class PlanService:
         }
 
         usage = {
-            "leads": {
-                "used": counts["leads"],
-                "remaining": (plan.lead_credits_month - counts["leads"])
-                if plan.lead_credits_month is not None
-                else None,
-                "period": period,
-            },
+            "leads": {"used": used_leads, "remaining": remaining_leads, "period": period},
+            "free_searches": {"used": counts["free_searches"], "period": period},
+            "lead_credits": {"used": counts["lead_credits"], "period": period},
             "ia_msgs": {"used": counts["ia_msgs"], "period": period},
             "tasks": {"used": counts["tasks"], "period": period},
             "csv_exports": {
@@ -101,7 +110,7 @@ class PlanService:
         }
 
         remaining = {
-            "leads": usage["leads"]["remaining"],
+            "leads": remaining_leads,
             "csv_exports": usage["csv_exports"]["remaining"],
             "tasks_active": plan.tasks_active_max - tasks_current,
             "ia_msgs": None,
