@@ -21,3 +21,17 @@
 ## Tablas legadas eliminadas
 - users (reemplazada por `usuarios`)
 - usage_counters (reemplazada por `user_usage_monthly`)
+
+## Recrear esquema de BD (Alembic)
+
+1. `pip install -r requirements.txt`
+2. Definir `DATABASE_URL` (añade `?sslmode=require` si el host lo necesita)
+3. `alembic upgrade head`
+
+Para reiniciar una base usa otra instancia o ejecuta:
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+
+Verifica con `alembic current` y lista tablas (`\\dt` en `psql`). No compartas credenciales en el repositorio.

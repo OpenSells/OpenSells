@@ -1,0 +1,19 @@
+name: Alembic
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: ensure single head
+        env:
+          DATABASE_URL: postgresql://user:pass@localhost/db
+        run: |
+          heads=$(alembic heads | tee /tmp/heads.txt | wc -l)
+          test "$heads" -eq 1

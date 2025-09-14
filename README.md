@@ -111,6 +111,39 @@ Verificación rápida en producción:
 SELECT indexname FROM pg_indexes WHERE tablename IN ('usuarios','leads_extraidos');
 ```
 
+## 🔄 Recrear esquema de BD (Alembic)
+
+1. Instala dependencias:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Define la URL de la base de datos (agrega `?sslmode=require` si usas Render u otro host que requiera SSL):
+   ```bash
+   # Unix/macOS
+   export DATABASE_URL="postgresql://usuario:password@host/db?sslmode=require"
+   # Windows CMD
+   set DATABASE_URL=postgresql://usuario:password@host/db?sslmode=require
+   # PowerShell
+   $env:DATABASE_URL="postgresql://usuario:password@host/db?sslmode=require"
+   ```
+3. Ejecuta las migraciones:
+   ```bash
+   alembic upgrade head
+   ```
+
+Para reiniciar una base de datos existente usa una nueva base o ejecuta:
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+
+Verifica el estado con:
+```bash
+alembic current
+```
+y lista las tablas con tu cliente (`\\dt` en `psql`).
+No compartas credenciales reales en commits ni PRs.
+
 ## 🔑 Variables de entorno
 
 Copia `.env.example` a `.env` y completa las claves necesarias (PostgreSQL, Stripe, etc.):
