@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import os
 
 from backend.database import get_db
+from backend.bootstrap import auto_bootstrap_schema
 from backend.models import (
     HistorialExport,
     LeadEstado,
@@ -44,6 +45,10 @@ if os.getenv("ENV") == "dev":
 
     app.include_router(debug.router)
 
+
+@app.on_event("startup")
+def _startup():
+    auto_bootstrap_schema()
 
 
 def normalizar_dominio(dominio: str) -> str:
