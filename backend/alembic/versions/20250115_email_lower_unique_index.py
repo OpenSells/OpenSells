@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "20250115_email_lower_unique_index"
-down_revision = "20250108_unify_tenant_key"
+down_revision = "20240229_add_auto_to_lead_tarea"
 branch_labels = None
 depends_on = None
 

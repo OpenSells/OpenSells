@@ -3,7 +3,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20250108_unify_tenant_key'
-down_revision = None
+down_revision = '20240101_initial_schema'
 branch_labels = None
 depends_on = None
 
