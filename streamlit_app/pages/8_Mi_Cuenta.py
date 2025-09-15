@@ -23,14 +23,12 @@ PRIMARY_KEYS = [
     "searches_per_month",
     "mensajes_ia",
     "leads_mes",
-    "tasks_mes",
 ]
 
 LABELS_ES = {
     "searches_per_month": "Búsquedas/mes",
     "mensajes_ia": "Mensajes IA",
     "leads_mes": "Leads extraídos (mes)",
-    "tasks_mes": "Tareas creadas (mes)",
 }
 
 # Aliases canónicos -> lista de alias aceptados (uso y cuotas)
@@ -59,17 +57,49 @@ ALIASES_MAP = {
         "lead_usage",
         "leads_used",
     ],
-    "tasks_mes": [
-        "tasks_mes",
-        "tasks",
-        "tasks_created",
-        "tareas",
-        "tasks_per_month",
-        "tasks_month",
-    ],
 }
 
 PLAN_ENDPOINTS = ("/mi_plan", "/plan/quotas")
+
+
+def _fmt_limit(value) -> str:
+    if value is None:
+        return "Sin límite"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return f"{int(value)}"
+    return str(value)
+
+
+def _period_humano(period_yyyymm: str | None) -> str | None:
+    if not period_yyyymm:
+        return None
+    period = str(period_yyyymm).strip()
+    if len(period) != 6 or not period.isdigit():
+        return None
+    year = int(period[:4])
+    month = int(period[4:])
+    meses = [
+        "",
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre",
+    ]
+    if 1 <= month <= 12:
+        nombre_mes = meses[month]
+    else:
+        nombre_mes = f"{month:02d}"
+    return f"{nombre_mes} {year}"
 
 
 def _to_number(x: Any, default: int = 0) -> int:
@@ -181,8 +211,6 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     # Derivar métricas específicas del endpoint /mi_plan
     if "leads_mes" not in usage_norm and "leads" in usage_norm:
         usage_norm["leads_mes"] = usage_norm.get("leads", 0)
-    if "tasks_mes" not in usage_norm and "tasks" in usage_norm:
-        usage_norm["tasks_mes"] = usage_norm.get("tasks", 0)
 
     lead_limit = quotas_norm.get("lead_credits_month")
     if lead_limit is None:
@@ -193,9 +221,6 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
         else:
             lead_limit = searches_limit * cap_limit
     quotas_norm["leads_mes"] = lead_limit
-
-    if "tasks_mes" not in quotas_norm:
-        quotas_norm["tasks_mes"] = quotas_norm.get("tasks_per_month")
 
     usage_final = _coalesce_aliases(usage_norm, is_quota=False)
     quotas_final = _coalesce_aliases(quotas_norm, is_quota=True)
@@ -209,18 +234,19 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
 
 def _render_row(label: str, usado: int, cupo):
     col1, col2 = st.columns([3,1])
+    cupo_display = _fmt_limit(cupo)
     with col1:
         limit_is_number = isinstance(cupo, (int, float)) and not isinstance(cupo, bool)
         if limit_is_number and cupo > 0:
             pct = min(usado / cupo, 1.0)
             st.progress(pct)
-            st.markdown(f"**{label}:** {usado} / {int(cupo)}")
+            st.markdown(f"**{label}:** {usado} / {cupo_display}")
         elif limit_is_number and cupo == 0:
             st.progress(1.0 if usado > 0 else 0.0)
-            st.markdown(f"**{label}:** {usado} / 0")
+            st.markdown(f"**{label}:** {usado} / {cupo_display}")
         else:
             st.progress(0.0 if usado == 0 else 1.0)
-            st.markdown(f"**{label}:** {usado} / Sin límite")
+            st.markdown(f"**{label}:** {usado} / {cupo_display}")
     with col2:
         st.metric("Usado", usado)
 
@@ -233,17 +259,23 @@ def _render_usage_section(usage: dict, quotas: dict, raw_plan: dict):
     st.subheader("📊 Uso del plan")
     raw_usage = raw_plan.get("uso") or raw_plan.get("usage") or {}
     raw_limits = raw_plan.get("limites") or raw_plan.get("limits") or {}
-    leads_period = None
+    period = None
     if isinstance(raw_usage.get("leads"), dict):
-        leads_period = raw_usage.get("leads", {}).get("period") or raw_usage.get("leads", {}).get("periodo")
+        lead_usage = raw_usage.get("leads", {})
+        period = lead_usage.get("period") or lead_usage.get("periodo")
+    if not period:
+        for value in raw_usage.values():
+            if isinstance(value, dict):
+                candidate = value.get("period") or value.get("periodo")
+                if candidate:
+                    period = candidate
+                    break
     tasks_active_data = raw_usage.get("tasks_active") or {}
     tasks_active_current = _to_number(tasks_active_data.get("current"), 0)
     tasks_active_limit_raw = raw_limits.get("tasks_active_max")
-    show_tasks_active = tasks_active_limit_raw is not None
     if isinstance(tasks_active_limit_raw, bool):
         if tasks_active_limit_raw:
             tasks_active_limit = None
-            show_tasks_active = False
         else:
             tasks_active_limit = 0
     elif tasks_active_limit_raw is None:
@@ -254,10 +286,10 @@ def _render_usage_section(usage: dict, quotas: dict, raw_plan: dict):
         usado = _to_number(usage.get(key), 0)
         cupo  = quotas.get(key, None)  # None => sin límite declarado
         _render_row(_pretty_label(key), usado, cupo)
-        if key == "tasks_mes" and show_tasks_active:
-            st.caption(f"Tareas activas: {tasks_active_current} / {tasks_active_limit}")
-    if leads_period:
-        st.caption(f"Periodo: {leads_period}")
+    _render_row("Tareas activas", tasks_active_current, tasks_active_limit)
+    period_humano = _period_humano(period)
+    if period_humano:
+        st.caption(f"Periodo: {period_humano}")
 
 
 def _fetch_plan_payload(token: str) -> dict:
