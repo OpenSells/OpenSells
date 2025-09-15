@@ -26,16 +26,21 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
+    user_email_lower = Column(String, nullable=False, index=True)  # <- NUEVA COLUMNA
     hashed_password = Column(String, nullable=False)
-    fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
+    fecha_creacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     plan = Column(String, default="free", server_default="free", nullable=False)
-    suspendido = Column(
-        Boolean, default=False, server_default=text("false"), nullable=False
-    )
+    suspendido = Column(Boolean, default=False, server_default=text("false"), nullable=False)
 
     __table_args__ = (
         Index("ix_usuarios_email_lower", func.lower(email), unique=True),
     )
+
+    @validates("email")
+    def _set_lower(self, key, value):
+        v = (value or "").strip()
+        self.user_email_lower = v.lower()
+        return v
 
 # Tabla de tareas
 class LeadTarea(Base):
