@@ -28,7 +28,7 @@ class Usuario(Base):
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
-    plan = Column(String, default="free")
+    plan = Column(String, default="free", server_default="free", nullable=False)
     suspendido = Column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
