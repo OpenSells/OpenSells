@@ -18,12 +18,19 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 
-# --- KPIs visibles (solo 2) y etiquetas ES ---
-PRIMARY_KEYS = ["searches_per_month", "mensajes_ia"]
+# --- KPIs visibles y etiquetas ES ---
+PRIMARY_KEYS = [
+    "searches_per_month",
+    "mensajes_ia",
+    "leads_mes",
+    "tasks_mes",
+]
 
 LABELS_ES = {
     "searches_per_month": "Búsquedas/mes",
     "mensajes_ia": "Mensajes IA",
+    "leads_mes": "Leads extraídos (mes)",
+    "tasks_mes": "Tareas creadas (mes)",
 }
 
 # Aliases canónicos -> lista de alias aceptados (uso y cuotas)
@@ -43,7 +50,26 @@ ALIASES_MAP = {
         "ai daily limit",
         "ai_daily_limit",
     ],
+    "leads_mes": [
+        "leads_mes",
+        "leads",
+        "leads_month",
+        "lead_credits",
+        "lead_credits_month",
+        "lead_usage",
+        "leads_used",
+    ],
+    "tasks_mes": [
+        "tasks_mes",
+        "tasks",
+        "tasks_created",
+        "tareas",
+        "tasks_per_month",
+        "tasks_month",
+    ],
 }
+
+PLAN_ENDPOINTS = ("/mi_plan", "/plan/quotas")
 
 
 def _to_number(x: Any, default: int = 0) -> int:
@@ -84,11 +110,20 @@ def _flatten_numbers(d: dict, for_quota: bool = False) -> dict:
     """Devuelve un dict con mismos keys pero valores enteros (o None si no aplica)."""
     out: dict[str, int | None] = {}
     for k, v in (d or {}).items():
+        if v is None:
+            out[k] = None if for_quota else 0
+            continue
         if for_quota:
             if isinstance(v, bool):
                 out[k] = None if v else 0
                 continue
-            if isinstance(v, str) and v.lower() in ("ilimitado", "unlimited", "∞"):
+            if isinstance(v, str) and v.lower() in (
+                "ilimitado",
+                "unlimited",
+                "∞",
+                "sin limite",
+                "sin límite",
+            ):
                 out[k] = None
                 continue
         out[k] = _to_number(v, 0)
@@ -112,6 +147,9 @@ def _coalesce_aliases(raw: dict, is_quota: bool = False) -> dict:
         nums = []
         saw_none = False
         for v in values:
+            if is_quota and v is None:
+                saw_none = True
+                continue
             if is_quota and isinstance(v, bool) and v is True:
                 saw_none = True
             elif is_quota and isinstance(v, str) and v.lower() in (
@@ -140,8 +178,31 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
     usage_norm = _flatten_numbers(uso or {}, for_quota=False)
     quotas_norm = _flatten_numbers(limites or {}, for_quota=True)
 
+    # Derivar métricas específicas del endpoint /mi_plan
+    if "leads_mes" not in usage_norm and "leads" in usage_norm:
+        usage_norm["leads_mes"] = usage_norm.get("leads", 0)
+    if "tasks_mes" not in usage_norm and "tasks" in usage_norm:
+        usage_norm["tasks_mes"] = usage_norm.get("tasks", 0)
+
+    lead_limit = quotas_norm.get("lead_credits_month")
+    if lead_limit is None:
+        searches_limit = quotas_norm.get("searches_per_month")
+        cap_limit = quotas_norm.get("leads_cap_per_search")
+        if searches_limit is None or cap_limit is None:
+            lead_limit = None
+        else:
+            lead_limit = searches_limit * cap_limit
+    quotas_norm["leads_mes"] = lead_limit
+
+    if "tasks_mes" not in quotas_norm:
+        quotas_norm["tasks_mes"] = quotas_norm.get("tasks_per_month")
+
     usage_final = _coalesce_aliases(usage_norm, is_quota=False)
     quotas_final = _coalesce_aliases(quotas_norm, is_quota=True)
+
+    for key in PRIMARY_KEYS:
+        usage_final.setdefault(key, 0)
+        quotas_final.setdefault(key, None)
 
     return usage_final, quotas_final
 
@@ -149,16 +210,17 @@ def _normalize_usage_and_quotas(mi_plan: dict) -> tuple[dict, dict]:
 def _render_row(label: str, usado: int, cupo):
     col1, col2 = st.columns([3,1])
     with col1:
-        if isinstance(cupo, int) and cupo > 0:
+        limit_is_number = isinstance(cupo, (int, float)) and not isinstance(cupo, bool)
+        if limit_is_number and cupo > 0:
             pct = min(usado / cupo, 1.0)
             st.progress(pct)
-            st.markdown(f"**{label}:** {usado} / {cupo}")
-        elif cupo == 0:
+            st.markdown(f"**{label}:** {usado} / {int(cupo)}")
+        elif limit_is_number and cupo == 0:
             st.progress(1.0 if usado > 0 else 0.0)
             st.markdown(f"**{label}:** {usado} / 0")
         else:
             st.progress(0.0 if usado == 0 else 1.0)
-            st.markdown(f"**{label}:** {usado} / —")
+            st.markdown(f"**{label}:** {usado} / Sin límite")
     with col2:
         st.metric("Usado", usado)
 
@@ -167,12 +229,46 @@ def _pretty_label(key: str) -> str:
     return LABELS_ES.get(key, key.replace("_"," ").capitalize())
 
 
-def _render_usage_section(usage: dict, quotas: dict):
+def _render_usage_section(usage: dict, quotas: dict, raw_plan: dict):
     st.subheader("📊 Uso del plan")
+    raw_usage = raw_plan.get("uso") or raw_plan.get("usage") or {}
+    raw_limits = raw_plan.get("limites") or raw_plan.get("limits") or {}
+    leads_period = None
+    if isinstance(raw_usage.get("leads"), dict):
+        leads_period = raw_usage.get("leads", {}).get("period") or raw_usage.get("leads", {}).get("periodo")
+    tasks_active_data = raw_usage.get("tasks_active") or {}
+    tasks_active_current = _to_number(tasks_active_data.get("current"), 0)
+    tasks_active_limit_raw = raw_limits.get("tasks_active_max")
+    show_tasks_active = tasks_active_limit_raw is not None
+    if isinstance(tasks_active_limit_raw, bool):
+        if tasks_active_limit_raw:
+            tasks_active_limit = None
+            show_tasks_active = False
+        else:
+            tasks_active_limit = 0
+    elif tasks_active_limit_raw is None:
+        tasks_active_limit = None
+    else:
+        tasks_active_limit = _to_number(tasks_active_limit_raw, 0)
     for key in PRIMARY_KEYS:
         usado = _to_number(usage.get(key), 0)
         cupo  = quotas.get(key, None)  # None => sin límite declarado
         _render_row(_pretty_label(key), usado, cupo)
+        if key == "tasks_mes" and show_tasks_active:
+            st.caption(f"Tareas activas: {tasks_active_current} / {tasks_active_limit}")
+    if leads_period:
+        st.caption(f"Periodo: {leads_period}")
+
+
+def _fetch_plan_payload(token: str) -> dict:
+    for endpoint in PLAN_ENDPOINTS:
+        try:
+            data = cached_get(endpoint, token)
+        except Exception:
+            data = {}
+        if data:
+            return data
+    return {}
 
 load_dotenv()
 
@@ -212,11 +308,8 @@ if "auth_email" not in st.session_state and user:
     st.session_state["auth_email"] = user.get("email")
 
 # Recuperar plan y límites/uso
-try:
-    mi_plan = cached_get("/plan/quotas", token) or {}
-except Exception:
-    mi_plan = {}
-plan = mi_plan.get("plan", "free")
+mi_plan = _fetch_plan_payload(token) or {}
+plan = str(mi_plan.get("plan", "free")).strip().lower()
 
 with st.sidebar:
     logout_button()
@@ -242,12 +335,8 @@ else:
     st.success(f"Tu plan actual es: {plan}")
 
 # --- NUEVO: Uso del plan (debajo de "📄 Plan actual") ---
-try:
-    mi_plan = cached_get("/plan/quotas", token) or {}
-except Exception:
-    mi_plan = {}
 usage, quotas = _normalize_usage_and_quotas(mi_plan)
-_render_usage_section(usage, quotas)
+_render_usage_section(usage, quotas, mi_plan)
 st.divider()
 
 # -------------------- Memoria del usuario --------------------
