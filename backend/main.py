@@ -1,20 +1,28 @@
+# --- Standard library ---
+import os
+import logging
+from urllib.parse import urlparse
+
+# --- Third-party ---
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
-from urllib.parse import urlparse
-import os
 
-from backend.database import get_db
+# --- Local / project ---
+from backend.database import engine, SessionLocal, DATABASE_URL, get_db
 from backend.models import (
+    Usuario,
     HistorialExport,
     LeadEstado,
     LeadExtraido,
     LeadTarea,
-    Usuario,
     UsuarioMemoria,
 )
+from backend.auth import hashear_password
 from backend.core.plan_service import PlanService
 from backend.core.usage_helpers import (
     can_export_csv,
@@ -28,7 +36,9 @@ from backend.core.usage_helpers import (
     register_ia_message,
 )
 from backend.core.usage_service import UsageService
-import logging
+
+# --- Load environment variables ---
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
@@ -59,34 +69,57 @@ def health():
     return {"status": "ok"}
 
 
+# ---- MODELOS DE ENTRADA ----
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-
-
-@app.post("/register")
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
-    email_lower = payload.email.lower()
-    exists = db.query(Usuario).filter(func.lower(Usuario.email) == email_lower).first()
-    if exists:
-        raise HTTPException(status_code=400, detail="Email ya registrado")
-    user = Usuario(email=email_lower, hashed_password=hashear_password(payload.password))
-    db.add(user)
-    db.commit()
-    return {"id": user.id}
-
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
 
+# ---- ENDPOINTS AUTH ----
+@app.post("/register")
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip()
+    email_lower = email.lower()
+
+    # Comprobar por columna normalizada (evita problemas de mayúsculas)
+    exists = db.query(Usuario.id).filter(Usuario.user_email_lower == email_lower).first()
+    if exists:
+        raise HTTPException(status_code=409, detail="Email ya registrado")
+
+    # Crear usuario rellenando SIEMPRE user_email_lower
+    user = Usuario(
+        email=email,
+        user_email_lower=email_lower,
+        hashed_password=hashear_password(payload.password),
+        plan="free",
+        suspendido=False,
+    )
+
+    db.add(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email ya registrado")
+
+    return {"id": user.id}
+
+
 @app.post("/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     email_lower = payload.email.lower()
-    user = db.query(Usuario).filter(func.lower(Usuario.email) == email_lower).first()
+    # Puedes dejar tu filtro actual con func.lower(Usuario.email) si prefieres.
+    # Recomendado (consistente con el registro y más eficiente):
+    user = db.query(Usuario).filter(Usuario.user_email_lower == email_lower).first()
+
     if not user or not verificar_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+
     token = crear_token({"sub": user.email})
     return {"access_token": token}
 
@@ -476,3 +509,40 @@ def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session 
         .first()
     )
     return {"estado": row.estado if row else "nuevo"}
+
+# --- PROBE DE BASE DE DATOS (para verificar que la app ve la DB correcta) ---
+from backend.database import engine, SessionLocal, DATABASE_URL  # <-- tu módulo real
+
+import logging
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+
+logger = logging.getLogger("uvicorn")
+
+@app.on_event("startup")
+def _db_probe():
+    # 1) Muestra la URL enmascarada que REALMENTE usa la app
+    url_obj = make_url(DATABASE_URL)
+    masked = f"{url_obj.drivername}://***:***@{url_obj.host}:{url_obj.port}/{url_obj.database}"
+    if url_obj.query:
+        masked += "?" + "&".join(f"{k}={v}" for k, v in url_obj.query.items())
+    logger.info(f"DATABASE_URL (masked): {masked}")
+
+    # 2) Interroga la conexión activa
+    with engine.connect() as conn:
+        info = conn.execute(text("""
+            SELECT current_database() AS db,
+                   current_user       AS usr,
+                   current_schema()   AS schema
+        """)).mappings().first()
+        logger.info(f"DB probe -> db={info['db']} usr={info['usr']} schema={info['schema']}")
+
+        cols = conn.execute(text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name   = 'usuarios'
+            ORDER BY 1
+        """)).scalars().all()
+        logger.info(f"usuarios columns seen by app: {cols}")
+# --- FIN PROBE ---
