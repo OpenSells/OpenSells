@@ -282,7 +282,7 @@ elif seleccion == "General":
             texto = st.text_input("📝 Descripción", key="t_gen")
             cols = st.columns(2)
             fecha = cols[0].date_input("📅 Fecha", value=None, key="f_gen")
-            prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen")
+            prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen", index=1)
 
             if st.form_submit_button("💾 Crear tarea"):
                 if texto.strip():
@@ -290,16 +290,14 @@ elif seleccion == "General":
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                         subscription_cta()
                     else:
-                        cached_post(
-                            "tarea_lead",
-                            token,
-                            payload={
-                                "texto": texto.strip(),
-                                "tipo": "general",
-                                "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                "prioridad": prioridad
-                            }
-                        )
+                        payload = {
+                            "texto": texto.strip(),
+                            "tipo": "general",
+                            "prioridad": prioridad,
+                        }
+                        if fecha:
+                            payload["fecha"] = fecha.strftime("%Y-%m-%d")
+                        cached_post("tarea_lead", token, payload=payload)
                         st.success("Tarea creada correctamente.")
                         try:
                             st.cache_data.clear()
@@ -384,24 +382,22 @@ elif seleccion == "Nichos":
                     texto = st.text_input("📝 Descripción", key="t_nicho")
                     cols_f = st.columns(2)
                     fecha = cols_f[0].date_input("📅 Fecha", value=None, key="f_nicho")
-                    prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho")
+                    prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho", index=1)
                     if st.form_submit_button("💾 Crear tarea"):
                         if texto.strip():
                             if not tiene_suscripcion_activa(plan):
                                 st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                                 subscription_cta()
                             else:
-                                cached_post(
-                                    "tarea_lead",
-                                    token,
-                                    payload={
-                                        "texto": texto.strip(),
-                                        "tipo": "nicho",
-                                        "nicho": nk["nicho"],
-                                        "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                        "prioridad": prioridad
-                                    }
-                                )
+                                payload = {
+                                    "texto": texto.strip(),
+                                    "tipo": "nicho",
+                                    "nicho": nk["nicho"],
+                                    "prioridad": prioridad,
+                                }
+                                if fecha:
+                                    payload["fecha"] = fecha.strftime("%Y-%m-%d")
+                                cached_post("tarea_lead", token, payload=payload)
                                 st.success("Tarea creada correctamente.")
                                 try:
                                     st.cache_data.clear()
@@ -489,24 +485,22 @@ elif seleccion == "Leads":
                 texto = st.text_input("📝 Descripción", key="tarea_texto_detalle")
                 cols_f = st.columns(2)
                 fecha = cols_f[0].date_input("📅 Fecha", value=None, key="fecha_detalle")
-                prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle")
+                prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle", index=1)
                 if st.form_submit_button("💾 Crear tarea"):
                     if texto.strip():
                         if not tiene_suscripcion_activa(plan):
                             st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                             subscription_cta()
                         else:
-                            cached_post(
-                                "tarea_lead",
-                                token,
-                                payload={
-                                    "texto": texto.strip(),
-                                    "tipo": "lead",
-                                    "dominio": norm,
-                                    "fecha": fecha.strftime("%Y-%m-%d") if fecha else None,
-                                    "prioridad": prioridad
-                                }
-                            )
+                            payload = {
+                                "texto": texto.strip(),
+                                "tipo": "lead",
+                                "dominio": norm,
+                                "prioridad": prioridad,
+                            }
+                            if fecha:
+                                payload["fecha"] = fecha.strftime("%Y-%m-%d")
+                            cached_post("tarea_lead", token, payload=payload)
                             st.success("Tarea creada correctamente.")
                             try:
                                 st.cache_data.clear()

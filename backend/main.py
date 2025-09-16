@@ -5,12 +5,14 @@ from urllib.parse import urlparse
 
 # --- Third-party ---
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import FastAPI, Depends, HTTPException, Request
+from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
+from datetime import date
+from typing import Any, Literal, Optional
 
 # --- Local / project ---
 from backend.database import engine, SessionLocal, DATABASE_URL, get_db
@@ -209,19 +211,62 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 
 
-class TareaPayload(BaseModel):
-    tipo: str = "general"
+class TareaCreate(BaseModel):
     texto: str
-    fecha: str | None = None
-    prioridad: str = "media"
-    nicho: str | None = None
-    dominio: str | None = None
+    tipo: Literal["general", "nicho", "lead"] = "general"
+    dominio: Optional[str] = None
+    nicho: Optional[str] = None
+    prioridad: Optional[Literal["alta", "media", "baja"]] = "media"
+    fecha: Optional[date] = None
     completado: bool = False
+
+    @validator("prioridad", pre=True)
+    def _prioridad_normaliza(cls, value: Any):
+        if isinstance(value, dict):
+            candidate = value.get("value") or value.get("label")
+            if candidate is None:
+                try:
+                    candidate = next(iter(value.values()))
+                except Exception:
+                    candidate = None
+            value = candidate
+        if isinstance(value, str):
+            value = value.strip().lower()
+        return value or "media"
+
+    @validator("tipo", pre=True)
+    def _tipo_normaliza(cls, value: Any):
+        if isinstance(value, dict):
+            candidate = value.get("value") or value.get("label")
+            if candidate is None:
+                try:
+                    candidate = next(iter(value.values()))
+                except Exception:
+                    candidate = None
+            value = candidate
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @validator("dominio", "nicho", pre=True)
+    def _string_desde_dict(cls, value: Any):
+        if isinstance(value, dict):
+            candidate = value.get("value") or value.get("label")
+            if candidate is None:
+                try:
+                    candidate = next(iter(value.values()))
+                except Exception:
+                    candidate = None
+            value = candidate
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
 
 
 @app.post("/tareas", status_code=201)
 def crear_tarea(
-    payload: TareaPayload,
+    payload: TareaCreate,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -240,6 +285,19 @@ def crear_tarea(
             status_code=422,
             detail="Tareas máximas alcanzadas para tu plan.",
         )
+
+    if payload.tipo == "lead" and not payload.dominio:
+        raise HTTPException(400, detail="Falta 'dominio' para una tarea de tipo 'lead'")
+    if payload.tipo == "nicho" and not payload.nicho:
+        raise HTTPException(400, detail="Falta 'nicho' para una tarea de tipo 'nicho'")
+
+    prioridad_value = payload.prioridad or "media"
+    if isinstance(prioridad_value, str):
+        prioridad_value = prioridad_value.strip().lower() or "media"
+
+    fecha_value = payload.fecha or date.today()
+    fecha_str = fecha_value.isoformat() if isinstance(fecha_value, date) else str(fecha_value)
+
     try:
         tarea = LeadTarea(
             email=usuario.email,
@@ -249,8 +307,8 @@ def crear_tarea(
             user_email_lower=usuario.email_lower,
             completado=payload.completado,
             tipo=payload.tipo,
-            fecha=payload.fecha,
-            prioridad=payload.prioridad,
+            fecha=fecha_str,
+            prioridad=prioridad_value,
         )
         db.add(tarea)
         db.flush()
@@ -260,9 +318,14 @@ def crear_tarea(
     except HTTPException:
         db.rollback()
         raise
-    except Exception:
+    except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Error al crear la tarea")
+        logger.exception("[tarea] IntegrityError")
+        raise HTTPException(status_code=400, detail="No se pudo crear la tarea (datos duplicados o inválidos).")
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[tarea] Exception")
+        raise HTTPException(status_code=400, detail=f"Error creando tarea: {exc.__class__.__name__}: {exc}")
     logger.info(
         "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
         usuario.email_lower,
@@ -321,13 +384,19 @@ def listar_tareas(
 
 @app.post("/tarea_lead", status_code=201)
 def crear_tarea_lead(
-    payload: TareaPayload,
+    payload: TareaCreate,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
+    request: Request | None = None,
 ):
-    data = payload.dict()
-    data["tipo"] = "lead"
-    return crear_tarea(TareaPayload(**data), usuario, db)
+    try:
+        logger.debug(
+            f"[tarea_lead] user={getattr(usuario, 'email', None)} raw_payload={payload.dict()}"
+        )
+    except Exception:
+        pass
+    payload_lead = payload.copy(update={"tipo": "lead"})
+    return crear_tarea(payload_lead, usuario, db)
 
 
 @app.get("/tareas_pendientes")

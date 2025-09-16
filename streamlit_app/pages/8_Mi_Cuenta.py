@@ -2,8 +2,6 @@
 
 import os
 import requests
-import pandas as pd
-import io
 import streamlit as st
 from dotenv import load_dotenv
 from json import JSONDecodeError
@@ -399,12 +397,10 @@ st.subheader("📊 Estadísticas de uso")
 
 resp_nichos = cached_get("/mis_nichos", token)
 nichos = resp_nichos.get("nichos", []) if resp_nichos else []
-leads_resp = requests.get(f"{BACKEND_URL}/exportar_todos_mis_leads", headers=headers)
-if leads_resp.status_code == 200:
-    df = pd.read_csv(io.BytesIO(leads_resp.content))
-    total_leads = len(df)
-else:
-    total_leads = 0
+lead_usage_value = usage.get("leads_mes") if usage else 0
+if lead_usage_value in (None, ""):
+    lead_usage_value = usage.get("leads") if usage else 0
+total_leads = _to_number(lead_usage_value, 0)
 
 resp_tareas = cached_get("tareas_pendientes", token)
 tareas = resp_tareas or []
