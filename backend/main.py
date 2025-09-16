@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
 
 # --- Local / project ---
@@ -296,36 +296,59 @@ def crear_tarea(
         prioridad_value = prioridad_value.strip().lower() or "media"
 
     fecha_value = payload.fecha or date.today()
-    fecha_str = fecha_value.isoformat() if isinstance(fecha_value, date) else str(fecha_value)
+    prioridad_value = (payload.prioridad or "media").strip().lower() if isinstance(payload.prioridad, str) else (payload.prioridad or "media")
+
+    user_email_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
 
     try:
         tarea = LeadTarea(
             email=usuario.email,
+            user_email_lower=user_email_lower,
             texto=payload.texto,
+            tipo=payload.tipo,
             dominio=payload.dominio,
             nicho=payload.nicho,
-            user_email_lower=usuario.email_lower,
-            completado=payload.completado,
-            tipo=payload.tipo,
-            fecha=fecha_str,
+            fecha=fecha_value,                              # objeto date, no string
             prioridad=prioridad_value,
+            completado=payload.completado,
+            timestamp=datetime.now(timezone.utc),           # ✅ asegura NOT NULL
+        )
+        logger.debug(
+            "INSERT LeadTarea email=%s user_email_lower=%s texto=%r tipo=%s dominio=%s nicho=%s fecha=%s prioridad=%s completado=%s",
+            usuario.email,
+            getattr(usuario, "email_lower", None),
+            payload.texto,
+            payload.tipo,
+            payload.dominio,
+            payload.nicho,
+            (payload.fecha or date.today()),
+            (payload.prioridad or "media"),
+            payload.completado,
         )
         db.add(tarea)
-        db.flush()
-        UsageService(db).increment(usuario.id, "tasks", 1)
         db.commit()
         db.refresh(tarea)
-    except HTTPException:
+    except IntegrityError as e:
         db.rollback()
-        raise
-    except IntegrityError:
-        db.rollback()
-        logger.exception("[tarea] IntegrityError")
-        raise HTTPException(status_code=400, detail="No se pudo crear la tarea (datos duplicados o inválidos).")
+        # extrae el mensaje del motor (psycopg2/pg8000)
+        msg = str(getattr(e, "orig", e))
+        logger.exception("[tarea] IntegrityError (al insertar) -> %s", msg)
+        # RESPUESTA TEMPORALMENTE VERBOSA (para depurar):
+        raise HTTPException(status_code=400, detail=f"DB IntegrityError: {msg}")
     except Exception as exc:
         db.rollback()
-        logger.exception("[tarea] Exception")
+        logger.exception("[tarea] Exception (al insertar)")
         raise HTTPException(status_code=400, detail=f"Error creando tarea: {exc.__class__.__name__}: {exc}")
+
+    try:
+        UsageService(db).increment(usuario.id, "tasks", 1)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.warning("[usage] IntegrityError incrementando 'tasks'. La tarea queda creada igualmente.", exc_info=True)
+    except Exception as exc:
+        db.rollback()
+        logger.warning(f"[usage] Error incrementando 'tasks': {exc.__class__.__name__}: {exc}. La tarea queda creada.", exc_info=True)
     logger.info(
         "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
         usuario.email_lower,
@@ -387,12 +410,9 @@ def crear_tarea_lead(
     payload: TareaCreate,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
-    request: Request | None = None,
 ):
     try:
-        logger.debug(
-            f"[tarea_lead] user={getattr(usuario, 'email', None)} raw_payload={payload.dict()}"
-        )
+        logger.debug(f"[tarea_lead] user={getattr(usuario, 'email', None)} raw_payload={payload.dict()}")
     except Exception:
         pass
     payload_lead = payload.copy(update={"tipo": "lead"})
