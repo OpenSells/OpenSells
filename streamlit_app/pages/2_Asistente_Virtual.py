@@ -184,8 +184,8 @@ def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "me
             datetime.fromisoformat(fecha)
         except ValueError:
             return {"error": "fecha_invalida"}
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    r = http_client.post("/tareas", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    return r.json() if r.status_code in (200, 201) else {"error": r.text, "status": r.status_code}
 
 
 def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str = "media"):
@@ -196,8 +196,8 @@ def crear_tarea_lead(dominio: str, texto: str, fecha: str = None, prioridad: str
         except ValueError:
             return {"error": "fecha_invalida"}
     st.session_state["lead_actual"] = dominio
-    r = http_client.post("/tarea_lead", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    r = http_client.post("/tareas", json={k: v for k, v in payload.items() if v is not None}, headers=_auth_headers())
+    return r.json() if r.status_code in (200, 201) else {"error": r.text, "status": r.status_code}
 
 
 def completar_tarea(tarea_id: int):

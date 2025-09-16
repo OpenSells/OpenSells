@@ -41,6 +41,22 @@ El frontend guarda el token de sesión y realiza llamadas autenticadas a la API 
    ```
    La aplicación conserva el token en `session_state`, query params y LocalStorage para restaurar la sesión automáticamente.【F:streamlit_app/Home.py†L166-L204】【F:streamlit_app/utils/auth_session.py†L43-L127】
 
+### Verificación rápida de creación de tareas
+- **Token listo**: inicia sesión desde la UI o realiza `POST /login` para obtener un `Bearer`.
+- **Prueba manual**: ejecuta los `curl` del script [`scripts/local_tests.sh`](scripts/local_tests.sh) o lanza:
+  ```bash
+  curl -i -X POST http://127.0.0.1:8000/tareas \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"texto":"Probar tarea general","tipo":"general","prioridad":"media"}'
+  curl -i -X POST http://127.0.0.1:8000/tareas \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"texto":"Lead demo","tipo":"lead","dominio":"ejemplo.com","prioridad":"alta"}'
+  curl -i -X POST http://127.0.0.1:8000/tareas \
+    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    -d '{"texto":"Seguimiento nicho","tipo":"nicho","nicho":"dentistas","prioridad":"baja"}'
+  ```
+- **Uso mensual aislado**: la API confirma la inserción y, en una transacción separada, incrementa el contador `tasks`. Si `UsageService.increment` falla (por ejemplo, por un `IntegrityError`), se hace `rollback` solo del contador y la tarea queda creada, registrando un warning en los logs.【F:backend/main.py†L308-L366】
+
 ## Variables de entorno
 | Variable | Descripción | Obligatoria | Notas |
 | --- | --- | --- | --- |
@@ -179,7 +195,7 @@ Asegúrate de implementarlos o mockearlos si la UI va a usarse contra este backe
 ## BD & Migraciones
 - Tablas clave: `usuarios`, `leads_extraidos`, `lead_tarea`, `lead_estado`, `user_usage_monthly`, `lead_nota`, `historial`, todas con índices/constraints en `user_email_lower` para separar tenants.【F:backend/models.py†L24-L205】 El documento `AUDITORIA_TABLAS.md` resume tablas y constraints activos.【F:AUDITORIA_TABLAS.md†L1-L33】
 - `UserUsageMonthly` almacena contadores mensuales (`leads`, `ia_msgs`, `tasks`, `csv_exports`) con `period_yyyymm` único por usuario.【F:backend/models.py†L85-L101】
-- Ejecuta migraciones con Alembic (`alembic upgrade head`).【F:backend/alembic/env.py†L1-L39】 Para sanear columnas en bases antiguas hay utilidades idempotentes (`backend/startup_migrations.py`, `backend/scripts/migrate_emails_lowercase.py`).【F:backend/startup_migrations.py†L1-L37】【F:backend/scripts/migrate_emails_lowercase.py†L1-L46】
+- Ejecuta migraciones con Alembic (`alembic upgrade head`).【F:backend/alembic/env.py†L1-L39】 Para sanear columnas en bases antiguas hay utilidades idempotentes (`backend/startup_migrations.py`, `backend/scripts/migrate_emails_lowercase.py`, `backend/sql/ensure_lead_tarea_timestamp.sql`).【F:backend/startup_migrations.py†L1-L37】【F:backend/scripts/migrate_emails_lowercase.py†L1-L46】【F:backend/sql/ensure_lead_tarea_timestamp.sql†L1-L12】
 
 ## Pruebas
 - Las pruebas automáticas usan Pytest con Testcontainers Postgres por defecto; define `USE_TESTCONTAINERS=0` y `TEST_DATABASE_URL` para reutilizar una base propia.【F:tests/conftest.py†L5-L28】

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 # --- Third-party ---
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -24,7 +24,6 @@ from backend.models import (
     LeadTarea,
     UsuarioMemoria,
 )
-from backend.auth import hashear_password
 from backend.core.plan_service import PlanService
 from backend.core.usage_helpers import (
     can_export_csv,
@@ -44,6 +43,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
+logger.info("CODE_MARKER tareas/fix-timestamp %s", __file__)
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -220,8 +220,8 @@ class TareaCreate(BaseModel):
     fecha: Optional[date] = None
     completado: bool = False
 
-    @validator("prioridad", pre=True)
-    def _prioridad_normaliza(cls, value: Any):
+    @staticmethod
+    def _extract_value(value: Any):
         if isinstance(value, dict):
             candidate = value.get("value") or value.get("label")
             if candidate is None:
@@ -229,39 +229,38 @@ class TareaCreate(BaseModel):
                     candidate = next(iter(value.values()))
                 except Exception:
                     candidate = None
-            value = candidate
-        if isinstance(value, str):
-            value = value.strip().lower()
-        return value or "media"
+            return candidate
+        return value
 
     @validator("tipo", pre=True)
     def _tipo_normaliza(cls, value: Any):
-        if isinstance(value, dict):
-            candidate = value.get("value") or value.get("label")
-            if candidate is None:
-                try:
-                    candidate = next(iter(value.values()))
-                except Exception:
-                    candidate = None
-            value = candidate
+        value = cls._extract_value(value)
         if isinstance(value, str):
             return value.strip().lower()
         return value
 
+    @validator("prioridad", pre=True)
+    def _prioridad_normaliza(cls, value: Any):
+        value = cls._extract_value(value)
+        if isinstance(value, str):
+            value = value.strip().lower()
+        return value or "media"
+
     @validator("dominio", "nicho", pre=True)
     def _string_desde_dict(cls, value: Any):
-        if isinstance(value, dict):
-            candidate = value.get("value") or value.get("label")
-            if candidate is None:
-                try:
-                    candidate = next(iter(value.values()))
-                except Exception:
-                    candidate = None
-            value = candidate
+        value = cls._extract_value(value)
         if isinstance(value, str):
             value = value.strip()
             return value or None
         return value
+
+
+def _fecha_to_str(value):
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 @app.post("/tareas", status_code=201)
@@ -286,6 +285,11 @@ def crear_tarea(
             detail="Tareas máximas alcanzadas para tu plan.",
         )
 
+    try:
+        logger.debug("[tarea] payload_normalizado=%s", payload.dict())
+    except Exception as exc:
+        logger.debug("[tarea] no se pudo serializar payload: %s", exc)
+
     if payload.tipo == "lead" and not payload.dominio:
         raise HTTPException(400, detail="Falta 'dominio' para una tarea de tipo 'lead'")
     if payload.tipo == "nicho" and not payload.nicho:
@@ -296,62 +300,73 @@ def crear_tarea(
         prioridad_value = prioridad_value.strip().lower() or "media"
 
     fecha_value = payload.fecha or date.today()
-    prioridad_value = (payload.prioridad or "media").strip().lower() if isinstance(payload.prioridad, str) else (payload.prioridad or "media")
+    if isinstance(fecha_value, datetime):
+        fecha_db = fecha_value if fecha_value.tzinfo else fecha_value.replace(tzinfo=timezone.utc)
+    else:
+        fecha_db = datetime.combine(fecha_value, datetime.min.time(), tzinfo=timezone.utc)
 
+    timestamp_value = datetime.now(timezone.utc)
     user_email_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
 
+    logger.debug(
+        "INSERT LeadTarea email=%s lower=%s tipo=%s dom=%s nicho=%s fecha=%s prioridad=%s compl=%s",
+        usuario.email,
+        user_email_lower,
+        payload.tipo,
+        payload.dominio,
+        payload.nicho,
+        fecha_value,
+        prioridad_value,
+        payload.completado,
+    )
+
+    tarea = LeadTarea(
+        email=usuario.email,
+        user_email_lower=user_email_lower,
+        texto=payload.texto,
+        tipo=payload.tipo,
+        dominio=payload.dominio,
+        nicho=payload.nicho,
+        fecha=fecha_db,
+        prioridad=prioridad_value,
+        completado=payload.completado,
+        timestamp=timestamp_value,
+    )
+
     try:
-        tarea = LeadTarea(
-            email=usuario.email,
-            user_email_lower=user_email_lower,
-            texto=payload.texto,
-            tipo=payload.tipo,
-            dominio=payload.dominio,
-            nicho=payload.nicho,
-            fecha=fecha_value,                              # objeto date, no string
-            prioridad=prioridad_value,
-            completado=payload.completado,
-            timestamp=datetime.now(timezone.utc),           # ✅ asegura NOT NULL
-        )
-        logger.debug(
-            "INSERT LeadTarea email=%s user_email_lower=%s texto=%r tipo=%s dominio=%s nicho=%s fecha=%s prioridad=%s completado=%s",
-            usuario.email,
-            getattr(usuario, "email_lower", None),
-            payload.texto,
-            payload.tipo,
-            payload.dominio,
-            payload.nicho,
-            (payload.fecha or date.today()),
-            (payload.prioridad or "media"),
-            payload.completado,
-        )
         db.add(tarea)
         db.commit()
         db.refresh(tarea)
     except IntegrityError as e:
         db.rollback()
-        # extrae el mensaje del motor (psycopg2/pg8000)
         msg = str(getattr(e, "orig", e))
-        logger.exception("[tarea] IntegrityError (al insertar) -> %s", msg)
-        # RESPUESTA TEMPORALMENTE VERBOSA (para depurar):
+        logger.exception("[tarea] IntegrityError (insert) -> %s", msg)
         raise HTTPException(status_code=400, detail=f"DB IntegrityError: {msg}")
     except Exception as exc:
         db.rollback()
-        logger.exception("[tarea] Exception (al insertar)")
+        logger.exception("[tarea] Exception (insert) -> %s", exc)
         raise HTTPException(status_code=400, detail=f"Error creando tarea: {exc.__class__.__name__}: {exc}")
 
     try:
         UsageService(db).increment(usuario.id, "tasks", 1)
         db.commit()
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        logger.warning("[usage] IntegrityError incrementando 'tasks'. La tarea queda creada igualmente.", exc_info=True)
+        logger.warning(
+            "[usage] IntegrityError incrementando 'tasks' (tarea ya creada). %s",
+            getattr(e, "orig", e),
+        )
     except Exception as exc:
         db.rollback()
-        logger.warning(f"[usage] Error incrementando 'tasks': {exc.__class__.__name__}: {exc}. La tarea queda creada.", exc_info=True)
+        logger.warning(
+            "[usage] Error incrementando 'tasks' (tarea ya creada). %s: %s",
+            exc.__class__.__name__,
+            exc,
+        )
+
     logger.info(
         "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
-        usuario.email_lower,
+        user_email_lower,
         payload.tipo,
         payload.dominio,
         payload.nicho,
@@ -363,7 +378,7 @@ def crear_tarea(
         "tipo": tarea.tipo,
         "dominio": tarea.dominio,
         "nicho": tarea.nicho,
-        "fecha": tarea.fecha,
+        "fecha": _fecha_to_str(tarea.fecha),
         "prioridad": tarea.prioridad,
         "completado": tarea.completado,
     }
@@ -396,7 +411,7 @@ def listar_tareas(
                 "tipo": t.tipo,
                 "nicho": t.nicho,
                 "dominio": t.dominio,
-                "fecha": t.fecha,
+                "fecha": _fecha_to_str(t.fecha),
                 "prioridad": t.prioridad,
                 "completado": t.completado,
             }

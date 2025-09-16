@@ -297,7 +297,7 @@ elif seleccion == "General":
                         }
                         if fecha:
                             payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                        cached_post("tarea_lead", token, payload=payload)
+                        cached_post("/tareas", token, payload=payload)
                         st.success("Tarea creada correctamente.")
                         try:
                             st.cache_data.clear()
@@ -397,7 +397,7 @@ elif seleccion == "Nichos":
                                 }
                                 if fecha:
                                     payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                                cached_post("tarea_lead", token, payload=payload)
+                                cached_post("/tareas", token, payload=payload)
                                 st.success("Tarea creada correctamente.")
                                 try:
                                     st.cache_data.clear()
@@ -500,7 +500,7 @@ elif seleccion == "Leads":
                             }
                             if fecha:
                                 payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                            cached_post("tarea_lead", token, payload=payload)
+                            cached_post("/tareas", token, payload=payload)
                             st.success("Tarea creada correctamente.")
                             try:
                                 st.cache_data.clear()
