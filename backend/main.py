@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from datetime import date, datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
 
 # --- Local / project ---
@@ -79,6 +79,135 @@ def normalizar_dominio(dominio: str) -> str:
     if dominio.startswith("http://") or dominio.startswith("https://"):
         dominio = urlparse(dominio).netloc
     return dominio.replace("www.", "").strip().lower()
+
+
+# --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
+
+class BuscarPayload(BaseModel):
+    cliente_ideal: str
+    contexto_extra: Optional[str] = None
+    forzar_variantes: Optional[bool] = False
+
+
+@app.post("/buscar")
+def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Devuelve una pregunta de refinamiento si el prompt es ambiguo (y no se forzó),
+    o bien una lista de 'variantes_generadas' para que el usuario seleccione.
+    No consume créditos todavía; eso se hará al extraer/guardar.
+    """
+    txt = (payload.cliente_ideal or "").strip()
+    if not txt:
+        raise HTTPException(400, detail="cliente_ideal vacío")
+
+    # Heurística simple de ambigüedad
+    es_vago = len(txt) < 8 or txt.split()[-1].lower() in {"servicios", "negocios", "empresas", "tiendas"}
+    if es_vago and not payload.forzar_variantes:
+        return {"pregunta_sugerida": "¿En qué ciudad o zona te interesan más estos clientes? (Ej.: Madrid Centro)"}
+
+    base = txt
+    if payload.contexto_extra:
+        base = f"{base} {payload.contexto_extra}".strip()
+
+    # Variantes placeholder (pueden sustituirse por IA real)
+    seeds = [
+        f"{base}",
+        f"{base} + email de contacto",
+        f"{base} + teléfono en la web",
+        f"{base} + presupuesto medio",
+        f"{base} + formulario de contacto",
+    ]
+    # únicas y longitud razonable
+    variantes = [s[:120] for s in dict.fromkeys(seeds)]
+    return {"variantes_generadas": variantes[:5]}
+
+
+class VariantesPayload(BaseModel):
+    variantes: List[str]
+
+
+@app.post("/buscar_variantes_seleccionadas")
+def buscar_dominios(payload: VariantesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Genera 'dominios' a partir de las variantes seleccionadas (placeholder).
+    En producción, sustituir por búsqueda real (Google/Maps + scraping).
+    """
+    if not payload.variantes:
+        raise HTTPException(400, detail="variantes vacío")
+
+    dominios = []
+    for v in payload.variantes[:3]:
+        slug = "".join(ch for ch in v.lower() if ch.isalnum() or ch in "- ").replace(" ", "-")
+        if slug:
+            dominios.append(f"{slug}.com")
+    if not dominios:
+        dominios = ["ejemplo-empresa.com", "otra-empresa.com"]
+
+    return {"dominios": list(dict.fromkeys(dominios))[:15]}
+
+
+class ExtraerMultiplesPayload(BaseModel):
+    urls: List[str]
+    pais: Optional[str] = "ES"
+
+
+@app.post("/extraer_multiples")
+def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Simula la extracción de leads de múltiples URLs y devuelve la estructura
+    esperada por la UI: { payload_export, resultados }.
+    Integra aquí scraping real más adelante (BeautifulSoup + ScraperAPI).
+    """
+    if not payload.urls:
+        raise HTTPException(400, detail="urls vacío")
+
+    # Normaliza dominios
+    def _dom(url: str):
+        from urllib.parse import urlparse
+
+        u = url if url.startswith("http") else f"https://{url}"
+        return urlparse(u).netloc.replace("www.", "")
+
+    resultados = []
+    nuevos = 0
+    for u in payload.urls[:50]:
+        d = _dom(u)
+        if not d:
+            continue
+        # Datos básicos ficticios (placeholder)
+        resultados.append({
+            "dominio": d,
+            "url": f"https://{d}",
+            "email": f"info@{d}",
+            "telefono": None,
+            "origen": "scraping_web",
+        })
+        nuevos += 1
+
+    # Consumo de cuotas/créditos sin romper planes actuales
+    try:
+        svc = PlanService(db)
+        plan_name, plan = svc.get_effective_plan(usuario)
+        ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
+        if ok:
+            # Capar volumen en free si aplica
+            if plan_name == "free" and cap is not None and nuevos > cap:
+                resultados = resultados[:cap]
+            if plan_name == "free":
+                consume_free_search(db, usuario.id, plan_name)
+            else:
+                # Créditos en función de leads únicos
+                consume_lead_credits(db, usuario.id, plan_name, len(resultados))
+            db.commit()
+    except Exception as e:
+        logger.warning("[extraer_multiples] no se pudo registrar uso: %s", e)
+
+    payload_export = {
+        "filename": f"leads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        # La UI añade 'nicho' antes de llamar a /exportar_csv
+    }
+
+    return {"payload_export": payload_export, "resultados": resultados}
 
 
 @app.get("/health")
