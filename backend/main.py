@@ -270,12 +270,37 @@ class TareaCreate(BaseModel):
         return value
 
 
+class TareaEditPayload(BaseModel):
+    texto: Optional[str] = None
+    fecha: Optional[date] = None
+    prioridad: Optional[Literal["alta", "media", "baja"]] = None
+    tipo: Optional[Literal["general", "nicho", "lead"]] = None
+    nicho: Optional[str] = None
+    dominio: Optional[str] = None
+    auto: Optional[bool] = None
+    completado: Optional[bool] = None
+
+
 def _fecha_to_str(value):
     if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return value
+
+
+def _tarea_to_dict(t):
+    return {
+        "id": t.id,
+        "texto": t.texto,
+        "tipo": t.tipo,
+        "nicho": t.nicho,
+        "dominio": t.dominio,
+        "fecha": _fecha_to_str(t.fecha),
+        "prioridad": t.prioridad,
+        "completado": t.completado,
+        "timestamp": getattr(t, "timestamp", None).isoformat() if getattr(t, "timestamp", None) else None,
+    }
 
 
 from datetime import date, datetime
@@ -469,6 +494,75 @@ def listar_tareas(
             for t in tareas
         ],
     }
+
+
+@app.post("/tarea_completada")
+def marcar_tarea_completada(
+    tarea_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
+    t = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.id == tarea_id, LeadTarea.user_email_lower == user_lower)
+        .first()
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    if not t.completado:
+        t.completado = True
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"No se pudo completar la tarea: {exc}")
+
+    return {"ok": True, "tarea": _tarea_to_dict(t)}
+
+
+@app.post("/editar_tarea")
+def editar_tarea(
+    tarea_id: int,
+    payload: TareaEditPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
+    t = (
+        db.query(LeadTarea)
+        .filter(LeadTarea.id == tarea_id, LeadTarea.user_email_lower == user_lower)
+        .first()
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    if payload.texto is not None:
+        t.texto = payload.texto.strip()
+    if payload.fecha is not None:
+        t.fecha = payload.fecha
+    if payload.prioridad is not None:
+        t.prioridad = payload.prioridad.strip().lower()
+    if payload.tipo is not None:
+        t.tipo = payload.tipo.strip().lower()
+    if payload.nicho is not None:
+        t.nicho = payload.nicho.strip()
+    if payload.dominio is not None:
+        t.dominio = payload.dominio.strip()
+    if payload.auto is not None:
+        t.auto = bool(payload.auto)
+    if payload.completado is not None:
+        t.completado = bool(payload.completado)
+
+    try:
+        db.commit()
+        db.refresh(t)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"No se pudo editar la tarea: {exc}")
+
+    return {"ok": True, "tarea": _tarea_to_dict(t)}
 
 
 @app.post("/tarea_lead", status_code=201)
