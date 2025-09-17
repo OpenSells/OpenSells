@@ -105,118 +105,114 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
     if es_vago and not payload.forzar_variantes:
         return {"pregunta_sugerida": "¿En qué ciudad o zona te interesan más estos clientes? (Ej.: Madrid Centro)"}
 
+    def _normalize_spaces(s: str) -> str:
+        return " ".join((s or "").strip().split())
+
     def _split_categoria_geo(texto: str, contexto_extra: Optional[str]) -> tuple[str, str]:
-        t = (texto or "").strip()
-        cat, geo = t, ""
+        # No forzamos minúsculas para respetar el estilo del usuario en la PRIMERA variante.
+        t = _normalize_spaces(texto)
         low = t.lower()
+        cat, geo = t, ""
         if " en " in low:
-            # divide por la última ocurrencia de " en " para evitar cortar frases previas
             idx = low.rfind(" en ")
-            cat = t[:idx].strip()
-            geo = t[idx + 4 :].strip()
+            cat = _normalize_spaces(t[:idx])
+            geo = _normalize_spaces(t[idx + 4 :])
         if not geo and contexto_extra:
-            geo = contexto_extra.strip()
+            geo = _normalize_spaces(contexto_extra)
         return (cat, geo)
 
     def _synonyms_for(cat: str) -> list[str]:
-        base = cat.lower().strip()
+        # Mapeo simple por inclusión; devuelve strings con capitalización "natural".
+        base = cat.lower()
         synmap = {
-            "clínica veterinaria": [
-                "clínica veterinaria",
-                "veterinario",
-                "hospital veterinario",
-            ],
+            "clínica veterinaria": ["Clínica veterinaria", "Veterinario", "Hospital veterinario"],
+            "veterinario": ["Veterinario", "Clínica veterinaria", "Hospital veterinario"],
+            "dentista": ["Dentista", "Clínica dental", "Odontólogo"],
+            "abogado": ["Abogado", "Bufete de abogados", "Despacho de abogados"],
+            "restaurante": ["Restaurante", "Bar restaurante"],
+            "fisioterapeuta": ["Fisioterapeuta", "Clínica de fisioterapia", "Fisioterapia"],
         }
-        synmap.update(
-            {
-                "dentista": [
-                    "dentista",
-                    "clínica dental",
-                    "odontólogo",
-                    "consulta dental",
-                ],
-                "abogado": [
-                    "abogado",
-                    "bufete de abogados",
-                    "despacho de abogados",
-                ],
-                "restaurante": [
-                    "restaurante",
-                    "bar restaurante",
-                    "cocina",
-                    "comida",
-                ],
-                "fisioterapeuta": [
-                    "fisioterapeuta",
-                    "fisioterapia",
-                    "clínica de fisioterapia",
-                ],
-            }
-        )
-        # match por inclusión para casos "clínica veterinaria de urgencias"
         for k, v in synmap.items():
             if k in base:
                 return v
-        # fallback: usa la categoría original
-        return [cat]
+        # Fallback: usar la categoría tal cual (capitalizamos primera letra)
+        return [cat[:1].upper() + cat[1:]]
+
+    def _areas_cercanas(geo: str) -> list[str]:
+        # Si no hay geo, no aportamos áreas.
+        if not geo:
+            return [""]
+        # Para no invadir otras partes del sistema, usamos una lista pequeña y segura.
+        # Si la geo tiene varias palabras, mantenemos la principal y ofrecemos "centro".
+        zonas = ["", "centro"]
+        # Permite añadir manualmente barrios comunes de ciudades típicas si se quiere escalar en el futuro.
+        return zonas
+
+    def _intents() -> list[str]:
+        # Intenciones reales (no sufijos con puntuación)
+        return ["", "24h", "urgencias", "gatos", "exóticos"]
 
     def build_variants(cliente_ideal: str, contexto_extra: Optional[str]) -> list[str]:
+        # 1) Primera variante: EXACTAMENTE lo que escribió el usuario (solo normalizamos espacios)
+        original = _normalize_spaces(cliente_ideal)
+        variants = [original] if original else []
+
+        # 2) Derivadas con sinónimos + geo + intención (consultas completas)
         cat, geo = _split_categoria_geo(cliente_ideal, contexto_extra)
         syns = _synonyms_for(cat)
-        intents = ["", "24h", "urgencias", "gatos", "exóticos"]
+        intents = _intents()
+        areas = _areas_cercanas(geo)
+
+        def q(*parts: str) -> str:
+            # compone consulta evitando puntos finales y signos raros
+            s = _normalize_spaces(" ".join(p for p in parts if p))
+            return s.rstrip(".")
 
         candidates = []
 
-        def join_query(parts):
-            # une partes no vacías y normaliza espacios
-            q = " ".join([p for p in parts if p and p.strip()])
-            return " ".join(q.split())
-
         for s in syns:
-            # variante base (sin intención)
-            if geo:
-                candidates.append(join_query([s, geo]))
-            else:
-                candidates.append(join_query([s]))
+            for a in areas:
+                geo_part = f"{geo} {a}".strip() if geo and a else (geo or a or "")
+                # base sin intención
+                candidates.append(q(s, geo_part))
+                # con intención
+                for it in intents:
+                    if not it:
+                        continue
+                    candidates.append(q(s, geo_part, it))
 
-            # variantes con intención
-            for it in intents:
-                if not it:
-                    continue
-                if geo:
-                    candidates.append(join_query([s, geo, it]))
-                else:
-                    candidates.append(join_query([s, it]))
-
-        # una variante con exclusiones para reducir ruido de directorios
-        exclusions = "-doctoralia -páginasamarillas -facebook -instagram -linkedin"
+        # 3) Una variante con exclusiones para reducir ruido de directorios
+        excl = "-doctoralia -páginasamarillas -facebook -instagram -linkedin"
         if geo:
-            candidates.append(join_query([syns[0], geo, exclusions]))
+            candidates.append(q(syns[0], geo, excl))
         else:
-            candidates.append(join_query([syns[0], exclusions]))
+            candidates.append(q(syns[0], excl))
 
-        # dedupe preservando orden
-        seen = set()
-        variants = []
-        for q in candidates:
-            qn = q.strip()
-            if not qn or qn in seen:
+        # 4) Dedup preservando orden, sin repetir el original
+        seen = set(v.lower() for v in variants)
+        final = variants[:]
+        for c in candidates:
+            if not c:
                 continue
-            seen.add(qn)
-            variants.append(qn)
+            key = c.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            final.append(c)
 
-        # limita tamaño (preferible entre 6 y 10), rellena si quedó corto
-        if len(variants) < 6:
-            base = join_query([cat, geo]) if geo else cat
-            extra = [base, f"{base} 24h", f"{base} urgencias", f"{base} exóticos"]
-            for q in extra:
-                if q not in seen:
-                    variants.append(q)
-                    seen.add(q)
-                if len(variants) >= 6:
+        # 5) Limita tamaño (8–12 es buen rango). Mantén siempre el original primero.
+        if len(final) < 8:
+            # Relleno seguro basado en cat/geo
+            base = q(cat, geo)
+            for extra in [base, q(base, "24h"), q(base, "urgencias")]:
+                k = extra.lower()
+                if extra and k not in seen:
+                    final.append(extra)
+                    seen.add(k)
+                if len(final) >= 8:
                     break
 
-        return variants[:10]
+        return final[:12]
 
     variantes = build_variants(txt, payload.contexto_extra)
     return {"variantes_generadas": variantes}
