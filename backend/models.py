@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -54,10 +56,16 @@ class LeadTarea(Base):
     texto = Column(Text, nullable=False)
     fecha = Column(Date, nullable=True)
     completado = Column(Boolean, default=False, server_default=text("false"), nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    tipo = Column(String, default="lead")
+    # Triple defensa contra NULL: default Python, server_default en BD y nullable=False
+    timestamp = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+    )
+    tipo = Column(String, nullable=False)
     nicho = Column(String, nullable=True)
-    prioridad = Column(String, default="media", nullable=False, server_default=text("'media'"))
+    prioridad = Column(String, nullable=False, server_default=text("'media'"))
     auto = Column(Boolean, nullable=False, server_default=text("false"))
 
     @validates("email")

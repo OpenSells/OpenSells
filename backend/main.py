@@ -43,7 +43,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
-logger.info("CODE_MARKER tasks/fix %s", __file__)
+logger.info("CODE_MARKER tasks/stability %s", __file__)
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -213,7 +213,7 @@ def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db))
 
 class TareaCreate(BaseModel):
     texto: str
-    tipo: Literal["general", "nicho", "lead"] = "general"
+    tipo: Literal["general", "nicho", "lead"]
     dominio: Optional[str] = None
     nicho: Optional[str] = None
     prioridad: Optional[Literal["alta", "media", "baja"]] = "media"

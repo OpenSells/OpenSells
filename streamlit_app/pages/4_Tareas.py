@@ -17,18 +17,19 @@ from streamlit_app.utils.logout_button import logout_button
 load_dotenv()
 
 
-def _safe_secret(name: str, default=None):
-    """Safely retrieve configuration from env or Streamlit secrets."""
-    value = os.getenv(name)
-    if value is not None:
-        return value
+def _resolve_backend_url() -> str:
+    """Resolve backend base URL preferring env vars, then secrets, then localhost."""
+    env_value = os.getenv("BACKEND_URL")
+    if env_value:
+        return env_value
     try:
-        return st.secrets.get(name, default)
+        secret_value = st.secrets.get("BACKEND_URL")
     except Exception:
-        return default
+        secret_value = None
+    return secret_value or "http://127.0.0.1:8000"
 
 
-BACKEND_URL = _safe_secret("BACKEND_URL", "https://opensells.onrender.com")
+BACKEND_URL = _resolve_backend_url()
 
 st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
@@ -64,8 +65,7 @@ HOY = date.today()
 
 PRIO_ORDER = {"alta": 0, "media": 1, "baja": 2}
 
-if debug:
-    st.caption(f"DEBUG BACKEND_URL = {BACKEND_URL}")
+st.caption(f"DEBUG BACKEND_URL = {BACKEND_URL}")
 
 
 def crear_tarea_backend(payload: Dict[str, Any], headers: Dict[str, str], debug_flag: bool) -> bool:
