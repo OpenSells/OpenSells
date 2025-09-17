@@ -105,21 +105,121 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
     if es_vago and not payload.forzar_variantes:
         return {"pregunta_sugerida": "¿En qué ciudad o zona te interesan más estos clientes? (Ej.: Madrid Centro)"}
 
-    base = txt
-    if payload.contexto_extra:
-        base = f"{base} {payload.contexto_extra}".strip()
+    def _split_categoria_geo(texto: str, contexto_extra: Optional[str]) -> tuple[str, str]:
+        t = (texto or "").strip()
+        cat, geo = t, ""
+        low = t.lower()
+        if " en " in low:
+            # divide por la última ocurrencia de " en " para evitar cortar frases previas
+            idx = low.rfind(" en ")
+            cat = t[:idx].strip()
+            geo = t[idx + 4 :].strip()
+        if not geo and contexto_extra:
+            geo = contexto_extra.strip()
+        return (cat, geo)
 
-    # Variantes placeholder (pueden sustituirse por IA real)
-    seeds = [
-        f"{base}",
-        f"{base} + email de contacto",
-        f"{base} + teléfono en la web",
-        f"{base} + presupuesto medio",
-        f"{base} + formulario de contacto",
-    ]
-    # únicas y longitud razonable
-    variantes = [s[:120] for s in dict.fromkeys(seeds)]
-    return {"variantes_generadas": variantes[:5]}
+    def _synonyms_for(cat: str) -> list[str]:
+        base = cat.lower().strip()
+        synmap = {
+            "clínica veterinaria": [
+                "clínica veterinaria",
+                "veterinario",
+                "hospital veterinario",
+            ],
+        }
+        synmap.update(
+            {
+                "dentista": [
+                    "dentista",
+                    "clínica dental",
+                    "odontólogo",
+                    "consulta dental",
+                ],
+                "abogado": [
+                    "abogado",
+                    "bufete de abogados",
+                    "despacho de abogados",
+                ],
+                "restaurante": [
+                    "restaurante",
+                    "bar restaurante",
+                    "cocina",
+                    "comida",
+                ],
+                "fisioterapeuta": [
+                    "fisioterapeuta",
+                    "fisioterapia",
+                    "clínica de fisioterapia",
+                ],
+            }
+        )
+        # match por inclusión para casos "clínica veterinaria de urgencias"
+        for k, v in synmap.items():
+            if k in base:
+                return v
+        # fallback: usa la categoría original
+        return [cat]
+
+    def build_variants(cliente_ideal: str, contexto_extra: Optional[str]) -> list[str]:
+        cat, geo = _split_categoria_geo(cliente_ideal, contexto_extra)
+        syns = _synonyms_for(cat)
+        intents = ["", "24h", "urgencias", "gatos", "exóticos"]
+
+        candidates = []
+
+        def join_query(parts):
+            # une partes no vacías y normaliza espacios
+            q = " ".join([p for p in parts if p and p.strip()])
+            return " ".join(q.split())
+
+        for s in syns:
+            # variante base (sin intención)
+            if geo:
+                candidates.append(join_query([s, geo]))
+            else:
+                candidates.append(join_query([s]))
+
+            # variantes con intención
+            for it in intents:
+                if not it:
+                    continue
+                if geo:
+                    candidates.append(join_query([s, geo, it]))
+                else:
+                    candidates.append(join_query([s, it]))
+
+        # una variante con exclusiones para reducir ruido de directorios
+        exclusions = "-doctoralia -páginasamarillas -facebook -instagram -linkedin"
+        if geo:
+            candidates.append(join_query([syns[0], geo, exclusions]))
+        else:
+            candidates.append(join_query([syns[0], exclusions]))
+
+        # dedupe preservando orden
+        seen = set()
+        variants = []
+        for q in candidates:
+            qn = q.strip()
+            if not qn or qn in seen:
+                continue
+            seen.add(qn)
+            variants.append(qn)
+
+        # limita tamaño (preferible entre 6 y 10), rellena si quedó corto
+        if len(variants) < 6:
+            base = join_query([cat, geo]) if geo else cat
+            extra = [base, f"{base} 24h", f"{base} urgencias", f"{base} exóticos"]
+            for q in extra:
+                if q not in seen:
+                    variants.append(q)
+                    seen.add(q)
+                if len(variants) >= 6:
+                    break
+
+        return variants[:10]
+
+    variantes = build_variants(txt, payload.contexto_extra)
+    return {"variantes_generadas": variantes}
 
 
 class VariantesPayload(BaseModel):
