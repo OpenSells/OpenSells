@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
+from backend.models import LeadTarea
 
 # --- Local / project ---
 from backend.database import engine, SessionLocal, DATABASE_URL, get_db
@@ -39,11 +40,25 @@ from backend.core.usage_helpers import (
 from backend.core.usage_service import UsageService
 
 # --- Load environment variables ---
+from dotenv import load_dotenv
 load_dotenv()
+
+import logging
+
+# Asegura nivel de logs visible en consola (útil con Uvicorn en Windows)
+logging.basicConfig(level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
+
+# Marcadores visibles para verificar que este archivo es el que corre
+print(f"CODE_MARKER /tareas timestamp-fix {__file__}")
 logger.info("CODE_MARKER tasks/stability %s", __file__)
+
+# (Opcional pero útil) Ver el SQL real que emite SQLAlchemy
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+logging.getLogger("sqlalchemy.orm.mapper").setLevel(logging.INFO)
+
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -263,6 +278,11 @@ def _fecha_to_str(value):
     return value
 
 
+from datetime import date, datetime
+from sqlalchemy import func, insert
+from sqlalchemy.exc import IntegrityError
+from backend.models import LeadTarea
+
 @app.post("/tareas", status_code=201)
 def crear_tarea(
     payload: TareaCreate,
@@ -303,66 +323,53 @@ def crear_tarea(
     if isinstance(fecha_value, datetime):
         fecha_value = fecha_value.date()
 
-    timestamp_value = datetime.now(timezone.utc)
     user_email_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
 
-    logger.debug(
-        "INSERT LeadTarea email=%s lower=%s tipo=%s dom=%s nicho=%s fecha=%s prioridad=%s compl=%s",
-        usuario.email,
-        user_email_lower,
-        payload.tipo,
-        payload.dominio,
-        payload.nicho,
-        fecha_value,
-        prioridad_value,
-        payload.completado,
-    )
+    # Usamos la tabla real para referenciar columnas reales (evita desalineaciones)
+    tbl = LeadTarea.__table__
 
-    tarea = LeadTarea(
-        email=usuario.email,
-        user_email_lower=user_email_lower,
-        texto=payload.texto,
-        tipo=payload.tipo,
-        dominio=payload.dominio,
-        nicho=payload.nicho,
-        fecha=fecha_value,
-        prioridad=prioridad_value,
-        completado=payload.completado,
-        timestamp=timestamp_value,
+    # Insert con timestamp puesto por la BD (func.now()) — imposible que vaya NULL
+    stmt = (
+        insert(tbl)
+        .values({
+            tbl.c.email:            usuario.email,
+            tbl.c.user_email_lower: user_email_lower,
+            tbl.c.texto:            payload.texto,
+            tbl.c.tipo:             payload.tipo,
+            tbl.c.dominio:          payload.dominio,
+            tbl.c.nicho:            payload.nicho,
+            tbl.c.fecha:            fecha_value,         # date
+            tbl.c.prioridad:        prioridad_value,
+            tbl.c.completado:       payload.completado,
+            tbl.c.timestamp:        func.now(),          # 👈 lo fija Postgres en el INSERT
+        })
+        .returning(tbl.c.id)
     )
-
-    logger.debug("DEBUG pre-insert timestamp=%r", getattr(tarea, "timestamp", None))
 
     try:
-        db.add(tarea)
+        new_id = db.execute(stmt).scalar_one()
         db.commit()
-        db.refresh(tarea)
+        tarea = db.get(LeadTarea, new_id)
     except IntegrityError as e:
         db.rollback()
         msg = str(getattr(e, "orig", e))
         logger.exception("[tarea] IntegrityError (insert) -> %s", msg)
-        raise HTTPException(status_code=400, detail="No se pudo crear la tarea.")
+        raise HTTPException(status_code=400, detail=f"DB IntegrityError: {msg}")
     except Exception as exc:
         db.rollback()
         logger.exception("[tarea] Exception (insert) -> %s", exc)
-        raise HTTPException(status_code=400, detail="No se pudo crear la tarea.")
+        raise HTTPException(status_code=400, detail=f"Error creando tarea: {exc.__class__.__name__}: {exc}")
 
+    # Incremento de uso: si falla, no rompe la tarea
     try:
         UsageService(db).increment(usuario.id, "tasks", 1)
         db.commit()
     except IntegrityError as e:
         db.rollback()
-        logger.warning(
-            "[usage] IntegrityError incrementando 'tasks' (tarea ya creada). %s",
-            getattr(e, "orig", e),
-        )
+        logger.warning("[usage] IntegrityError incrementando 'tasks' (tarea ya creada). %s", getattr(e, "orig", e))
     except Exception as exc:
         db.rollback()
-        logger.warning(
-            "[usage] Error incrementando 'tasks' (tarea ya creada). %s: %s",
-            exc.__class__.__name__,
-            exc,
-        )
+        logger.warning("[usage] Error incrementando 'tasks' (tarea ya creada). %s: %s", exc.__class__.__name__, exc)
 
     logger.info(
         "task_created user=%s tipo=%s dominio=%s nicho=%s tarea_id=%s",
@@ -384,16 +391,39 @@ def crear_tarea(
     }
 
 
+from typing import Optional, Literal
+from fastapi import HTTPException  # ← quitamos Query
+from datetime import timezone
+# Asegúrate de tener importados: Depends, Session y LeadTarea en este archivo.
+
 @app.get("/tareas")
 def listar_tareas(
-    tipo: str | None = None,
-    nicho: str | None = None,
-    dominio: str | None = None,
+    tipo: Optional[Literal["general", "nicho", "lead"]] = None,
+    nicho: Optional[str] = None,
+    dominio: Optional[str] = None,
     solo_pendientes: bool = False,
-    usuario=Depends(get_current_user),
+    limit: int = 100,
+    offset: int = 0,
+    usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(LeadTarea).filter(LeadTarea.user_email_lower == usuario.email_lower)
+    # normaliza email
+    user_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
+
+    # sanea parámetros (evita valores raros al invocar internamente)
+    if tipo not in ("general", "nicho", "lead"):
+        tipo = None
+    if not (isinstance(nicho, str) and nicho.strip()):
+        nicho = None
+    if not (isinstance(dominio, str) and dominio.strip()):
+        dominio = None
+
+    # clamp simple para evitar valores extremos al no usar Query(ge/le)
+    limit = max(1, min(500, int(limit)))
+    offset = max(0, int(offset))
+
+    q = db.query(LeadTarea).filter(LeadTarea.user_email_lower == user_lower)
+
     if tipo:
         q = q.filter(LeadTarea.tipo == tipo)
     if nicho:
@@ -401,9 +431,29 @@ def listar_tareas(
     if dominio:
         q = q.filter(LeadTarea.dominio == dominio)
     if solo_pendientes:
-        q = q.filter(LeadTarea.completado == False)
-    tareas = q.all()
+        q = q.filter(LeadTarea.completado.is_(False))
+
+    total = q.count()
+
+    tareas = (
+        q.order_by(LeadTarea.timestamp.desc(), LeadTarea.id.desc())
+         .offset(offset)
+         .limit(limit)
+         .all()
+    )
+
+    def iso_or_none(dt):
+        if not dt:
+            return None
+        try:
+            return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        except Exception:
+            return dt.isoformat()
+
     return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
         "tareas": [
             {
                 "id": t.id,
@@ -414,9 +464,10 @@ def listar_tareas(
                 "fecha": _fecha_to_str(t.fecha),
                 "prioridad": t.prioridad,
                 "completado": t.completado,
+                "timestamp": iso_or_none(getattr(t, "timestamp", None)),
             }
             for t in tareas
-        ]
+        ],
     }
 
 
@@ -434,12 +485,18 @@ def crear_tarea_lead(
     return crear_tarea(payload_lead, usuario, db)
 
 
+from typing import Optional
+
 @app.get("/tareas_pendientes")
 def tareas_pendientes(
-    tipo: str | None = None,
+    tipo: Optional[str] = None,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Normaliza por si llega vacío o con espacios
+    if not (isinstance(tipo, str) and tipo.strip()):
+        tipo = None
+
     return listar_tareas(tipo=tipo, solo_pendientes=True, usuario=usuario, db=db)
 
 
