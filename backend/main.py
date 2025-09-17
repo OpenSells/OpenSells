@@ -331,6 +331,8 @@ def crear_tarea(
         timestamp=timestamp_value,
     )
 
+    logger.debug("DEBUG pre-insert timestamp=%r", getattr(tarea, "timestamp", None))
+
     try:
         db.add(tarea)
         db.commit()

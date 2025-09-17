@@ -12,6 +12,7 @@ from sqlalchemy import (
     text,
     UniqueConstraint,
     Index,
+    event,
 )
 from sqlalchemy.orm import validates
 from backend.database import Base
@@ -72,6 +73,28 @@ class LeadTarea(Base):
     def _set_lower(self, key, value):
         self.user_email_lower = (value or "").strip().lower()
         return (value or "").strip()
+
+
+@event.listens_for(LeadTarea, "before_insert", propagate=True)
+def _lead_tarea_defaults(mapper, connection, target):
+    """Última línea de defensa para columnas críticas sin valores."""
+    if not getattr(target, "user_email_lower", None) and getattr(target, "email", None):
+        try:
+            target.user_email_lower = target.email.lower()
+        except Exception:
+            pass
+
+    if not getattr(target, "prioridad", None):
+        target.prioridad = "media"
+
+    if getattr(target, "completado", None) is None:
+        target.completado = False
+
+    if getattr(target, "timestamp", None) is None:
+        try:
+            target.timestamp = datetime.now(timezone.utc)
+        except Exception:
+            target.timestamp = datetime.utcnow()
 
 # Tabla de historial
 class LeadHistorial(Base):
