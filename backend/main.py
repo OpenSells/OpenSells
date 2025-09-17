@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
 from datetime import date, datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
 
 # --- Local / project ---
@@ -79,6 +79,278 @@ def normalizar_dominio(dominio: str) -> str:
     if dominio.startswith("http://") or dominio.startswith("https://"):
         dominio = urlparse(dominio).netloc
     return dominio.replace("www.", "").strip().lower()
+
+
+# --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
+
+class BuscarPayload(BaseModel):
+    cliente_ideal: str
+    contexto_extra: Optional[str] = None
+    forzar_variantes: Optional[bool] = False
+
+
+@app.post("/buscar")
+def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Devuelve una pregunta de refinamiento si el prompt es ambiguo (y no se forzó),
+    o bien una lista de 'variantes_generadas' para que el usuario seleccione.
+    No consume créditos todavía; eso se hará al extraer/guardar.
+    """
+    txt = (payload.cliente_ideal or "").strip()
+    if not txt:
+        raise HTTPException(400, detail="cliente_ideal vacío")
+
+    # Heurística simple de ambigüedad
+    es_vago = len(txt) < 8 or txt.split()[-1].lower() in {"servicios", "negocios", "empresas", "tiendas"}
+    if es_vago and not payload.forzar_variantes:
+        return {"pregunta_sugerida": "¿En qué ciudad o zona te interesan más estos clientes? (Ej.: Madrid Centro)"}
+
+    # 4. Generar variantes (exactamente 5, limpias y útiles para scraping)
+    def _norm(s: str) -> str:
+        return " ".join((s or "").strip().split())
+
+    def _split_cat_geo(texto: str, contexto_extra: Optional[str]) -> tuple[str, str]:
+        t = _norm(texto)
+        low = t.lower()
+        cat, geo = t, ""
+        if " en " in low:
+            idx = low.rfind(" en ")
+            cat = _norm(t[:idx])
+            geo = _norm(t[idx + 4 :])
+        if not geo and contexto_extra:
+            geo = _norm(contexto_extra)
+        return (cat, geo)
+
+    def _fallback_variants(texto: str, contexto_extra: Optional[str]) -> list[str]:
+        cat, geo = _split_cat_geo(texto, contexto_extra)
+        base_geo = f"{geo}" if geo else ""
+        cat_low = cat.lower()
+        synmap = {
+            "clínica veterinaria": ["clínica veterinaria", "veterinario", "hospital veterinario"],
+            "veterinario": ["veterinario", "clínica veterinaria", "hospital veterinario"],
+            "dentista": ["dentista", "clínica dental", "odontólogo"],
+            "abogado": ["abogado", "bufete de abogados", "despacho de abogados"],
+            "fisioterapeuta": ["fisioterapeuta", "clínica de fisioterapia"],
+            "restaurante": ["restaurante", "bar restaurante"],
+            "inmobiliaria": ["inmobiliaria", "agencia inmobiliaria"],
+        }
+        syns = None
+        for k, v in synmap.items():
+            if k in cat_low:
+                syns = v
+                break
+        if not syns:
+            syns = [cat]
+
+        intents: list[str] = []
+        if "veterin" in cat_low:
+            intents = ["24h", "urgencias"]
+        elif "dent" in cat_low:
+            intents = ["implantes", "urgencias"]
+        elif "abog" in cat_low:
+            intents = ["laboral", "penal"]
+        elif "fisioterap" in cat_low:
+            intents = ["deportiva", "suelo pélvico"]
+
+        excl = (
+            "-site:facebook.com -site:instagram.com -site:twitter.com -site:linkedin.com "
+            "-site:doctoralia.es -site:paginasamarillas.es -site:tripadvisor.es -site:habitissimo.es"
+        )
+
+        def q(*parts):
+            s = _norm(" ".join(p for p in parts if p))
+            return s.rstrip(".")
+
+        candidates = []
+        candidates.append(q(syns[0], base_geo))
+        candidates.append(q(syns[1] if len(syns) > 1 else syns[0], base_geo))
+        if intents:
+            candidates.append(q(syns[0], base_geo, intents[0]))
+            if len(intents) > 1:
+                candidates.append(q(syns[0], base_geo, intents[1]))
+        else:
+            candidates.append(q(syns[0], base_geo, "servicio"))
+            candidates.append(q(syns[0], base_geo, "profesional"))
+        candidates.append(q(syns[0], base_geo, excl))
+
+        final: list[str] = []
+        seen: set[str] = set()
+        for c in candidates:
+            key = c.lower()
+            if c and key not in seen:
+                final.append(c)
+                seen.add(key)
+            if len(final) == 5:
+                break
+        while len(final) < 5:
+            extra = q(syns[0], base_geo)
+            if extra.lower() not in seen:
+                final.append(extra)
+                seen.add(extra.lower())
+        return final[:5]
+
+    def _clean_lines(text: str) -> list[str]:
+        raw = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        lines: list[str] = []
+        for ln in raw:
+            ln = ln.lstrip("-•*1234567890. ").strip()
+            ln = ln.replace(" + ", " ").replace("+", " ")
+            ln = ln.strip().strip('"').strip("'")
+            ln = _norm(ln).rstrip(".")
+            if ln:
+                lines.append(ln)
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for ln in lines:
+            kl = ln.lower()
+            if kl not in seen:
+                cleaned.append(ln)
+                seen.add(kl)
+        return cleaned
+
+    contexto_extra = payload.contexto_extra or ""
+    cliente_ideal = txt
+
+    openai_client = None
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            from openai import OpenAI
+
+            openai_client = OpenAI(api_key=api_key)
+        except Exception as exc:
+            logger.warning("No se pudo inicializar OpenAI: %s", exc)
+            openai_client = None
+
+    if openai_client:
+        prompt_variantes = f"""
+Eres un generador de consultas para Google/Maps orientadas a scraping de leads.
+
+Entrada (intención del usuario y cliente ideal):
+"{cliente_ideal}"
+Contexto extra (opcional): "{contexto_extra}"
+
+Genera EXACTAMENTE 5 consultas de búsqueda diferentes y útiles (una por línea) que:
+- Representen fielmente la intención y el cliente ideal.
+- Sean óptimas para encontrar webs de negocio reales (no directorios).
+- Usen sinónimos/nombres equivalentes del sector cuando ayude.
+- Incluyan la localización si se deduce de la entrada.
+- Pueden incluir UNA sola variante con exclusiones para filtrar directorios/redes, usando -site:dominio (p.ej. -site:facebook.com -site:instagram.com ...).
+- NO usen “+”, NO terminen en punto, NO devuelvas viñetas ni numeración.
+- Máximo ~10 palabras por consulta.
+
+SALIDA: 5 líneas, cada línea es una consulta. Sin texto extra.
+"""
+        try:
+            respuesta = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt_variantes}],
+                temperature=0.4,
+            )
+            contenido = respuesta.choices[0].message.content
+            variantes = _clean_lines(contenido)
+            variantes = [v for v in variantes if v]
+            variantes = [v for v in variantes if len(v.split()) >= 2]
+            if len(variantes) > 5:
+                variantes = variantes[:5]
+            if len(variantes) < 5:
+                faltan = 5 - len(variantes)
+                variantes += _fallback_variants(cliente_ideal, contexto_extra)[:faltan]
+        except Exception as e:
+            logger.warning("Fallo OpenAI en /buscar, usando fallback: %s", e)
+            variantes = _fallback_variants(cliente_ideal, contexto_extra)
+    else:
+        variantes = _fallback_variants(cliente_ideal, contexto_extra)
+
+    return {"variantes_generadas": variantes}
+
+
+class VariantesPayload(BaseModel):
+    variantes: List[str]
+
+
+@app.post("/buscar_variantes_seleccionadas")
+def buscar_dominios(payload: VariantesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Genera 'dominios' a partir de las variantes seleccionadas (placeholder).
+    En producción, sustituir por búsqueda real (Google/Maps + scraping).
+    """
+    if not payload.variantes:
+        raise HTTPException(400, detail="variantes vacío")
+
+    dominios = []
+    for v in payload.variantes[:3]:
+        slug = "".join(ch for ch in v.lower() if ch.isalnum() or ch in "- ").replace(" ", "-")
+        if slug:
+            dominios.append(f"{slug}.com")
+    if not dominios:
+        dominios = ["ejemplo-empresa.com", "otra-empresa.com"]
+
+    return {"dominios": list(dict.fromkeys(dominios))[:15]}
+
+
+class ExtraerMultiplesPayload(BaseModel):
+    urls: List[str]
+    pais: Optional[str] = "ES"
+
+
+@app.post("/extraer_multiples")
+def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Simula la extracción de leads de múltiples URLs y devuelve la estructura
+    esperada por la UI: { payload_export, resultados }.
+    Integra aquí scraping real más adelante (BeautifulSoup + ScraperAPI).
+    """
+    if not payload.urls:
+        raise HTTPException(400, detail="urls vacío")
+
+    # Normaliza dominios
+    def _dom(url: str):
+        from urllib.parse import urlparse
+
+        u = url if url.startswith("http") else f"https://{url}"
+        return urlparse(u).netloc.replace("www.", "")
+
+    resultados = []
+    nuevos = 0
+    for u in payload.urls[:50]:
+        d = _dom(u)
+        if not d:
+            continue
+        # Datos básicos ficticios (placeholder)
+        resultados.append({
+            "dominio": d,
+            "url": f"https://{d}",
+            "email": f"info@{d}",
+            "telefono": None,
+            "origen": "scraping_web",
+        })
+        nuevos += 1
+
+    # Consumo de cuotas/créditos sin romper planes actuales
+    try:
+        svc = PlanService(db)
+        plan_name, plan = svc.get_effective_plan(usuario)
+        ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
+        if ok:
+            # Capar volumen en free si aplica
+            if plan_name == "free" and cap is not None and nuevos > cap:
+                resultados = resultados[:cap]
+            if plan_name == "free":
+                consume_free_search(db, usuario.id, plan_name)
+            else:
+                # Créditos en función de leads únicos
+                consume_lead_credits(db, usuario.id, plan_name, len(resultados))
+            db.commit()
+    except Exception as e:
+        logger.warning("[extraer_multiples] no se pudo registrar uso: %s", e)
+
+    payload_export = {
+        "filename": f"leads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        # La UI añade 'nicho' antes de llamar a /exportar_csv
+    }
+
+    return {"payload_export": payload_export, "resultados": resultados}
 
 
 @app.get("/health")
