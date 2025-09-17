@@ -1,4 +1,5 @@
 import os
+import requests
 import streamlit as st
 from hashlib import md5
 from urllib.parse import urlparse
@@ -62,6 +63,43 @@ P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()
 
 PRIO_ORDER = {"alta": 0, "media": 1, "baja": 2}
+
+if debug:
+    st.caption(f"DEBUG BACKEND_URL = {BACKEND_URL}")
+
+
+def crear_tarea_backend(payload: Dict[str, Any], headers: Dict[str, str], debug_flag: bool) -> bool:
+    """Envía el payload al backend y muestra mensajes de depuración si procede."""
+    url = f"{BACKEND_URL.rstrip('/')}/tareas"
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+    except Exception as exc:
+        st.error("No se pudo conectar con el backend al crear la tarea.")
+        if debug_flag:
+            st.caption(f"DEBUG POST /tareas → error: {exc}")
+        return False
+
+    snippet = (response.text or "").replace("\n", "\\n")[:200]
+    if debug_flag:
+        st.caption(f"DEBUG POST /tareas → {response.status_code} {snippet}")
+
+    if response.status_code not in (200, 201):
+        detail = None
+        try:
+            data = response.json()
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            detail = data.get("detail") or data.get("message") or data
+        if detail is None:
+            detail = snippet or "Respuesta no válida del backend."
+        if isinstance(detail, dict):
+            detail = detail.get("detail") or str(detail)
+        st.error(f"No se pudo crear la tarea ({response.status_code}): {detail}")
+        return False
+
+    limpiar_cache()
+    return True
 
 # Redirección automática desde enlace
 params = st.query_params
@@ -297,13 +335,9 @@ elif seleccion == "General":
                         }
                         if fecha:
                             payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                        cached_post("/tareas", token, payload=payload)
-                        st.success("Tarea creada correctamente.")
-                        try:
-                            st.cache_data.clear()
-                        except Exception:
-                            pass
-                        st.rerun()
+                        if crear_tarea_backend(payload, HDR, debug):
+                            st.success("Tarea creada correctamente.")
+                            st.rerun()
                 else:
                     st.warning("La descripción es obligatoria.")
 
@@ -397,13 +431,9 @@ elif seleccion == "Nichos":
                                 }
                                 if fecha:
                                     payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                                cached_post("/tareas", token, payload=payload)
-                                st.success("Tarea creada correctamente.")
-                                try:
-                                    st.cache_data.clear()
-                                except Exception:
-                                    pass
-                                st.rerun()
+                                if crear_tarea_backend(payload, HDR, debug):
+                                    st.success("Tarea creada correctamente.")
+                                    st.rerun()
                         else:
                             st.warning("La descripción es obligatoria.")
 
@@ -500,13 +530,9 @@ elif seleccion == "Leads":
                             }
                             if fecha:
                                 payload["fecha"] = fecha.strftime("%Y-%m-%d")
-                            cached_post("/tareas", token, payload=payload)
-                            st.success("Tarea creada correctamente.")
-                            try:
-                                st.cache_data.clear()
-                            except Exception:
-                                pass
-                            st.rerun()
+                            if crear_tarea_backend(payload, HDR, debug):
+                                st.success("Tarea creada correctamente.")
+                                st.rerun()
                     else:
                         st.warning("La descripción es obligatoria.")
 

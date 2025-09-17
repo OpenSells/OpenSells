@@ -43,7 +43,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
-logger.info("CODE_MARKER tareas/fix-timestamp %s", __file__)
+logger.info("CODE_MARKER tasks/fix %s", __file__)
 from backend.auth import (
     get_current_user,
     hashear_password,
@@ -301,9 +301,7 @@ def crear_tarea(
 
     fecha_value = payload.fecha or date.today()
     if isinstance(fecha_value, datetime):
-        fecha_db = fecha_value if fecha_value.tzinfo else fecha_value.replace(tzinfo=timezone.utc)
-    else:
-        fecha_db = datetime.combine(fecha_value, datetime.min.time(), tzinfo=timezone.utc)
+        fecha_value = fecha_value.date()
 
     timestamp_value = datetime.now(timezone.utc)
     user_email_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
@@ -327,7 +325,7 @@ def crear_tarea(
         tipo=payload.tipo,
         dominio=payload.dominio,
         nicho=payload.nicho,
-        fecha=fecha_db,
+        fecha=fecha_value,
         prioridad=prioridad_value,
         completado=payload.completado,
         timestamp=timestamp_value,
@@ -341,11 +339,11 @@ def crear_tarea(
         db.rollback()
         msg = str(getattr(e, "orig", e))
         logger.exception("[tarea] IntegrityError (insert) -> %s", msg)
-        raise HTTPException(status_code=400, detail=f"DB IntegrityError: {msg}")
+        raise HTTPException(status_code=400, detail="No se pudo crear la tarea.")
     except Exception as exc:
         db.rollback()
         logger.exception("[tarea] Exception (insert) -> %s", exc)
-        raise HTTPException(status_code=400, detail=f"Error creando tarea: {exc.__class__.__name__}: {exc}")
+        raise HTTPException(status_code=400, detail="No se pudo crear la tarea.")
 
     try:
         UsageService(db).increment(usuario.id, "tasks", 1)
