@@ -105,10 +105,11 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
     if es_vago and not payload.forzar_variantes:
         return {"pregunta_sugerida": "¿En qué ciudad o zona te interesan más estos clientes? (Ej.: Madrid Centro)"}
 
+    # 4. Generar variantes (exactamente 5, limpias y útiles para scraping)
     def _norm(s: str) -> str:
         return " ".join((s or "").strip().split())
 
-    def _split_categoria_geo(texto: str, contexto_extra: Optional[str]) -> tuple[str, str]:
+    def _split_cat_geo(texto: str, contexto_extra: Optional[str]) -> tuple[str, str]:
         t = _norm(texto)
         low = t.lower()
         cat, geo = t, ""
@@ -120,96 +121,147 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
             geo = _norm(contexto_extra)
         return (cat, geo)
 
-    def _synonyms(cat: str) -> list[str]:
-        base = cat.lower()
-        syn = {
+    def _fallback_variants(texto: str, contexto_extra: Optional[str]) -> list[str]:
+        cat, geo = _split_cat_geo(texto, contexto_extra)
+        base_geo = f"{geo}" if geo else ""
+        cat_low = cat.lower()
+        synmap = {
             "clínica veterinaria": ["clínica veterinaria", "veterinario", "hospital veterinario"],
             "veterinario": ["veterinario", "clínica veterinaria", "hospital veterinario"],
             "dentista": ["dentista", "clínica dental", "odontólogo"],
             "abogado": ["abogado", "bufete de abogados", "despacho de abogados"],
-            "fisioterapeuta": ["fisioterapeuta", "clínica de fisioterapia", "fisioterapia"],
-            "psicólogo": ["psicólogo", "centro de psicología", "terapia psicológica"],
-            "restaurante": ["restaurante", "bar restaurante", "cocina"],
+            "fisioterapeuta": ["fisioterapeuta", "clínica de fisioterapia"],
+            "restaurante": ["restaurante", "bar restaurante"],
             "inmobiliaria": ["inmobiliaria", "agencia inmobiliaria"],
-            "peluquería": ["peluquería", "salón de belleza"],
-            "arquitecto": ["arquitecto", "estudio de arquitectura"],
-            "fontanero": ["fontanero", "servicio de fontanería"],
-            "electricista": ["electricista", "servicio eléctrico"],
         }
-        for k, v in syn.items():
-            if k in base:
-                return v
-        return [cat]
-
-    def _intent_terms(cat: str) -> list[str]:
-        c = cat.lower()
-        if "veterin" in c:
-            return ["24h", "urgencias", "gatos", "exóticos"]
-        if "dent" in c:
-            return ["urgencias", "implantes", "invisalign"]
-        if "abog" in c:
-            return ["laboral", "penal", "fiscal"]
-        if "fisioterap" in c:
-            return ["deportiva", "suelo pélvico", "trauma"]
-        if "restaurante" in c or "cocina" in c or "bar" in c:
-            return ["reservas online", "menú del día"]
-        if "inmobiliaria" in c:
-            return ["obra nueva", "alquiler", "venta"]
-        return ["", "servicio", "profesional"]
-
-    def _compose(*parts: str) -> str:
-        q = _norm(" ".join(p for p in parts if p))
-        return q.rstrip(".")
-
-    def build_variants_for_leads(cliente_ideal: str, contexto_extra: Optional[str]) -> list[str]:
-        cat, geo = _split_categoria_geo(cliente_ideal, contexto_extra)
-        syns = _synonyms(cat)
-        intents = _intent_terms(cat)
-
-        exclusions = "-site:facebook.com -site:instagram.com -site:twitter.com -site:linkedin.com " \
-            "-site:doctoralia.es -site:paginasamarillas.es -site:tripadvisor.es -site:habitissimo.es"
-
-        base_geo = f"{geo}" if geo else ""
-
-        candidates: list[str] = []
-
-        candidates.append(_compose(syns[0], base_geo))
-
-        if len(syns) > 1:
-            candidates.append(_compose(syns[1], base_geo))
-
-        added = 0
-        for it in intents:
-            if not it:
-                continue
-            candidates.append(_compose(syns[0], base_geo, it))
-            added += 1
-            if added >= 2:
+        syns = None
+        for k, v in synmap.items():
+            if k in cat_low:
+                syns = v
                 break
+        if not syns:
+            syns = [cat]
 
-        candidates.append(_compose(syns[0], base_geo, exclusions))
+        intents: list[str] = []
+        if "veterin" in cat_low:
+            intents = ["24h", "urgencias"]
+        elif "dent" in cat_low:
+            intents = ["implantes", "urgencias"]
+        elif "abog" in cat_low:
+            intents = ["laboral", "penal"]
+        elif "fisioterap" in cat_low:
+            intents = ["deportiva", "suelo pélvico"]
 
-        seen = set()
-        final = []
-        for q in candidates:
-            k = q.lower()
-            if q and k not in seen:
-                final.append(q)
-                seen.add(k)
+        excl = (
+            "-site:facebook.com -site:instagram.com -site:twitter.com -site:linkedin.com "
+            "-site:doctoralia.es -site:paginasamarillas.es -site:tripadvisor.es -site:habitissimo.es"
+        )
+
+        def q(*parts):
+            s = _norm(" ".join(p for p in parts if p))
+            return s.rstrip(".")
+
+        candidates = []
+        candidates.append(q(syns[0], base_geo))
+        candidates.append(q(syns[1] if len(syns) > 1 else syns[0], base_geo))
+        if intents:
+            candidates.append(q(syns[0], base_geo, intents[0]))
+            if len(intents) > 1:
+                candidates.append(q(syns[0], base_geo, intents[1]))
+        else:
+            candidates.append(q(syns[0], base_geo, "servicio"))
+            candidates.append(q(syns[0], base_geo, "profesional"))
+        candidates.append(q(syns[0], base_geo, excl))
+
+        final: list[str] = []
+        seen: set[str] = set()
+        for c in candidates:
+            key = c.lower()
+            if c and key not in seen:
+                final.append(c)
+                seen.add(key)
             if len(final) == 5:
                 break
-
-        i = 2
-        while len(final) < 5 and i < len(syns):
-            extra = _compose(syns[i], base_geo)
-            if extra and extra.lower() not in seen:
+        while len(final) < 5:
+            extra = q(syns[0], base_geo)
+            if extra.lower() not in seen:
                 final.append(extra)
                 seen.add(extra.lower())
-            i += 1
-
         return final[:5]
 
-    variantes = build_variants_for_leads(txt, payload.contexto_extra)
+    def _clean_lines(text: str) -> list[str]:
+        raw = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        lines: list[str] = []
+        for ln in raw:
+            ln = ln.lstrip("-•*1234567890. ").strip()
+            ln = ln.replace(" + ", " ").replace("+", " ")
+            ln = ln.strip().strip('"').strip("'")
+            ln = _norm(ln).rstrip(".")
+            if ln:
+                lines.append(ln)
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for ln in lines:
+            kl = ln.lower()
+            if kl not in seen:
+                cleaned.append(ln)
+                seen.add(kl)
+        return cleaned
+
+    contexto_extra = payload.contexto_extra or ""
+    cliente_ideal = txt
+
+    openai_client = None
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            from openai import OpenAI
+
+            openai_client = OpenAI(api_key=api_key)
+        except Exception as exc:
+            logger.warning("No se pudo inicializar OpenAI: %s", exc)
+            openai_client = None
+
+    if openai_client:
+        prompt_variantes = f"""
+Eres un generador de consultas para Google/Maps orientadas a scraping de leads.
+
+Entrada (intención del usuario y cliente ideal):
+"{cliente_ideal}"
+Contexto extra (opcional): "{contexto_extra}"
+
+Genera EXACTAMENTE 5 consultas de búsqueda diferentes y útiles (una por línea) que:
+- Representen fielmente la intención y el cliente ideal.
+- Sean óptimas para encontrar webs de negocio reales (no directorios).
+- Usen sinónimos/nombres equivalentes del sector cuando ayude.
+- Incluyan la localización si se deduce de la entrada.
+- Pueden incluir UNA sola variante con exclusiones para filtrar directorios/redes, usando -site:dominio (p.ej. -site:facebook.com -site:instagram.com ...).
+- NO usen “+”, NO terminen en punto, NO devuelvas viñetas ni numeración.
+- Máximo ~10 palabras por consulta.
+
+SALIDA: 5 líneas, cada línea es una consulta. Sin texto extra.
+"""
+        try:
+            respuesta = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt_variantes}],
+                temperature=0.4,
+            )
+            contenido = respuesta.choices[0].message.content
+            variantes = _clean_lines(contenido)
+            variantes = [v for v in variantes if v]
+            variantes = [v for v in variantes if len(v.split()) >= 2]
+            if len(variantes) > 5:
+                variantes = variantes[:5]
+            if len(variantes) < 5:
+                faltan = 5 - len(variantes)
+                variantes += _fallback_variants(cliente_ideal, contexto_extra)[:faltan]
+        except Exception as e:
+            logger.warning("Fallo OpenAI en /buscar, usando fallback: %s", e)
+            variantes = _fallback_variants(cliente_ideal, contexto_extra)
+    else:
+        variantes = _fallback_variants(cliente_ideal, contexto_extra)
+
     return {"variantes_generadas": variantes}
 
 
