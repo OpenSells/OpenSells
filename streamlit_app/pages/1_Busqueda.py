@@ -356,13 +356,15 @@ if st.session_state.get("variantes"):
     variantes_internas = st.session_state.get("variantes", [])
     variantes_display = st.session_state.get("variantes_display") or variantes_internas
     option_ids = list(range(len(variantes_display)))
-    default_ids = [
-        i for i in st.session_state.get("variantes_selector_ids", []) if i in option_ids
+    st.session_state.setdefault("variantes_selector_ids", [])
+    valid_ids = [
+        i for i in st.session_state["variantes_selector_ids"] if i in option_ids
     ]
+    if len(valid_ids) != len(st.session_state["variantes_selector_ids"]):
+        st.session_state["variantes_selector_ids"] = valid_ids
     selected_ids = st.multiselect(
         "Selecciona hasta 3 variantes:",
         options=option_ids,
-        default=default_ids,
         key="variantes_selector_ids",
         format_func=lambda i: _pretty_variant_label(variantes_display[i]),
         help="Puedes elegir hasta 3. La [Búsqueda extendida] amplía la cobertura.",
@@ -370,17 +372,17 @@ if st.session_state.get("variantes"):
 
     if len(selected_ids) > 3:
         st.warning("Solo puedes seleccionar hasta 3 variantes.")
-        selected_ids = selected_ids[:3]
-        st.session_state["variantes_selector_ids"] = selected_ids
+        st.session_state["variantes_selector_ids"] = selected_ids[:3]
+        selected_ids = st.session_state["variantes_selector_ids"]
 
     seleccion_interna = [
         variantes_internas[i]
-        for i in selected_ids
+        for i in st.session_state["variantes_selector_ids"]
         if 0 <= i < len(variantes_internas)
     ]
     seleccion_display = [
         variantes_display[i]
-        for i in selected_ids
+        for i in st.session_state["variantes_selector_ids"]
         if 0 <= i < len(variantes_display)
     ]
 
