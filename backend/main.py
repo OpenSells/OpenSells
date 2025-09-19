@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 # --- Third-party ---
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
@@ -82,6 +82,31 @@ def normalizar_dominio(dominio: str) -> str:
 
 
 # --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
+
+EXTENDED_PREFIX = "[Búsqueda extendida] "
+
+
+def build_variantes_display(variantes: list[str]) -> tuple[list[str], bool, Optional[int]]:
+    out = list(variantes)
+    has_extended = False
+    extended_idx: Optional[int] = None
+    if len(out) >= 5:
+        extended_idx = len(out) - 1
+        out[extended_idx] = f"{EXTENDED_PREFIX}{out[extended_idx]}"
+        has_extended = True
+    return out, has_extended, extended_idx
+
+
+def normalize_client_variantes(payload_variantes: Optional[list[str]]) -> list[str]:
+    result: list[str] = []
+    if not payload_variantes:
+        return result
+    for variante in payload_variantes:
+        v = (variante or "").strip()
+        if v.startswith(EXTENDED_PREFIX):
+            v = v[len(EXTENDED_PREFIX) :]
+        result.append(v.strip())
+    return result
 
 class BuscarPayload(BaseModel):
     cliente_ideal: str
@@ -222,12 +247,6 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
             logger.warning("No se pudo inicializar OpenAI: %s", exc)
             openai_client = None
 
-    def _is_extended_variant(variant: str) -> bool:
-        if not variant:
-            return False
-        lowered = variant.lower()
-        return "-site:" in lowered
-
     if openai_client:
         prompt_variantes = f"""
 Eres un generador de consultas para Google/Maps orientadas a scraping de leads.
@@ -268,11 +287,7 @@ SALIDA: 5 líneas, cada línea es una consulta. Sin texto extra.
     else:
         variantes = _fallback_variants(cliente_ideal, contexto_extra)
 
-    has_extended_variant = len(variantes) == 5 and _is_extended_variant(variantes[-1])
-    extended_index = (len(variantes) - 1) if has_extended_variant else None
-    variantes_display = list(variantes)
-    if has_extended_variant and extended_index is not None:
-        variantes_display[extended_index] = f"[Búsqueda extendida] {variantes_display[extended_index]}"
+    variantes_display, has_extended_variant, extended_index = build_variantes_display(variantes)
 
     return {
         "variantes_generadas": variantes,
@@ -285,6 +300,17 @@ SALIDA: 5 líneas, cada línea es una consulta. Sin texto extra.
 
 class VariantesPayload(BaseModel):
     variantes: List[str]
+    variantes_display: Optional[List[str]] = None
+
+    @root_validator(pre=True)
+    def _merge_variantes(cls, values):
+        if not values.get("variantes") and values.get("variantes_display"):
+            values["variantes"] = values.get("variantes_display")
+        return values
+
+    @validator("variantes", pre=True)
+    def _normalize_variantes(cls, value):
+        return normalize_client_variantes(value)
 
 
 @app.post("/buscar_variantes_seleccionadas")
@@ -954,6 +980,23 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
 class LeadsPayload(BaseModel):
     nuevos: int
     duplicados: int = 0
+    variantes: Optional[List[str]] = None
+    variantes_display: Optional[List[str]] = None
+
+    @root_validator(pre=True)
+    def _merge_variantes(cls, values):
+        if not values.get("variantes") and values.get("variantes_display"):
+            values["variantes"] = values.get("variantes_display")
+        return values
+
+    @validator("variantes", pre=True)
+    def _normalize_variantes(cls, value):
+        if value is None:
+            return None
+        return normalize_client_variantes(value)
+
+    def variantes_normalizadas(self) -> list[str]:
+        return self.variantes or []
 
 
 @app.post("/buscar_leads")
@@ -973,6 +1016,8 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
                 "message": "Límite de búsquedas alcanzado",
             },
         )
+
+    variantes_cliente = payload.variantes_normalizadas()
 
     truncated = False
     duplicates = payload.duplicados

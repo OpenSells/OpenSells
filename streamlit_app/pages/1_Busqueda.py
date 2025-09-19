@@ -1,6 +1,7 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
 import os
+import re
 import streamlit as st
 import requests
 from dotenv import load_dotenv
@@ -51,6 +52,22 @@ with st.sidebar:
 
 
 
+EXTENDED_PREFIX = "[Búsqueda extendida] "
+
+
+def _pretty_variant_label(v: str) -> str:
+    """Genera la etiqueta visible ocultando operadores sin perder el prefijo."""
+
+    prefix = ""
+    if v.startswith(EXTENDED_PREFIX):
+        prefix = EXTENDED_PREFIX
+        v = v[len(prefix) :]
+
+    cleaned = re.sub(r"(\s|^)-(?:site|inurl|intitle|intext):\S+", "", v).strip()
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return f"{prefix}{cleaned}" if prefix else cleaned
+
+
 def normalizar_dominio(url):
     if not url:
         return ""
@@ -73,6 +90,8 @@ def _set_variantes_from_response(data: dict | None):
     st.session_state.variantes_display = variantes_display
     st.session_state.has_extended_variant = bool(data.get("has_extended_variant"))
     st.session_state.extended_index = data.get("extended_index")
+    st.session_state.seleccionadas = []
+    st.session_state.seleccion_display = []
 
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
@@ -84,6 +103,8 @@ for flag, valor in {
     "variantes_display": [],
     "has_extended_variant": False,
     "extended_index": None,
+    "seleccionadas": [],
+    "seleccion_display": [],
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -330,74 +351,88 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
 
 # -------------------- Selección de variantes --------------------
 if st.session_state.get("variantes"):
-    variantes_display = st.session_state.get("variantes_display") or st.session_state.get("variantes", [])
-    if variantes_display:
-        st.markdown("**Variantes sugeridas:**")
-        for variante in variantes_display:
-            st.write(f"• {variante}")
+    variantes_internas = st.session_state.get("variantes", [])
+    variantes_display = st.session_state.get("variantes_display") or variantes_internas
+    seleccion_default = [
+        v for v in st.session_state.get("seleccion_display", []) if v in variantes_display
+    ]
+    seleccion = st.multiselect(
+        "Selecciona hasta 3 variantes:",
+        options=variantes_display,
+        default=seleccion_default,
+        format_func=_pretty_variant_label,
+        help="Puedes elegir hasta 3. La [Búsqueda extendida] amplía la cobertura.",
+        key="multiselect_variantes",
+    )
+    if len(seleccion) > 3:
+        st.warning("Solo puedes seleccionar hasta 3 variantes.")
+        seleccion = seleccion[:3]
+
+    indices = {v: i for i, v in enumerate(variantes_display)}
+    seleccion_interna: list[str] = []
+    for v in seleccion:
+        idx = indices.get(v)
+        if idx is not None and idx < len(variantes_internas):
+            seleccion_interna.append(variantes_internas[idx])
+
+    st.session_state.seleccion_display = seleccion
+    st.session_state.seleccionadas = seleccion_interna
+
     if st.session_state.get("has_extended_variant"):
         st.caption(
             "ℹ️ La **Búsqueda extendida** se añade automáticamente para ampliar la cobertura y encontrar más posibles leads."
         )
-    seleccionadas = st.multiselect(
-        "Selecciona hasta 3 variantes:",
-        st.session_state.variantes,
-        default=st.session_state.get("seleccionadas", []),
-        max_selections=3,
-        key="multiselect_variantes",
-        placeholder="Selecciona una o más opciones",
-    )
-    st.session_state.seleccionadas = seleccionadas
 
-if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
-    seleccionadas = st.session_state.seleccionadas
+    disabled = len(seleccion_interna) == 0
+    if st.button("🔎 Buscar dominios", disabled=disabled):
+        seleccionadas = seleccion_interna
 
-    # Comprobar si el usuario tiene plan activo
-    # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
+        # Comprobar si el usuario tiene plan activo
+        # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
 
-    if plan_name == "free":
-        try:
-            # Precio por defecto del plan Básico
-            price_id = os.getenv("STRIPE_PRICE_BASICO", "")
-            if not price_id:
-                st.error("Falta configurar el price_id del plan Básico.")
-                st.stop()
-            r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
-                headers=headers,
-                params={"plan": price_id}
-            )
-            if r_checkout.ok:
-                checkout_url = safe_json(r_checkout).get("url", "")
-                st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                subscription_cta()
-                st.markdown(f"""
-                <div style='text-align:center; margin-top: 1rem;'>
-                    <a href="{checkout_url}" target="_blank" style='
-                        background-color: #0d6efd;
-                        color: white;
-                        padding: 0.6rem 1.4rem;
-                        border-radius: 6px;
-                        text-decoration: none;
-                        font-weight: 600;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        display: inline-block;
-                        transition: background-color 0.3s ease;'>
-                        💳 Suscribirme ahora
-                    </a>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
+        if plan_name == "free":
+            try:
+                # Precio por defecto del plan Básico
+                price_id = os.getenv("STRIPE_PRICE_BASICO", "")
+                if not price_id:
+                    st.error("Falta configurar el price_id del plan Básico.")
+                    st.stop()
+                r_checkout = requests.post(
+                    f"{BACKEND_URL}/crear_checkout",
+                    headers=headers,
+                    params={"plan": price_id}
+                )
+                if r_checkout.ok:
+                    checkout_url = safe_json(r_checkout).get("url", "")
+                    st.warning("🚫 Tu suscripción actual no permite extraer leads.")
+                    subscription_cta()
+                    st.markdown(f"""
+                    <div style='text-align:center; margin-top: 1rem;'>
+                        <a href="{checkout_url}" target="_blank" style='
+                            background-color: #0d6efd;
+                            color: white;
+                            padding: 0.6rem 1.4rem;
+                            border-radius: 6px;
+                            text-decoration: none;
+                            font-weight: 600;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            display: inline-block;
+                            transition: background-color 0.3s ease;'>
+                            💳 Suscribirme ahora
+                        </a>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+                    subscription_cta()
+            except Exception:
                 st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
                 subscription_cta()
-        except Exception:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-            subscription_cta()
-    else:
-        st.session_state.fase_extraccion = "buscando"
-        st.session_state.loading = True
-        st.session_state.procesando = "dominios"
-        st.rerun()
+        else:
+            st.session_state.fase_extraccion = "buscando"
+            st.session_state.loading = True
+            st.session_state.procesando = "dominios"
+            st.rerun()
 
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
