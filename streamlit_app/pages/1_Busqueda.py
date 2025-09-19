@@ -92,6 +92,7 @@ def _set_variantes_from_response(data: dict | None):
     st.session_state.extended_index = data.get("extended_index")
     st.session_state.seleccionadas = []
     st.session_state.seleccion_display = []
+    st.session_state["variantes_selector_ids"] = []
 
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
@@ -105,6 +106,7 @@ for flag, valor in {
     "extended_index": None,
     "seleccionadas": [],
     "seleccion_display": [],
+    "variantes_selector_ids": [],
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -353,29 +355,36 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
 if st.session_state.get("variantes"):
     variantes_internas = st.session_state.get("variantes", [])
     variantes_display = st.session_state.get("variantes_display") or variantes_internas
-    seleccion_default = [
-        v for v in st.session_state.get("seleccion_display", []) if v in variantes_display
+    option_ids = list(range(len(variantes_display)))
+    default_ids = [
+        i for i in st.session_state.get("variantes_selector_ids", []) if i in option_ids
     ]
-    seleccion = st.multiselect(
+    selected_ids = st.multiselect(
         "Selecciona hasta 3 variantes:",
-        options=variantes_display,
-        default=seleccion_default,
-        format_func=_pretty_variant_label,
+        options=option_ids,
+        default=default_ids,
+        key="variantes_selector_ids",
+        format_func=lambda i: _pretty_variant_label(variantes_display[i]),
         help="Puedes elegir hasta 3. La [Búsqueda extendida] amplía la cobertura.",
-        key="multiselect_variantes",
     )
-    if len(seleccion) > 3:
+
+    if len(selected_ids) > 3:
         st.warning("Solo puedes seleccionar hasta 3 variantes.")
-        seleccion = seleccion[:3]
+        selected_ids = selected_ids[:3]
+        st.session_state["variantes_selector_ids"] = selected_ids
 
-    indices = {v: i for i, v in enumerate(variantes_display)}
-    seleccion_interna: list[str] = []
-    for v in seleccion:
-        idx = indices.get(v)
-        if idx is not None and idx < len(variantes_internas):
-            seleccion_interna.append(variantes_internas[idx])
+    seleccion_interna = [
+        variantes_internas[i]
+        for i in selected_ids
+        if 0 <= i < len(variantes_internas)
+    ]
+    seleccion_display = [
+        variantes_display[i]
+        for i in selected_ids
+        if 0 <= i < len(variantes_display)
+    ]
 
-    st.session_state.seleccion_display = seleccion
+    st.session_state.seleccion_display = seleccion_display
     st.session_state.seleccionadas = seleccion_interna
 
     if st.session_state.get("has_extended_variant"):
@@ -384,7 +393,7 @@ if st.session_state.get("variantes"):
         )
 
     disabled = len(seleccion_interna) == 0
-    if st.button("🔎 Buscar dominios", disabled=disabled):
+    if st.button("🔎 Buscar dominios", disabled=disabled, key="btn_extraer"):
         seleccionadas = seleccion_interna
 
         # Comprobar si el usuario tiene plan activo
