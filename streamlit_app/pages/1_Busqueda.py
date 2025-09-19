@@ -53,6 +53,9 @@ with st.sidebar:
 
 
 EXTENDED_PREFIX = "[Búsqueda extendida] "
+MAX_VARIANTS = 3
+VIEW_KEY = "variantes_selector_ids_view"
+CANON_KEY = "variantes_selector_ids"
 
 
 def _pretty_variant_label(v: str) -> str:
@@ -92,7 +95,8 @@ def _set_variantes_from_response(data: dict | None):
     st.session_state.extended_index = data.get("extended_index")
     st.session_state.seleccionadas = []
     st.session_state.seleccion_display = []
-    st.session_state["variantes_selector_ids"] = []
+    st.session_state[CANON_KEY] = []
+    st.session_state[VIEW_KEY] = []
 
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
@@ -106,7 +110,8 @@ for flag, valor in {
     "extended_index": None,
     "seleccionadas": [],
     "seleccion_display": [],
-    "variantes_selector_ids": [],
+    VIEW_KEY: [],
+    CANON_KEY: [],
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -356,33 +361,49 @@ if st.session_state.get("variantes"):
     variantes_internas = st.session_state.get("variantes", [])
     variantes_display = st.session_state.get("variantes_display") or variantes_internas
     option_ids = list(range(len(variantes_display)))
-    st.session_state.setdefault("variantes_selector_ids", [])
-    valid_ids = [
-        i for i in st.session_state["variantes_selector_ids"] if i in option_ids
-    ]
-    if len(valid_ids) != len(st.session_state["variantes_selector_ids"]):
-        st.session_state["variantes_selector_ids"] = valid_ids
-    selected_ids = st.multiselect(
+
+    st.session_state.setdefault(VIEW_KEY, [])
+    st.session_state.setdefault(CANON_KEY, [])
+
+    def _limit_variants_on_change():
+        sel = st.session_state.get(VIEW_KEY, [])
+        if len(sel) > MAX_VARIANTS:
+            trimmed = sel[:MAX_VARIANTS]
+            st.session_state[VIEW_KEY] = trimmed
+            st.session_state[CANON_KEY] = trimmed
+            st.rerun()
+        else:
+            st.session_state[CANON_KEY] = sel
+
+    _ = st.multiselect(
         "Selecciona hasta 3 variantes:",
         options=option_ids,
-        key="variantes_selector_ids",
+        key=VIEW_KEY,
+        on_change=_limit_variants_on_change,
         format_func=lambda i: _pretty_variant_label(variantes_display[i]),
         help="Puedes elegir hasta 3. La [Búsqueda extendida] amplía la cobertura.",
     )
 
-    if len(selected_ids) > 3:
+    valid_ids = set(option_ids)
+    if any(i not in valid_ids for i in st.session_state[VIEW_KEY]):
+        st.session_state[VIEW_KEY] = [
+            i for i in st.session_state[VIEW_KEY] if i in valid_ids
+        ]
+        st.session_state[CANON_KEY] = st.session_state[VIEW_KEY]
+
+    selected_ids = st.session_state[CANON_KEY]
+
+    if len(selected_ids) > MAX_VARIANTS:
         st.warning("Solo puedes seleccionar hasta 3 variantes.")
-        st.session_state["variantes_selector_ids"] = selected_ids[:3]
-        selected_ids = st.session_state["variantes_selector_ids"]
 
     seleccion_interna = [
         variantes_internas[i]
-        for i in st.session_state["variantes_selector_ids"]
+        for i in selected_ids
         if 0 <= i < len(variantes_internas)
     ]
     seleccion_display = [
         variantes_display[i]
-        for i in st.session_state["variantes_selector_ids"]
+        for i in selected_ids
         if 0 <= i < len(variantes_display)
     ]
 
