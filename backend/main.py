@@ -222,6 +222,12 @@ def generar_variantes(payload: BuscarPayload, usuario=Depends(get_current_user),
             logger.warning("No se pudo inicializar OpenAI: %s", exc)
             openai_client = None
 
+    def _is_extended_variant(variant: str) -> bool:
+        if not variant:
+            return False
+        lowered = variant.lower()
+        return "-site:" in lowered
+
     if openai_client:
         prompt_variantes = f"""
 Eres un generador de consultas para Google/Maps orientadas a scraping de leads.
@@ -262,7 +268,19 @@ SALIDA: 5 líneas, cada línea es una consulta. Sin texto extra.
     else:
         variantes = _fallback_variants(cliente_ideal, contexto_extra)
 
-    return {"variantes_generadas": variantes}
+    has_extended_variant = len(variantes) == 5 and _is_extended_variant(variantes[-1])
+    extended_index = (len(variantes) - 1) if has_extended_variant else None
+    variantes_display = list(variantes)
+    if has_extended_variant and extended_index is not None:
+        variantes_display[extended_index] = f"[Búsqueda extendida] {variantes_display[extended_index]}"
+
+    return {
+        "variantes_generadas": variantes,
+        "variantes": variantes,
+        "has_extended_variant": has_extended_variant,
+        "extended_index": extended_index,
+        "variantes_display": variantes_display,
+    }
 
 
 class VariantesPayload(BaseModel):

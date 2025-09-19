@@ -64,6 +64,16 @@ def safe_json(resp: requests.Response) -> dict:
         st.error(f"Respuesta no válida: {resp.text}")
         return {}
 
+
+def _set_variantes_from_response(data: dict | None):
+    data = data or {}
+    variantes_reales = data.get("variantes") or data.get("variantes_generadas") or []
+    variantes_display = data.get("variantes_display") or variantes_reales
+    st.session_state.variantes = variantes_reales
+    st.session_state.variantes_display = variantes_display
+    st.session_state.has_extended_variant = bool(data.get("has_extended_variant"))
+    st.session_state.extended_index = data.get("extended_index")
+
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
     "loading": False,
@@ -71,6 +81,9 @@ for flag, valor in {
     "fase_extraccion": None,
     "guardando_mostrado": False,
     "mostrar_resultado": False,
+    "variantes_display": [],
+    "has_extended_variant": False,
+    "extended_index": None,
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -290,8 +303,12 @@ if st.button(
             data = safe_json(r)
             if "pregunta_sugerida" in data:
                 st.session_state.pregunta_sugerida = data["pregunta_sugerida"]
+                st.session_state.variantes = []
+                st.session_state.variantes_display = []
+                st.session_state.has_extended_variant = False
+                st.session_state.extended_index = None
             else:
-                st.session_state.variantes = data.get("variantes_generadas", [])
+                _set_variantes_from_response(data)
 
 # -------------------- Pregunta de refinamiento --------------------
 pregunta_sugerida = (st.session_state.get("pregunta_sugerida") or "").strip()
@@ -309,10 +326,19 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
             r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
             st.session_state.pregunta_sugerida = None
-            st.session_state.variantes = safe_json(r).get("variantes_generadas", [])
+            _set_variantes_from_response(safe_json(r))
 
 # -------------------- Selección de variantes --------------------
 if st.session_state.get("variantes"):
+    variantes_display = st.session_state.get("variantes_display") or st.session_state.get("variantes", [])
+    if variantes_display:
+        st.markdown("**Variantes sugeridas:**")
+        for variante in variantes_display:
+            st.write(f"• {variante}")
+    if st.session_state.get("has_extended_variant"):
+        st.caption(
+            "ℹ️ La **Búsqueda extendida** se añade automáticamente para ampliar la cobertura y encontrar más posibles leads."
+        )
     seleccionadas = st.multiselect(
         "Selecciona hasta 3 variantes:",
         st.session_state.variantes,
