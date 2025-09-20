@@ -27,7 +27,7 @@ from backend.models import (
     UsuarioMemoria,
 )
 from backend.core.plan_service import PlanService
-from backend.core.db_introspection import historial_insert_params
+from backend.core.db_introspection import build_historial_insert
 from backend.core.usage_helpers import (
     can_export_csv,
     can_start_search,
@@ -940,32 +940,28 @@ def exportar_csv(
     filename = (payload.filename or "").strip()
 
     try:
-        sql, params, has_id = historial_insert_params(db, usuario)
+        sql, params = build_historial_insert(db, usuario)
         params["filename"] = filename
-        insert_sql = f"{sql} RETURNING id" if has_id else sql
-        result = db.execute(text(insert_sql), params)
-        inserted_id = result.scalar_one_or_none() if has_id else None
-        if inserted_id is not None:
-            logger.info(
-                "historial_export registrado user=%s id=%s filename=%s",
-                getattr(usuario, "user_email_lower", None)
-                or getattr(usuario, "email", "").strip().lower(),
-                inserted_id,
-                filename,
-            )
+        db.execute(text(sql), params)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.exception("Error registrando exportación de CSV en historial")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"No se pudo registrar la exportación en historial: {type(e).__name__}",
+            },
+        )
+
+    try:
         consume_csv_export(db, usuario.id, plan_name)
         db.commit()
     except Exception:
         db.rollback()
-        logger.exception("No se pudo registrar la exportación en historial")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": "CSV generado pero no se pudo registrar en historial. Reintenta más tarde.",
-            },
-        )
+        logger.exception("Error incrementando csv_exports en user_usage_monthly")
 
-    return {"ok": True}
+    return {"ok": True, "filename": filename}
 
 
 class AIPayload(BaseModel):

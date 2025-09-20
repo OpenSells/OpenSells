@@ -10,6 +10,7 @@ def test_historial_and_estado_lead(client):
 
     r = client.post("/exportar_csv", json={"filename": "f.csv"}, headers=headers)
     assert r.status_code == 200
+    assert r.json() == {"ok": True, "filename": "f.csv"}
     r2 = client.get("/historial", headers=headers)
     assert r2.status_code == 200
     assert r2.json()["historial"][0]["filename"] == "f.csv"
