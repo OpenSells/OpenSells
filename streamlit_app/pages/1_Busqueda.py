@@ -1,6 +1,7 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
 import os
+import re
 import streamlit as st
 import requests
 from dotenv import load_dotenv
@@ -51,6 +52,25 @@ with st.sidebar:
 
 
 
+EXTENDED_PREFIX = "[Búsqueda extendida] "
+MAX_VARIANTS = 3
+VIEW_KEY = "variantes_selector_ids_view"
+CANON_KEY = "variantes_selector_ids"
+
+
+def _pretty_variant_label(v: str) -> str:
+    """Genera la etiqueta visible ocultando operadores sin perder el prefijo."""
+
+    prefix = ""
+    if v.startswith(EXTENDED_PREFIX):
+        prefix = EXTENDED_PREFIX
+        v = v[len(prefix) :]
+
+    cleaned = re.sub(r"(\s|^)-(?:site|inurl|intitle|intext):\S+", "", v).strip()
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return f"{prefix}{cleaned}" if prefix else cleaned
+
+
 def normalizar_dominio(url):
     if not url:
         return ""
@@ -64,6 +84,20 @@ def safe_json(resp: requests.Response) -> dict:
         st.error(f"Respuesta no válida: {resp.text}")
         return {}
 
+
+def _set_variantes_from_response(data: dict | None):
+    data = data or {}
+    variantes_reales = data.get("variantes") or data.get("variantes_generadas") or []
+    variantes_display = data.get("variantes_display") or variantes_reales
+    st.session_state.variantes = variantes_reales
+    st.session_state.variantes_display = variantes_display
+    st.session_state.has_extended_variant = bool(data.get("has_extended_variant"))
+    st.session_state.extended_index = data.get("extended_index")
+    st.session_state.seleccionadas = []
+    st.session_state.seleccion_display = []
+    st.session_state[CANON_KEY] = []
+    st.session_state[VIEW_KEY] = []
+
 # -------------------- Flags iniciales --------------------
 for flag, valor in {
     "loading": False,
@@ -71,6 +105,13 @@ for flag, valor in {
     "fase_extraccion": None,
     "guardando_mostrado": False,
     "mostrar_resultado": False,
+    "variantes_display": [],
+    "has_extended_variant": False,
+    "extended_index": None,
+    "seleccionadas": [],
+    "seleccion_display": [],
+    VIEW_KEY: [],
+    CANON_KEY: [],
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -290,8 +331,12 @@ if st.button(
             data = safe_json(r)
             if "pregunta_sugerida" in data:
                 st.session_state.pregunta_sugerida = data["pregunta_sugerida"]
+                st.session_state.variantes = []
+                st.session_state.variantes_display = []
+                st.session_state.has_extended_variant = False
+                st.session_state.extended_index = None
             else:
-                st.session_state.variantes = data.get("variantes_generadas", [])
+                _set_variantes_from_response(data)
 
 # -------------------- Pregunta de refinamiento --------------------
 pregunta_sugerida = (st.session_state.get("pregunta_sugerida") or "").strip()
@@ -309,69 +354,117 @@ if pregunta_sugerida and pregunta_sugerida.upper() != "OK.":
             r = requests.post(f"{BACKEND_URL}/buscar", json=payload, headers=headers)
         if r.status_code == 200:
             st.session_state.pregunta_sugerida = None
-            st.session_state.variantes = safe_json(r).get("variantes_generadas", [])
+            _set_variantes_from_response(safe_json(r))
 
 # -------------------- Selección de variantes --------------------
 if st.session_state.get("variantes"):
-    seleccionadas = st.multiselect(
+    variantes_internas = st.session_state.get("variantes", [])
+    variantes_display = st.session_state.get("variantes_display") or variantes_internas
+    option_ids = list(range(len(variantes_display)))
+
+    st.session_state.setdefault(VIEW_KEY, [])
+    st.session_state.setdefault(CANON_KEY, [])
+
+    def _limit_variants_on_change():
+        sel = st.session_state.get(VIEW_KEY, [])
+        if len(sel) > MAX_VARIANTS:
+            trimmed = sel[:MAX_VARIANTS]
+            st.session_state[VIEW_KEY] = trimmed
+            st.session_state[CANON_KEY] = trimmed
+            st.rerun()
+        else:
+            st.session_state[CANON_KEY] = sel
+
+    _ = st.multiselect(
         "Selecciona hasta 3 variantes:",
-        st.session_state.variantes,
-        default=st.session_state.get("seleccionadas", []),
-        max_selections=3,
-        key="multiselect_variantes",
-        placeholder="Selecciona una o más opciones",
+        options=option_ids,
+        key=VIEW_KEY,
+        on_change=_limit_variants_on_change,
+        format_func=lambda i: _pretty_variant_label(variantes_display[i]),
+        help="Puedes elegir hasta 3. La [Búsqueda extendida] amplía la cobertura.",
     )
-    st.session_state.seleccionadas = seleccionadas
 
-if st.session_state.get("seleccionadas") and st.button("🔎 Buscar dominios"):
-    seleccionadas = st.session_state.seleccionadas
+    valid_ids = set(option_ids)
+    if any(i not in valid_ids for i in st.session_state[VIEW_KEY]):
+        st.session_state[VIEW_KEY] = [
+            i for i in st.session_state[VIEW_KEY] if i in valid_ids
+        ]
+        st.session_state[CANON_KEY] = st.session_state[VIEW_KEY]
 
-    # Comprobar si el usuario tiene plan activo
-    # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
+    selected_ids = st.session_state[CANON_KEY]
 
-    if plan_name == "free":
-        try:
-            # Precio por defecto del plan Básico
-            price_id = os.getenv("STRIPE_PRICE_BASICO", "")
-            if not price_id:
-                st.error("Falta configurar el price_id del plan Básico.")
-                st.stop()
-            r_checkout = requests.post(
-                f"{BACKEND_URL}/crear_checkout",
-                headers=headers,
-                params={"plan": price_id}
-            )
-            if r_checkout.ok:
-                checkout_url = safe_json(r_checkout).get("url", "")
-                st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                subscription_cta()
-                st.markdown(f"""
-                <div style='text-align:center; margin-top: 1rem;'>
-                    <a href="{checkout_url}" target="_blank" style='
-                        background-color: #0d6efd;
-                        color: white;
-                        padding: 0.6rem 1.4rem;
-                        border-radius: 6px;
-                        text-decoration: none;
-                        font-weight: 600;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        display: inline-block;
-                        transition: background-color 0.3s ease;'>
-                        💳 Suscribirme ahora
-                    </a>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
+    if len(selected_ids) > MAX_VARIANTS:
+        st.warning("Solo puedes seleccionar hasta 3 variantes.")
+
+    seleccion_interna = [
+        variantes_internas[i]
+        for i in selected_ids
+        if 0 <= i < len(variantes_internas)
+    ]
+    seleccion_display = [
+        variantes_display[i]
+        for i in selected_ids
+        if 0 <= i < len(variantes_display)
+    ]
+
+    st.session_state.seleccion_display = seleccion_display
+    st.session_state.seleccionadas = seleccion_interna
+
+    if st.session_state.get("has_extended_variant"):
+        st.caption(
+            "ℹ️ La **Búsqueda extendida** se añade automáticamente para ampliar la cobertura y encontrar más posibles leads."
+        )
+
+    disabled = len(seleccion_interna) == 0
+    if st.button("🔎 Buscar dominios", disabled=disabled, key="btn_extraer"):
+        seleccionadas = seleccion_interna
+
+        # Comprobar si el usuario tiene plan activo
+        # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
+
+        if plan_name == "free":
+            try:
+                # Precio por defecto del plan Básico
+                price_id = os.getenv("STRIPE_PRICE_BASICO", "")
+                if not price_id:
+                    st.error("Falta configurar el price_id del plan Básico.")
+                    st.stop()
+                r_checkout = requests.post(
+                    f"{BACKEND_URL}/crear_checkout",
+                    headers=headers,
+                    params={"plan": price_id}
+                )
+                if r_checkout.ok:
+                    checkout_url = safe_json(r_checkout).get("url", "")
+                    st.warning("🚫 Tu suscripción actual no permite extraer leads.")
+                    subscription_cta()
+                    st.markdown(f"""
+                    <div style='text-align:center; margin-top: 1rem;'>
+                        <a href="{checkout_url}" target="_blank" style='
+                            background-color: #0d6efd;
+                            color: white;
+                            padding: 0.6rem 1.4rem;
+                            border-radius: 6px;
+                            text-decoration: none;
+                            font-weight: 600;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            display: inline-block;
+                            transition: background-color 0.3s ease;'>
+                            💳 Suscribirme ahora
+                        </a>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
+                    subscription_cta()
+            except Exception:
                 st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
                 subscription_cta()
-        except Exception:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-            subscription_cta()
-    else:
-        st.session_state.fase_extraccion = "buscando"
-        st.session_state.loading = True
-        st.session_state.procesando = "dominios"
-        st.rerun()
+        else:
+            st.session_state.fase_extraccion = "buscando"
+            st.session_state.loading = True
+            st.session_state.procesando = "dominios"
+            st.rerun()
 
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
