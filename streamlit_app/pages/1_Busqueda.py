@@ -85,6 +85,26 @@ def safe_json(resp: requests.Response) -> dict:
         return {}
 
 
+def resp_ok_json(resp: requests.Response) -> tuple[bool, dict]:
+    try:
+        data = resp.json()
+    except JSONDecodeError:
+        return False, {}
+    return bool(data.get("ok")), data
+
+
+def error_payload(resp: requests.Response) -> dict:
+    try:
+        data = resp.json()
+    except JSONDecodeError:
+        data = {}
+    return {
+        "status": resp.status_code,
+        "detail": (data.get("detail") if isinstance(data, dict) else None) or "",
+        "raw": (resp.text or "").strip(),
+    }
+
+
 def _set_variantes_from_response(data: dict | None):
     data = data or {}
     variantes_reales = data.get("variantes") or data.get("variantes_generadas") or []
@@ -181,6 +201,7 @@ def procesar_extraccion():
             data = safe_json(r)
             st.session_state.payload_export = data.get("payload_export", {})
             st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
+            st.session_state.payload_export_debug = dict(st.session_state.payload_export)
             st.session_state.resultados = data.get("resultados", [])
             limpiar_cache()
             st.session_state.fase_extraccion = "exportando"
@@ -208,7 +229,14 @@ def procesar_extraccion():
             r = requests.post(
                 f"{BACKEND_URL}/exportar_csv", json=st.session_state.payload_export, headers=headers
             )
-            st.session_state.export_exitoso = r.status_code == 200
+            ok_flag = r.ok
+            ok_json, _ = resp_ok_json(r)
+            st.session_state.export_exitoso = bool(ok_flag and ok_json)
+            st.session_state.export_error = None if st.session_state.export_exitoso else error_payload(r)
+
+            if r.status_code == 403:
+                st.session_state.export_error = st.session_state.export_error or {}
+                st.session_state.export_error["hint"] = "Tu plan no permite más exportaciones este periodo."
             st.session_state.export_realizado = True
 
         # Finalizar --------------------------------------------------------
@@ -472,7 +500,27 @@ if st.session_state.get("mostrar_resultado"):
     if st.session_state.get("export_exitoso"):
         st.success("✅ Para trabajar con tus leads, ve a la página **Mis Nichos**.")
     else:
-        st.error("Error al guardar/exportar los leads")
+        err = st.session_state.get("export_error") or {}
+        status = err.get("status")
+        detail = (err.get("detail") or "").strip()
+        raw = (err.get("raw") or "").strip()
+        hint = err.get("hint")
+
+        mensaje = "Error al guardar/exportar los leads"
+        if status:
+            mensaje += f" (HTTP {status})"
+        if detail:
+            mensaje += f": {detail}"
+        elif raw and status and status >= 500:
+            mensaje += f": {raw[:280]}"
+
+        st.error(mensaje)
+        if hint:
+            st.info(hint)
+            subscription_cta()
+
+        if st.checkbox("Ver detalles técnicos de exportación"):
+            st.write("Payload export:", st.session_state.get("payload_export_debug"))
 
     if st.session_state.get("resultados"):
         st.write("✅ Leads extraídos:")
