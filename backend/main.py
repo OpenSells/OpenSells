@@ -6,11 +6,12 @@ from urllib.parse import urlparse
 # --- Third-party ---
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func
+from sqlalchemy import func, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
@@ -26,6 +27,7 @@ from backend.models import (
     UsuarioMemoria,
 )
 from backend.core.plan_service import PlanService
+from backend.core.db_introspection import historial_insert_params
 from backend.core.usage_helpers import (
     can_export_csv,
     can_start_search,
@@ -935,10 +937,34 @@ def exportar_csv(
                 "message": "Límite de exportaciones alcanzado",
             },
         )
-    registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
-    db.add(registro)
-    consume_csv_export(db, usuario.id, plan_name)
-    db.commit()
+    filename = (payload.filename or "").strip()
+
+    try:
+        sql, params, has_id = historial_insert_params(db, usuario)
+        params["filename"] = filename
+        insert_sql = f"{sql} RETURNING id" if has_id else sql
+        result = db.execute(text(insert_sql), params)
+        inserted_id = result.scalar_one_or_none() if has_id else None
+        if inserted_id is not None:
+            logger.info(
+                "historial_export registrado user=%s id=%s filename=%s",
+                getattr(usuario, "user_email_lower", None)
+                or getattr(usuario, "email", "").strip().lower(),
+                inserted_id,
+                filename,
+            )
+        consume_csv_export(db, usuario.id, plan_name)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("No se pudo registrar la exportación en historial")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "CSV generado pero no se pudo registrar en historial. Reintenta más tarde.",
+            },
+        )
+
     return {"ok": True}
 
 
