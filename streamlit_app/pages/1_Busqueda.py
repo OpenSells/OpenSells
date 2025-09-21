@@ -208,7 +208,7 @@ def procesar_extraccion():
             payload_guardar = {
                 "nicho": st.session_state.nicho_actual,
                 "nicho_original": st.session_state.nicho_actual,
-                "resultados": st.session_state.resultados,
+                "items": st.session_state.resultados,
             }
             r_save = requests.post(
                 f"{BACKEND_URL}/guardar_leads",
@@ -269,7 +269,8 @@ memoria_data = cached_get("/mi_memoria", token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
 nichos_data = cached_get("/mis_nichos", token)
-lista_nichos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
+lista_nichos = [n.get("nicho") for n in (nichos_data.get("nichos", []) if nichos_data else [])]
+lista_nichos = [n for n in lista_nichos if n]
 lista_nichos = lista_nichos or []
 
 cliente_ideal = st.text_input(

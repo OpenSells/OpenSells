@@ -1,4 +1,6 @@
 # --- Standard library ---
+import csv
+import io
 import os
 import logging
 import re
@@ -6,12 +8,13 @@ from urllib.parse import urlparse
 
 # --- Third-party ---
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
@@ -349,7 +352,7 @@ class ExtraerMultiplesPayload(BaseModel):
     pais: Optional[str] = "ES"
 
 
-class LeadIn(BaseModel):
+class LeadItem(BaseModel):
     dominio: Optional[str] = None
     url: Optional[str] = None
     email: Optional[str] = None
@@ -360,7 +363,7 @@ class LeadIn(BaseModel):
 class GuardarLeadsPayload(BaseModel):
     nicho: str
     nicho_original: Optional[str] = None
-    resultados: List[LeadIn]
+    items: List[LeadItem]
 
 
 @app.post("/extraer_multiples")
@@ -428,19 +431,34 @@ def guardar_leads(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    logger.info(
+        "[guardar_leads] user=%s nicho=%s total_items=%s",
+        getattr(usuario, "email_lower", None),
+        getattr(payload, "nicho", None),
+        len(payload.items) if getattr(payload, "items", None) else 0,
+    )
+
     if not payload.nicho:
         raise HTTPException(status_code=400, detail="Falta 'nicho'")
-    if not payload.resultados:
-        return {"saved": 0, "duplicates": 0}
+    nicho_norm = payload.nicho.strip()
+    if not payload.items:
+        return {
+            "insertados": 0,
+            "saltados": 0,
+            "total_recibidos": 0,
+            "nicho": nicho_norm,
+        }
 
     tbl = LeadExtraido.__table__
     to_insert = []
-    nicho_norm = payload.nicho.strip()
-    nicho_orig = (payload.nicho_original or payload.nicho).strip()
+    total_recibidos = len(payload.items)
+    nicho_orig = (payload.nicho_original or payload.nicho).strip() or nicho_norm
+    filtered_out = 0
 
-    for r in payload.resultados:
+    for r in payload.items:
         dom = normalizar_dominio(r.dominio or r.url or "")
         if not dom:
+            filtered_out += 1
             continue
         url_val = r.url or (f"https://{dom}")
         if url_val and not url_val.startswith("http"):
@@ -460,18 +478,50 @@ def guardar_leads(
         )
 
     if not to_insert:
-        return {"saved": 0, "duplicates": 0}
+        logger.info(
+            "[guardar_leads] user=%s sin filas válidas (filtrados=%s)",
+            getattr(usuario, "email_lower", None),
+            filtered_out,
+        )
+        return {
+            "insertados": 0,
+            "saltados": 0,
+            "total_recibidos": total_recibidos,
+            "nicho": nicho_norm,
+        }
 
-    # Nota: Asegúrate de que exista el índice único UX en la base de datos:
-    # CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_user_domain
-    #   ON leads_extraidos(user_email_lower, dominio);
-    stmt = pg_insert(tbl).values(to_insert).on_conflict_do_nothing(
-        index_elements=[tbl.c.user_email_lower, tbl.c.dominio]
+    stmt = (
+        pg_insert(tbl)
+        .values(to_insert)
+        .on_conflict_do_nothing(index_elements=[tbl.c.user_email_lower, tbl.c.dominio])
+        .returning(tbl.c.dominio)
     )
-    result = db.execute(stmt)
-    saved = getattr(result, "rowcount", None) or 0
-    db.commit()
-    return {"saved": saved, "duplicates": max(len(to_insert) - saved, 0)}
+
+    try:
+        result = db.execute(stmt)
+        inserted_domains = [row[0] for row in result.fetchall()]
+        insertados = len(inserted_domains)
+        db.commit()
+        logger.info(
+            "[guardar_leads] user=%s nicho=%s insertados=%s duplicados=%s filtrados=%s",
+            getattr(usuario, "email_lower", None),
+            nicho_norm,
+            insertados,
+            max(len(to_insert) - insertados, 0),
+            filtered_out,
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[guardar_leads] error al insertar leads")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    saltados = max(len(to_insert) - insertados, 0)
+    return {
+        "insertados": insertados,
+        "saltados": saltados,
+        "total_recibidos": total_recibidos,
+        "nicho": nicho_norm,
+    }
 
 
 @app.get("/health")
@@ -608,13 +658,194 @@ def guardar_memoria(
 
 @app.get("/mis_nichos")
 def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = (
-        db.query(LeadExtraido.nicho, LeadExtraido.nicho_original)
-        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
-        .distinct()
-        .all()
+    stmt = (
+        select(LeadExtraido.nicho, func.count().label("leads"))
+        .where(LeadExtraido.user_email_lower == usuario.email_lower)
+        .group_by(LeadExtraido.nicho)
+        .order_by(LeadExtraido.nicho)
     )
-    return {"nichos": [{"nicho": n, "nicho_original": o} for n, o in rows]}
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception("[mis_nichos] error al consultar nichos")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    logger.info(
+        "[mis_nichos] user=%s nichos=%s",
+        getattr(usuario, "email_lower", None),
+        len(rows),
+    )
+    return {
+        "nichos": [
+            {"nicho": row.nicho, "leads": row.leads}
+            for row in rows
+            if row.nicho
+        ]
+    }
+
+
+
+@app.get("/leads_por_nicho")
+def leads_por_nicho(
+    nicho: str = Query(..., description="Nombre del nicho a consultar"),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    nicho = (nicho or "").strip()
+    if not nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    stmt = (
+        select(
+            LeadExtraido.dominio,
+            LeadExtraido.url,
+            LeadExtraido.estado_contacto,
+            LeadExtraido.timestamp,
+            LeadExtraido.nicho,
+            LeadExtraido.nicho_original,
+        )
+        .where(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.nicho == nicho,
+        )
+        .order_by(LeadExtraido.timestamp.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception(
+            "[leads_por_nicho] error user=%s nicho=%s", getattr(usuario, "email_lower", None), nicho
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    leads = [
+        {
+            "dominio": row.dominio,
+            "url": row.url,
+            "estado_contacto": row.estado_contacto,
+            "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            "nicho": row.nicho,
+            "nicho_original": row.nicho_original,
+        }
+        for row in rows
+    ]
+
+    logger.info(
+        "[leads_por_nicho] user=%s nicho=%s count=%s",
+        getattr(usuario, "email_lower", None),
+        nicho,
+        len(leads),
+    )
+
+    return {
+        "nicho": nicho,
+        "leads": leads,
+        "limit": limit,
+        "offset": offset,
+        "count": len(leads),
+    }
+
+
+@app.get("/exportar_leads_nicho")
+def exportar_leads_nicho(
+    nicho: str = Query(..., description="Nombre del nicho a exportar"),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    nicho = (nicho or "").strip()
+    if not nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    stmt = (
+        select(
+            LeadExtraido.dominio,
+            LeadExtraido.url,
+            LeadExtraido.estado_contacto,
+            LeadExtraido.timestamp,
+            LeadExtraido.nicho,
+            LeadExtraido.nicho_original,
+        )
+        .where(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.nicho == nicho,
+        )
+        .order_by(LeadExtraido.timestamp.desc())
+    )
+
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception(
+            "[exportar_leads_nicho] error obteniendo datos user=%s nicho=%s",
+            getattr(usuario, "email_lower", None),
+            nicho,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(["dominio", "url", "estado_contacto", "timestamp", "nicho", "nicho_original"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.dominio or "",
+                row.url or "",
+                row.estado_contacto or "",
+                row.timestamp.isoformat() if row.timestamp else "",
+                row.nicho or "",
+                row.nicho_original or "",
+            ]
+        )
+
+    csv_bytes = output.getvalue().encode("utf-8")
+
+    safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", nicho.lower()).strip("-") or "nicho"
+    filename = f"leads_{safe_slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "csv",
+                "plan": plan_name,
+                "limit": plan.csv_exports_per_month,
+                "remaining": remaining,
+                "message": "Límite de exportaciones alcanzado",
+            },
+        )
+
+    try:
+        registro = HistorialExport(user_email=usuario.email_lower, filename=filename)
+        db.add(registro)
+        consume_csv_export(db, usuario.id, plan_name)
+        db.commit()
+        logger.info(
+            "[exportar_leads_nicho] user=%s nicho=%s filas=%s filename=%s",
+            getattr(usuario, "email_lower", None),
+            nicho,
+            len(rows),
+            filename,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[exportar_leads_nicho] error al registrar historial")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    response = StreamingResponse(iter([csv_bytes]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return response
 
 
 
