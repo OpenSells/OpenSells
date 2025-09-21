@@ -5,6 +5,7 @@ import io
 import os
 import logging
 import re
+import time
 from urllib.parse import urlparse
 
 # --- Third-party ---
@@ -21,6 +22,7 @@ from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
 
 import httpx
+import requests
 
 # --- Local / project ---
 from backend.database import engine, SessionLocal, DATABASE_URL, get_db
@@ -98,10 +100,6 @@ def normalizar_dominio(value: str) -> str:
     return v
 
 
-# --- Búsqueda y scraping ---
-
-BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
-MAX_SEARCH_RESULTS = 60
 MAX_LEADS_PER_EXTRACTION = 30
 EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
 CONTACT_PATHS: tuple[str, ...] = (
@@ -111,123 +109,143 @@ CONTACT_PATHS: tuple[str, ...] = (
     "/legal",
     "/politica-privacidad",
 )
-BLOCKED_PATTERNS = (
+
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
+BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
+
+MAX_LEADS_GLOBAL = 30
+RESULTS_PER_PAGE = 20
+PAGES_BASE = 2
+PAGES_EXTRA_MAX = 1
+
+BLOCKED_HOSTS = {
     "facebook.com",
     "instagram.com",
-    "twitter.com",
     "linkedin.com",
-    "doctoralia.es",
-    "paginasamarillas.es",
-    "tripadvisor.es",
-    "habitissimo.es",
+    "twitter.com",
+    "x.com",
     "youtube.com",
+    "tiktok.com",
+    "pinterest.com",
+    "tripadvisor.com",
+    "booking.com",
     "yelp.com",
-    "maps.google.",
-)
-KNOWN_MULTI_TLDS = {
-    "com.ar",
-    "com.br",
-    "com.co",
-    "com.ec",
-    "com.es",
-    "com.mx",
-    "com.pe",
-    "com.cl",
-    "com.ve",
-    "co.uk",
+    "foursquare.com",
+    "justeat",
+    "glovoapp",
+    "ubereats",
+    "maps.google",
+    "google.com/maps",
+    "google.es/maps",
+    "goo.gl",
+    "paginasamarillas.es",
+    "11870.com",
+    "doctoralia.es",
+    "doctoralia.com",
+    "topdoctors.es",
+    "opinion",
+    "forocoches",
+    "reddit.com",
+    "quora.com",
+    "wikipedia.org",
+    "blogspot.",
+    "wordpress.com",
 }
 
+BLOCKED_PATTERNS = [
+    r"/directorio",
+    r"/guia",
+    r"/listar",
+    r"/categoria",
+    r"/category",
+    r"/listado",
+    r"/proveedores",
+    r"/empresas",
+    r"/companies",
+    r"/company",
+]
 
-def base_domain(domain: str) -> str:
-    if not domain:
-        return ""
-    parts = domain.split(".")
-    if len(parts) <= 2:
-        return domain
-    last_two = ".".join(parts[-2:])
-    last_three = ".".join(parts[-3:])
-    if last_two in KNOWN_MULTI_TLDS and len(parts) >= 3:
-        return last_three
-    return last_two
+
+def etld1(host: str) -> str:
+    h = host.lower().strip()
+    if h.startswith("www."):
+        h = h[4:]
+    parts = h.split(".")
+    if (
+        len(parts) >= 3
+        and parts[-2] in {"co", "com", "org", "gob", "edu"}
+        and parts[-1] in {"uk", "ar", "mx", "br", "au", "nz"}
+    ):
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:]) if len(parts) >= 2 else h
 
 
-def _is_blocked_domain(domain: str) -> bool:
-    domain = domain.lower()
-    for pattern in BLOCKED_PATTERNS:
-        pat = pattern.lower()
-        if pat.endswith("."):
-            if domain.startswith(pat):
-                return True
-        if domain == pat:
-            return True
-        if domain.endswith(f".{pat}"):
-            return True
+def should_block(url: str) -> bool:
+    u = url.lower()
+    netloc = urlparse(u).netloc
+    host = etld1(netloc)
+    if any(b in netloc or b in u for b in BLOCKED_HOSTS):
+        return True
+    if any(re.search(p, u) for p in BLOCKED_PATTERNS):
+        return True
+    path = urlparse(u).path or ""
+    if path.count("/") >= 3 and len(path) > 40:
+        return True
     return False
 
 
-def search_domains(queries: list[str], per_query: int = 20) -> list[str]:
-    api_key = os.getenv("BRAVE_API_KEY")
-    if not api_key:
-        logger.error("[buscar_variantes_seleccionadas] falta BRAVE_API_KEY para búsquedas")
-        raise HTTPException(
-            status_code=503,
-            detail="Busqueda no configurada: BRAVE_API_KEY ausente",
-        )
+def url_to_domain(url: str) -> str | None:
+    try:
+        netloc = urlparse(url).netloc
+        if not netloc:
+            return None
+        return etld1(netloc)
+    except Exception:
+        return None
 
-    headers = {
-        "Accept": "application/json",
-        "X-Subscription-Token": api_key,
+
+def brave_search(
+    query: str,
+    offset: int,
+    count: int = RESULTS_PER_PAGE,
+    country: str = "es",
+    lang: str = "es-ES",
+) -> list[str]:
+    if not BRAVE_API_KEY:
+        raise RuntimeError("[buscar_variantes_seleccionadas] falta BRAVE_API_KEY para búsquedas")
+    headers = {"Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY}
+    params = {
+        "q": query,
+        "count": count,
+        "offset": offset,
+        "source": "web",
+        "country": country,
+        "search_lang": lang,
     }
-    dominios: list[str] = []
-    vistos: set[str] = set()
+    response = requests.get(BRAVE_ENDPOINT, headers=headers, params=params, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+    items = (data.get("web") or {}).get("results") or []
+    return [item.get("url") for item in items if item.get("url")]
 
-    with httpx.Client(timeout=10) as client:
-        for query in queries:
-            q = (query or "").strip()
-            if not q:
-                continue
-            try:
-                resp = client.get(
-                    BRAVE_SEARCH_URL,
-                    params={"q": q, "count": per_query},
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                logger.warning("[buscar_variantes_seleccionadas] fallo consulta Brave q=%s err=%s", q, exc)
-                continue
 
-            results = data.get("web", {}).get("results", []) or []
-            for item in results:
-                url = item.get("url") or ""
-                normalized = normalizar_dominio(url)
-                if not normalized:
-                    continue
-                if _is_blocked_domain(normalized):
-                    continue
-                domain = base_domain(normalized)
-                if not domain or _is_blocked_domain(domain):
-                    continue
-                if domain in vistos:
-                    continue
-                vistos.add(domain)
-                dominios.append(domain)
-                if len(dominios) >= MAX_SEARCH_RESULTS:
-                    break
-            logger.info(
-                "[buscar_variantes_seleccionadas] query=%s dominios_parciales=%d",
-                q,
-                len(vistos),
-            )
-            if len(dominios) >= MAX_SEARCH_RESULTS:
-                break
+EXCLUDE_SITES = [
+    "site:facebook.com",
+    "site:instagram.com",
+    "site:linkedin.com",
+    "site:twitter.com",
+    "site:x.com",
+    "site:youtube.com",
+    "site:paginasamarillas.es",
+    "site:doctoralia.es",
+    "site:doctoralia.com",
+    "site:wikipedia.org",
+]
 
-    logger.info(
-        "[buscar_variantes_seleccionadas] dominios_unicos_totales=%d",
-        len(vistos),
-    )
-    return dominios
+
+def build_query(variant: str) -> str:
+    base = variant.strip()
+    return base + " " + " ".join("-" + s for s in EXCLUDE_SITES)
 
 
 async def _fetch_email_for_domain(client: httpx.AsyncClient, domain: str) -> Optional[str]:
@@ -515,26 +533,88 @@ class VariantesPayload(BaseModel):
 
 @app.post("/buscar_variantes_seleccionadas")
 def buscar_dominios(payload: VariantesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    """
-    Genera 'dominios' a partir de las variantes seleccionadas realizando
-    consultas reales contra Brave Search.
-    """
-    if not payload.variantes:
-        raise HTTPException(400, detail="variantes vacío")
+    """Busca dominios de calidad para las variantes seleccionadas usando Brave Search."""
+    variantes = [v for v in payload.variantes if v]
+    if not variantes:
+        raise HTTPException(status_code=400, detail="Se requieren variantes")
 
-    queries = [v for v in payload.variantes if v]
-    dominios = search_domains(queries)
+    user_email = getattr(usuario, "email_lower", None) or getattr(usuario, "email", None)
+
+    t0 = time.time()
+    dominios_unicos: set[str] = set()
+    por_variante_info: list[dict[str, object]] = []
+
+    try:
+        for variante in variantes[:3]:
+            query = build_query(variante)
+            recogidos_de_esta: set[str] = set()
+            pages_used = 0
+
+            for page_idx in range(PAGES_BASE):
+                if len(dominios_unicos) >= MAX_LEADS_GLOBAL:
+                    break
+                offset = page_idx * RESULTS_PER_PAGE
+                urls = brave_search(query, offset=offset, count=RESULTS_PER_PAGE)
+                pages_used += 1
+                for url in urls:
+                    if should_block(url):
+                        continue
+                    dominio = url_to_domain(url)
+                    if not dominio:
+                        continue
+                    if dominio in dominios_unicos:
+                        continue
+                    dominios_unicos.add(dominio)
+                    recogidos_de_esta.add(dominio)
+                    if len(dominios_unicos) >= MAX_LEADS_GLOBAL:
+                        break
+                time.sleep(1.05)
+
+            if (
+                len(recogidos_de_esta) < 7
+                and len(dominios_unicos) < MAX_LEADS_GLOBAL
+                and PAGES_EXTRA_MAX > 0
+            ):
+                offset = PAGES_BASE * RESULTS_PER_PAGE
+                urls = brave_search(query, offset=offset, count=RESULTS_PER_PAGE)
+                pages_used += 1
+                for url in urls:
+                    if should_block(url):
+                        continue
+                    dominio = url_to_domain(url)
+                    if not dominio:
+                        continue
+                    if dominio in dominios_unicos:
+                        continue
+                    dominios_unicos.add(dominio)
+                    recogidos_de_esta.add(dominio)
+                    if len(dominios_unicos) >= MAX_LEADS_GLOBAL:
+                        break
+                time.sleep(1.05)
+
+            por_variante_info.append(
+                {"variante": variante, "nuevos": len(recogidos_de_esta), "paginas": pages_used}
+            )
+            if len(dominios_unicos) >= MAX_LEADS_GLOBAL:
+                break
+
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        raise HTTPException(status_code=502, detail=f"Error buscando dominios: {exc}")
+
+    dominios_list = sorted(dominios_unicos)
+    elapsed = time.time() - t0
     logger.info(
-        "[buscar_variantes_seleccionadas] user=%s queries=%d dominios=%d",
-        getattr(usuario, "email_lower", None),
-        len(queries),
-        len(dominios),
+        "[buscar_variantes_seleccionadas] user=%s variantes=%d total_dominios=%d detalle=%s elapsed=%.2fs",
+        user_email,
+        len(variantes),
+        len(dominios_list),
+        por_variante_info,
+        elapsed,
     )
 
-    if not dominios:
-        raise HTTPException(502, detail="No se encontraron dominios para las variantes proporcionadas")
-
-    return {"dominios": dominios[:MAX_SEARCH_RESULTS]}
+    return {"dominios": dominios_list}
 
 
 class ExtraerMultiplesPayload(BaseModel):
