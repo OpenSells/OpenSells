@@ -151,11 +151,28 @@ def base_domain(domain: str) -> str:
     return last_two
 
 
-def search_domains(queries: list[str], per_query: int = 12) -> list[str]:
+def _is_blocked_domain(domain: str) -> bool:
+    domain = domain.lower()
+    for pattern in BLOCKED_PATTERNS:
+        pat = pattern.lower()
+        if pat.endswith("."):
+            if domain.startswith(pat):
+                return True
+        if domain == pat:
+            return True
+        if domain.endswith(f".{pat}"):
+            return True
+    return False
+
+
+def search_domains(queries: list[str], per_query: int = 20) -> list[str]:
     api_key = os.getenv("BRAVE_API_KEY")
     if not api_key:
         logger.error("[buscar_variantes_seleccionadas] falta BRAVE_API_KEY para búsquedas")
-        raise HTTPException(500, detail="Servicio de búsqueda no configurado")
+        raise HTTPException(
+            status_code=503,
+            detail="Busqueda no configurada: BRAVE_API_KEY ausente",
+        )
 
     headers = {
         "Accept": "application/json",
@@ -184,11 +201,13 @@ def search_domains(queries: list[str], per_query: int = 12) -> list[str]:
             results = data.get("web", {}).get("results", []) or []
             for item in results:
                 url = item.get("url") or ""
-                domain = normalizar_dominio(url)
-                domain = base_domain(domain)
-                if not domain:
+                normalized = normalizar_dominio(url)
+                if not normalized:
                     continue
-                if any(domain.endswith(pat) or pat in domain for pat in BLOCKED_PATTERNS):
+                if _is_blocked_domain(normalized):
+                    continue
+                domain = base_domain(normalized)
+                if not domain or _is_blocked_domain(domain):
                     continue
                 if domain in vistos:
                     continue
@@ -199,11 +218,15 @@ def search_domains(queries: list[str], per_query: int = 12) -> list[str]:
             logger.info(
                 "[buscar_variantes_seleccionadas] query=%s dominios_parciales=%d",
                 q,
-                len(dominios),
+                len(vistos),
             )
             if len(dominios) >= MAX_SEARCH_RESULTS:
                 break
 
+    logger.info(
+        "[buscar_variantes_seleccionadas] dominios_unicos_totales=%d",
+        len(vistos),
+    )
     return dominios
 
 

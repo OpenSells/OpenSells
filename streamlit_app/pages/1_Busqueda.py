@@ -107,6 +107,7 @@ for flag, valor in {
     "guardar_realizado": False,
     "export_realizado": False,
     "mostrar_resultado": False,
+    "dominios": [],
     "variantes_display": [],
     "has_extended_variant": False,
     "extended_index": None,
@@ -157,18 +158,54 @@ def procesar_extraccion():
             json={"variantes": st.session_state.seleccionadas},
             headers=headers,
         )
+        data = safe_json(r) if r is not None else {}
+        detail = ""
+        if isinstance(data, dict):
+            detail = str(data.get("detail") or "")
         if r.status_code == 200:
-            data = safe_json(r)
-            st.session_state.dominios = data.get("dominios", [])
+            dominios = data.get("dominios", [])
+            if not dominios:
+                st.warning(
+                    "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
+            st.session_state.dominios = dominios
             st.session_state.fase_extraccion = "extrayendo"
             st.rerun()
         else:
+            if (
+                r.status_code == 503
+                or "BRAVE_API_KEY" in detail
+                or "Busqueda no configurada" in detail
+            ):
+                st.warning(
+                    "⚙️ Debes configurar la variable BRAVE_API_KEY en el backend para habilitar las búsquedas."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
+            if r.status_code == 502:
+                st.warning(
+                    "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
             st.error("Error al buscar dominios")
             st.session_state.loading = False
             return
 
     # 2. Extraer datos ----------------------------------------------------
     if fase == "extrayendo":
+        if not st.session_state.dominios:
+            st.warning(
+                "No hay dominios disponibles para extraer leads. Intenta nuevamente con otras variantes."
+            )
+            st.session_state.loading = False
+            st.session_state.estado_actual = ""
+            return
         if not st.session_state.get("extraccion_realizada"):
             st.session_state.estado_actual = "Extrayendo datos"
             st.session_state.extraccion_realizada = True
