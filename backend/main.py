@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import func, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
@@ -465,7 +465,7 @@ def guardar_leads(
     # Nota: Asegúrate de que exista el índice único UX en la base de datos:
     # CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_user_domain
     #   ON leads_extraidos(user_email_lower, dominio);
-    stmt = insert(tbl).values(to_insert).on_conflict_do_nothing(
+    stmt = pg_insert(tbl).values(to_insert).on_conflict_do_nothing(
         index_elements=[tbl.c.user_email_lower, tbl.c.dominio]
     )
     result = db.execute(stmt)
@@ -696,11 +696,6 @@ def _tarea_to_dict(t):
     }
 
 
-from datetime import date, datetime
-from sqlalchemy import func, insert
-from sqlalchemy.exc import IntegrityError
-from backend.models import LeadTarea
-
 @app.post("/tareas", status_code=201)
 def crear_tarea(
     payload: TareaCreate,
@@ -748,7 +743,7 @@ def crear_tarea(
 
     # Insert con timestamp puesto por la BD (func.now()) — imposible que vaya NULL
     stmt = (
-        insert(tbl)
+        tbl.insert()
         .values({
             tbl.c.email:            usuario.email,
             tbl.c.user_email_lower: user_email_lower,
@@ -1155,7 +1150,7 @@ def guardar_estado(
 ):
     dominio = normalizar_dominio(payload.dominio)
     stmt = (
-        insert(LeadEstado)
+        pg_insert(LeadEstado)
         .values(user_email_lower=usuario.email_lower, dominio=dominio, estado=payload.estado)
         .on_conflict_do_update(
             index_elements=[LeadEstado.user_email_lower, LeadEstado.dominio],
