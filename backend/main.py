@@ -1,19 +1,26 @@
 # --- Standard library ---
+import asyncio
+import csv
+import io
 import os
 import logging
+import re
 from urllib.parse import urlparse
 
 # --- Third-party ---
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import func, select, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
+
+import httpx
 
 # --- Local / project ---
 from backend.database import engine, SessionLocal, DATABASE_URL, get_db
@@ -75,10 +82,203 @@ if os.getenv("ENV") == "dev":
 
 
 
-def normalizar_dominio(dominio: str) -> str:
-    if dominio.startswith("http://") or dominio.startswith("https://"):
-        dominio = urlparse(dominio).netloc
-    return dominio.replace("www.", "").strip().lower()
+def normalizar_dominio(value: str) -> str:
+    if not value:
+        return ""
+    v = value.strip()
+    if v.startswith("http://") or v.startswith("https://"):
+        try:
+            netloc = urlparse(v).netloc
+            v = netloc or v
+        except Exception:
+            pass
+    v = re.sub(r"^www\.", "", v, flags=re.IGNORECASE)
+    v = v.lower()
+    v = v.split("/")[0].strip()
+    return v
+
+
+# --- Búsqueda y scraping ---
+
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+MAX_SEARCH_RESULTS = 60
+MAX_LEADS_PER_EXTRACTION = 30
+EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
+CONTACT_PATHS: tuple[str, ...] = (
+    "/contacto",
+    "/contact",
+    "/aviso-legal",
+    "/legal",
+    "/politica-privacidad",
+)
+BLOCKED_PATTERNS = (
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "linkedin.com",
+    "doctoralia.es",
+    "paginasamarillas.es",
+    "tripadvisor.es",
+    "habitissimo.es",
+    "youtube.com",
+    "yelp.com",
+    "maps.google.",
+)
+KNOWN_MULTI_TLDS = {
+    "com.ar",
+    "com.br",
+    "com.co",
+    "com.ec",
+    "com.es",
+    "com.mx",
+    "com.pe",
+    "com.cl",
+    "com.ve",
+    "co.uk",
+}
+
+
+def base_domain(domain: str) -> str:
+    if not domain:
+        return ""
+    parts = domain.split(".")
+    if len(parts) <= 2:
+        return domain
+    last_two = ".".join(parts[-2:])
+    last_three = ".".join(parts[-3:])
+    if last_two in KNOWN_MULTI_TLDS and len(parts) >= 3:
+        return last_three
+    return last_two
+
+
+def _is_blocked_domain(domain: str) -> bool:
+    domain = domain.lower()
+    for pattern in BLOCKED_PATTERNS:
+        pat = pattern.lower()
+        if pat.endswith("."):
+            if domain.startswith(pat):
+                return True
+        if domain == pat:
+            return True
+        if domain.endswith(f".{pat}"):
+            return True
+    return False
+
+
+def search_domains(queries: list[str], per_query: int = 20) -> list[str]:
+    api_key = os.getenv("BRAVE_API_KEY")
+    if not api_key:
+        logger.error("[buscar_variantes_seleccionadas] falta BRAVE_API_KEY para búsquedas")
+        raise HTTPException(
+            status_code=503,
+            detail="Busqueda no configurada: BRAVE_API_KEY ausente",
+        )
+
+    headers = {
+        "Accept": "application/json",
+        "X-Subscription-Token": api_key,
+    }
+    dominios: list[str] = []
+    vistos: set[str] = set()
+
+    with httpx.Client(timeout=10) as client:
+        for query in queries:
+            q = (query or "").strip()
+            if not q:
+                continue
+            try:
+                resp = client.get(
+                    BRAVE_SEARCH_URL,
+                    params={"q": q, "count": per_query},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                logger.warning("[buscar_variantes_seleccionadas] fallo consulta Brave q=%s err=%s", q, exc)
+                continue
+
+            results = data.get("web", {}).get("results", []) or []
+            for item in results:
+                url = item.get("url") or ""
+                normalized = normalizar_dominio(url)
+                if not normalized:
+                    continue
+                if _is_blocked_domain(normalized):
+                    continue
+                domain = base_domain(normalized)
+                if not domain or _is_blocked_domain(domain):
+                    continue
+                if domain in vistos:
+                    continue
+                vistos.add(domain)
+                dominios.append(domain)
+                if len(dominios) >= MAX_SEARCH_RESULTS:
+                    break
+            logger.info(
+                "[buscar_variantes_seleccionadas] query=%s dominios_parciales=%d",
+                q,
+                len(vistos),
+            )
+            if len(dominios) >= MAX_SEARCH_RESULTS:
+                break
+
+    logger.info(
+        "[buscar_variantes_seleccionadas] dominios_unicos_totales=%d",
+        len(vistos),
+    )
+    return dominios
+
+
+async def _fetch_email_for_domain(client: httpx.AsyncClient, domain: str) -> Optional[str]:
+    async def get_text(url: str) -> str:
+        try:
+            resp = await client.get(url, timeout=8)
+            if resp.status_code < 400:
+                return resp.text or ""
+        except Exception as exc:
+            logger.debug("[scrape] fallo request url=%s err=%s", url, exc)
+        return ""
+
+    base_url = f"https://{domain}"
+    html = await get_text(base_url)
+    matches = EMAIL_RE.findall(html)
+    if matches:
+        return matches[0]
+
+    for idx, path in enumerate(CONTACT_PATHS, start=1):
+        if idx > 2:
+            break
+        html = await get_text(f"{base_url}{path}")
+        matches = EMAIL_RE.findall(html)
+        if matches:
+            return matches[0]
+    return None
+
+
+async def scrape_domains(domains: list[str]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        tasks = [_fetch_email_for_domain(client, d) for d in domains]
+        emails = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for domain, email in zip(domains, emails):
+        if isinstance(email, Exception):
+            logger.debug("[scrape] excepción dominio=%s err=%s", domain, email)
+            email_value = None
+        else:
+            email_value = email
+        results.append(
+            {
+                "dominio": domain,
+                "url": f"https://{domain}",
+                "email": email_value,
+                "telefono": None,
+                "origen": "scraping_web",
+            }
+        )
+
+    return results
 
 
 # --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
@@ -316,21 +516,25 @@ class VariantesPayload(BaseModel):
 @app.post("/buscar_variantes_seleccionadas")
 def buscar_dominios(payload: VariantesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Genera 'dominios' a partir de las variantes seleccionadas (placeholder).
-    En producción, sustituir por búsqueda real (Google/Maps + scraping).
+    Genera 'dominios' a partir de las variantes seleccionadas realizando
+    consultas reales contra Brave Search.
     """
     if not payload.variantes:
         raise HTTPException(400, detail="variantes vacío")
 
-    dominios = []
-    for v in payload.variantes[:3]:
-        slug = "".join(ch for ch in v.lower() if ch.isalnum() or ch in "- ").replace(" ", "-")
-        if slug:
-            dominios.append(f"{slug}.com")
-    if not dominios:
-        dominios = ["ejemplo-empresa.com", "otra-empresa.com"]
+    queries = [v for v in payload.variantes if v]
+    dominios = search_domains(queries)
+    logger.info(
+        "[buscar_variantes_seleccionadas] user=%s queries=%d dominios=%d",
+        getattr(usuario, "email_lower", None),
+        len(queries),
+        len(dominios),
+    )
 
-    return {"dominios": list(dict.fromkeys(dominios))[:15]}
+    if not dominios:
+        raise HTTPException(502, detail="No se encontraron dominios para las variantes proporcionadas")
+
+    return {"dominios": dominios[:MAX_SEARCH_RESULTS]}
 
 
 class ExtraerMultiplesPayload(BaseModel):
@@ -338,38 +542,76 @@ class ExtraerMultiplesPayload(BaseModel):
     pais: Optional[str] = "ES"
 
 
+class LeadPayloadItem(BaseModel):
+    dominio: Optional[str] = None
+    url: Optional[str] = None
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    origen: Optional[str] = None
+
+
+class GuardarLeadsPayload(BaseModel):
+    nicho: str
+    nicho_original: Optional[str] = None
+    items: List[LeadPayloadItem]
+
+
+class NichoSummary(BaseModel):
+    nicho: str
+    nicho_original: str
+    leads: int
+
+
+class LeadItem(BaseModel):
+    id: int | None = None
+    dominio: str
+    url: str
+    estado_contacto: str | None = None
+    timestamp: datetime
+    nicho: str
+    nicho_original: str
+
+
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Simula la extracción de leads de múltiples URLs y devuelve la estructura
-    esperada por la UI: { payload_export, resultados }.
-    Integra aquí scraping real más adelante (BeautifulSoup + ScraperAPI).
+    Extrae leads desde los dominios recibidos realizando un scraping ligero y
+    devuelve la estructura esperada por la UI: { payload_export, resultados }.
     """
     if not payload.urls:
         raise HTTPException(400, detail="urls vacío")
 
-    # Normaliza dominios
-    def _dom(url: str):
-        from urllib.parse import urlparse
-
-        u = url if url.startswith("http") else f"https://{url}"
-        return urlparse(u).netloc.replace("www.", "")
-
-    resultados = []
-    nuevos = 0
-    for u in payload.urls[:50]:
-        d = _dom(u)
-        if not d:
+    raw_domains = []
+    seen: set[str] = set()
+    for url in payload.urls:
+        dom = normalizar_dominio(url)
+        if not dom:
             continue
-        # Datos básicos ficticios (placeholder)
-        resultados.append({
-            "dominio": d,
-            "url": f"https://{d}",
-            "email": f"info@{d}",
-            "telefono": None,
-            "origen": "scraping_web",
-        })
-        nuevos += 1
+        if dom in seen:
+            continue
+        seen.add(dom)
+        raw_domains.append(dom)
+
+    domains_slice = raw_domains[:MAX_LEADS_PER_EXTRACTION]
+    if not domains_slice:
+        raise HTTPException(400, detail="No se encontraron dominios válidos para extraer")
+
+    try:
+        resultados = asyncio.run(scrape_domains(domains_slice))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            resultados = loop.run_until_complete(scrape_domains(domains_slice))
+        finally:
+            loop.close()
+
+    nuevos = len(resultados)
+    logger.info(
+        "[extraer_multiples] user=%s dominios_solicitados=%d dominios_utilizados=%d",
+        getattr(usuario, "email_lower", None),
+        len(payload.urls),
+        nuevos,
+    )
 
     # Consumo de cuotas/créditos sin romper planes actuales
     try:
@@ -380,6 +622,7 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
             # Capar volumen en free si aplica
             if plan_name == "free" and cap is not None and nuevos > cap:
                 resultados = resultados[:cap]
+                nuevos = len(resultados)
             if plan_name == "free":
                 consume_free_search(db, usuario.id, plan_name)
             else:
@@ -395,6 +638,105 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
     }
 
     return {"payload_export": payload_export, "resultados": resultados}
+
+
+@app.post("/guardar_leads")
+def guardar_leads(
+    payload: GuardarLeadsPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+    nicho_norm = payload.nicho.strip()
+    logger.info(
+        "[guardar_leads] user=%s nicho=%s nicho_normalizado=%s total_items=%s",
+        getattr(usuario, "email_lower", None),
+        getattr(payload, "nicho", None),
+        nicho_norm,
+        len(payload.items) if getattr(payload, "items", None) else 0,
+    )
+    if not payload.items:
+        return {
+            "insertados": 0,
+            "saltados": 0,
+            "total_recibidos": 0,
+            "nicho": nicho_norm,
+        }
+
+    tbl = LeadExtraido.__table__
+    to_insert = []
+    total_recibidos = len(payload.items)
+    nicho_orig = (payload.nicho_original or payload.nicho).strip() or nicho_norm
+    filtered_out = 0
+
+    for r in payload.items:
+        dom = normalizar_dominio(r.dominio or r.url or "")
+        if not dom:
+            filtered_out += 1
+            continue
+        url_val = r.url or (f"https://{dom}")
+        if url_val and not url_val.startswith("http"):
+            url_val = f"https://{url_val}"
+
+        to_insert.append(
+            {
+                "user_email": usuario.email,
+                "user_email_lower": usuario.email_lower,
+                "dominio": dom,
+                "url": url_val,
+                "timestamp": func.now(),
+                "nicho": nicho_norm,
+                "nicho_original": nicho_orig,
+                "estado_contacto": "nuevo",
+            }
+        )
+
+    if not to_insert:
+        logger.info(
+            "[guardar_leads] user=%s sin filas válidas (filtrados=%s)",
+            getattr(usuario, "email_lower", None),
+            filtered_out,
+        )
+        return {
+            "insertados": 0,
+            "saltados": 0,
+            "total_recibidos": total_recibidos,
+            "nicho": nicho_norm,
+        }
+
+    stmt = (
+        pg_insert(tbl)
+        .values(to_insert)
+        .on_conflict_do_nothing(index_elements=[tbl.c.user_email_lower, tbl.c.dominio])
+        .returning(tbl.c.dominio)
+    )
+
+    try:
+        result = db.execute(stmt)
+        inserted_domains = [row[0] for row in result.fetchall()]
+        insertados = len(inserted_domains)
+        db.commit()
+        logger.info(
+            "[guardar_leads] user=%s nicho=%s insertados=%s duplicados=%s filtrados=%s",
+            getattr(usuario, "email_lower", None),
+            nicho_norm,
+            insertados,
+            max(len(to_insert) - insertados, 0),
+            filtered_out,
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[guardar_leads] error al insertar leads")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    saltados = max(len(to_insert) - insertados, 0)
+    return {
+        "insertados": insertados,
+        "saltados": saltados,
+        "total_recibidos": total_recibidos,
+        "nicho": nicho_norm,
+    }
 
 
 @app.get("/health")
@@ -529,15 +871,190 @@ def guardar_memoria(
     return {"ok": True}
 
 
-@app.get("/mis_nichos")
-def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = (
-        db.query(LeadExtraido.nicho, LeadExtraido.nicho_original)
-        .filter(LeadExtraido.user_email_lower == usuario.email_lower)
-        .distinct()
-        .all()
+@app.get("/mis_nichos", response_model=list[NichoSummary])
+def mis_nichos(db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
+    u = user.email.lower()
+    query = (
+        select(
+            LeadExtraido.nicho.label("nicho"),
+            func.min(LeadExtraido.nicho_original).label("nicho_original"),
+            func.count().label("leads"),
+        )
+        .where(LeadExtraido.user_email_lower == u)
+        .group_by(LeadExtraido.nicho)
+        .order_by(LeadExtraido.nicho)
     )
-    return {"nichos": [{"nicho": n, "nicho_original": o} for n, o in rows]}
+    try:
+        rows = db.execute(query).all()
+    except Exception as exc:
+        logger.exception("[mis_nichos] error al consultar nichos")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    data = [
+        NichoSummary(
+            nicho=row.nicho,
+            nicho_original=(row.nicho_original or row.nicho),
+            leads=int(row.leads),
+        )
+        for row in rows
+        if row.nicho
+    ]
+    logger.info("[mis_nichos] user=%s nichos=%d", u, len(data))
+    return data
+
+
+
+@app.get("/leads_por_nicho")
+def leads_por_nicho(
+    nicho: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
+):
+    nicho = (nicho or "").strip()
+    if not nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    u = user.email.lower()
+    query = (
+        select(
+            LeadExtraido.id,
+            LeadExtraido.dominio,
+            LeadExtraido.url,
+            LeadExtraido.estado_contacto,
+            LeadExtraido.timestamp,
+            LeadExtraido.nicho,
+            LeadExtraido.nicho_original,
+        )
+        .where(
+            LeadExtraido.user_email_lower == u,
+            LeadExtraido.nicho == nicho,
+        )
+        .order_by(LeadExtraido.timestamp.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+
+    try:
+        result = db.execute(query)
+    except Exception as exc:
+        logger.exception("[leads_por_nicho] error user=%s nicho=%s", u, nicho)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    rows = result.fetchall()
+    items = [
+        LeadItem(
+            id=row.id,
+            dominio=row.dominio,
+            url=row.url,
+            estado_contacto=row.estado_contacto,
+            timestamp=row.timestamp,
+            nicho=row.nicho,
+            nicho_original=(row.nicho_original or row.nicho),
+        ).dict()
+        for row in rows
+    ]
+
+    logger.info("[leads_por_nicho] user=%s nicho=%s count=%d", u, nicho, len(items))
+    return {"items": items, "limit": limit, "offset": offset, "count": len(items)}
+
+
+@app.get("/exportar_leads_nicho")
+def exportar_leads_nicho(
+    nicho: str = Query(..., description="Nombre del nicho a exportar"),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    nicho = (nicho or "").strip()
+    if not nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    stmt = (
+        select(
+            LeadExtraido.dominio,
+            LeadExtraido.url,
+            LeadExtraido.estado_contacto,
+            LeadExtraido.timestamp,
+            LeadExtraido.nicho,
+            LeadExtraido.nicho_original,
+        )
+        .where(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.nicho == nicho,
+        )
+        .order_by(LeadExtraido.timestamp.desc())
+    )
+
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception(
+            "[exportar_leads_nicho] error obteniendo datos user=%s nicho=%s",
+            getattr(usuario, "email_lower", None),
+            nicho,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow(["dominio", "url", "estado_contacto", "timestamp", "nicho", "nicho_original"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.dominio or "",
+                row.url or "",
+                row.estado_contacto or "",
+                row.timestamp.isoformat() if row.timestamp else "",
+                row.nicho or "",
+                row.nicho_original or "",
+            ]
+        )
+
+    csv_bytes = output.getvalue().encode("utf-8")
+
+    safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", nicho.lower()).strip("-") or "nicho"
+    filename = f"leads_{safe_slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "feature": "csv",
+                "plan": plan_name,
+                "limit": plan.csv_exports_per_month,
+                "remaining": remaining,
+                "message": "Límite de exportaciones alcanzado",
+            },
+        )
+
+    try:
+        registro = HistorialExport(user_email=usuario.email_lower, filename=filename)
+        db.add(registro)
+        consume_csv_export(db, usuario.id, plan_name)
+        db.commit()
+        logger.info(
+            "[exportar_leads_nicho] user=%s nicho=%s filas=%s filename=%s",
+            getattr(usuario, "email_lower", None),
+            nicho,
+            len(rows),
+            filename,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[exportar_leads_nicho] error al registrar historial")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    response = StreamingResponse(iter([csv_bytes]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    return response
 
 
 
@@ -619,11 +1136,6 @@ def _tarea_to_dict(t):
     }
 
 
-from datetime import date, datetime
-from sqlalchemy import func, insert
-from sqlalchemy.exc import IntegrityError
-from backend.models import LeadTarea
-
 @app.post("/tareas", status_code=201)
 def crear_tarea(
     payload: TareaCreate,
@@ -671,7 +1183,7 @@ def crear_tarea(
 
     # Insert con timestamp puesto por la BD (func.now()) — imposible que vaya NULL
     stmt = (
-        insert(tbl)
+        tbl.insert()
         .values({
             tbl.c.email:            usuario.email,
             tbl.c.user_email_lower: user_email_lower,
@@ -1078,7 +1590,7 @@ def guardar_estado(
 ):
     dominio = normalizar_dominio(payload.dominio)
     stmt = (
-        insert(LeadEstado)
+        pg_insert(LeadEstado)
         .values(user_email_lower=usuario.email_lower, dominio=dominio, estado=payload.estado)
         .on_conflict_do_update(
             index_elements=[LeadEstado.user_email_lower, LeadEstado.dominio],
@@ -1104,7 +1616,6 @@ def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session 
 from backend.database import engine, SessionLocal, DATABASE_URL  # <-- tu módulo real
 
 import logging
-from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 logger = logging.getLogger("uvicorn")

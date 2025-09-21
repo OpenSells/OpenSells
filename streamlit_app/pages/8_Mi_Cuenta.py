@@ -396,7 +396,12 @@ if st.button("💾 Guardar memoria"):
 st.subheader("📊 Estadísticas de uso")
 
 resp_nichos = cached_get("/mis_nichos", token)
-nichos = resp_nichos.get("nichos", []) if resp_nichos else []
+if isinstance(resp_nichos, list):
+    nichos = resp_nichos
+elif isinstance(resp_nichos, dict):
+    nichos = resp_nichos.get("nichos", [])
+else:
+    nichos = []
 lead_usage_value = usage.get("leads_mes") if usage else 0
 if lead_usage_value in (None, ""):
     lead_usage_value = usage.get("leads") if usage else 0

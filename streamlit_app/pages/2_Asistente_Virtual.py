@@ -223,7 +223,12 @@ def historial_lead(dominio: str):
 
 def api_mis_nichos():
     r = http_client.get("/mis_nichos", headers=_auth_headers())
-    return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
+    if r.status_code == 200:
+        data = r.json()
+        if isinstance(data, list):
+            return {"nichos": data}
+        return data
+    return {"error": r.text, "status": r.status_code}
 
 
 def obtener_memoria():
@@ -761,9 +766,18 @@ tool_defs = [
 
 
 def build_system_prompt() -> str:
-    nichos = cached_get("/mis_nichos", token).get("nichos", [])
+    resp_mis_nichos = cached_get("/mis_nichos", token)
+    if isinstance(resp_mis_nichos, list):
+        nichos = resp_mis_nichos
+    elif isinstance(resp_mis_nichos, dict):
+        nichos = resp_mis_nichos.get("nichos", [])
+    else:
+        nichos = []
     tareas = cached_get("tareas_pendientes", token) or []
-    resumen_nichos = ", ".join(n["nicho_original"] for n in nichos) or "ninguno"
+    resumen_nichos = ", ".join(
+        (n.get("nicho_original") or n.get("nicho") or "").strip() for n in nichos
+        if (n.get("nicho_original") or n.get("nicho"))
+    ) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (
         "Eres un asistente conectado a herramientas. Cuando el usuario pida BUSCAR o EXTRAER leads, "

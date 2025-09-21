@@ -104,7 +104,10 @@ for flag, valor in {
     "estado_actual": "",
     "fase_extraccion": None,
     "guardando_mostrado": False,
+    "guardar_realizado": False,
+    "export_realizado": False,
     "mostrar_resultado": False,
+    "dominios": [],
     "variantes_display": [],
     "has_extended_variant": False,
     "extended_index": None,
@@ -155,18 +158,54 @@ def procesar_extraccion():
             json={"variantes": st.session_state.seleccionadas},
             headers=headers,
         )
+        data = safe_json(r) if r is not None else {}
+        detail = ""
+        if isinstance(data, dict):
+            detail = str(data.get("detail") or "")
         if r.status_code == 200:
-            data = safe_json(r)
-            st.session_state.dominios = data.get("dominios", [])
+            dominios = data.get("dominios", [])
+            if not dominios:
+                st.warning(
+                    "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
+            st.session_state.dominios = dominios
             st.session_state.fase_extraccion = "extrayendo"
             st.rerun()
         else:
+            if (
+                r.status_code == 503
+                or "BRAVE_API_KEY" in detail
+                or "Busqueda no configurada" in detail
+            ):
+                st.warning(
+                    "⚙️ Debes configurar la variable BRAVE_API_KEY en el backend para habilitar las búsquedas."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
+            if r.status_code == 502:
+                st.warning(
+                    "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
+                )
+                st.session_state.loading = False
+                st.session_state.estado_actual = ""
+                return
             st.error("Error al buscar dominios")
             st.session_state.loading = False
             return
 
     # 2. Extraer datos ----------------------------------------------------
     if fase == "extrayendo":
+        if not st.session_state.dominios:
+            st.warning(
+                "No hay dominios disponibles para extraer leads. Intenta nuevamente con otras variantes."
+            )
+            st.session_state.loading = False
+            st.session_state.estado_actual = ""
+            return
         if not st.session_state.get("extraccion_realizada"):
             st.session_state.estado_actual = "Extrayendo datos"
             st.session_state.extraccion_realizada = True
@@ -197,22 +236,41 @@ def procesar_extraccion():
 
     # 3. Guardar leads ----------------------------------------------------
     if fase == "exportando":
-        # Mostrar texto "Guardando leads" solo una vez
         if not st.session_state.guardando_mostrado:
-            st.session_state.estado_actual = "Guardando leads"
+            st.session_state.estado_actual = "Guardando leads en tu cuenta…"
             st.session_state.guardando_mostrado = True
             st.rerun()
 
-        # Ejecutar exportación solo una vez
+        if not st.session_state.get("guardar_realizado"):
+            payload_guardar = {
+                "nicho": st.session_state.nicho_actual,
+                "nicho_original": st.session_state.nicho_actual,
+                "items": st.session_state.resultados,
+            }
+            r_save = requests.post(
+                f"{BACKEND_URL}/guardar_leads",
+                json=payload_guardar,
+                headers=headers,
+                timeout=120,
+            )
+            st.session_state.guardar_realizado = True
+
+            if r_save.status_code != 200:
+                st.error("No se pudieron guardar los leads en la base de datos.")
+                st.session_state.loading = False
+                st.stop()
+
         if not st.session_state.get("export_realizado"):
             r = requests.post(
-                f"{BACKEND_URL}/exportar_csv", json=st.session_state.payload_export, headers=headers
+                f"{BACKEND_URL}/exportar_csv",
+                json=st.session_state.payload_export,
+                headers=headers,
+                timeout=120,
             )
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
 
-        # Finalizar --------------------------------------------------------
-        st.session_state.loading = False  # cierra popup en el siguiente rerun
+        st.session_state.loading = False
         st.session_state.mostrar_resultado = True
         st.rerun()
 
@@ -248,7 +306,14 @@ memoria_data = cached_get("/mi_memoria", token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
 nichos_data = cached_get("/mis_nichos", token)
-lista_nichos = [n["nicho_original"] for n in nichos_data.get("nichos", [])] if nichos_data else []
+if isinstance(nichos_data, list):
+    nichos_lista_base = nichos_data
+elif isinstance(nichos_data, dict):
+    nichos_lista_base = nichos_data.get("nichos", [])
+else:
+    nichos_lista_base = []
+lista_nichos = [n.get("nicho") for n in nichos_lista_base]
+lista_nichos = [n for n in lista_nichos if n]
 lista_nichos = lista_nichos or []
 
 cliente_ideal = st.text_input(
@@ -482,6 +547,7 @@ if st.session_state.get("mostrar_resultado"):
     for flag in [
         "fase_extraccion",
         "guardando_mostrado",
+        "guardar_realizado",
         "mostrar_resultado",
         "export_realizado",
         "export_exitoso",
