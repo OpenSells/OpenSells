@@ -141,6 +141,37 @@ def md5(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
 
 
+def _extract_nichos(data) -> list[dict]:
+    if not data:
+        return []
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        nichos_list = data.get("nichos")
+        if isinstance(nichos_list, list):
+            return nichos_list
+    return []
+
+
+def _extract_leads(data) -> list[dict]:
+    if not data:
+        return []
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        items = data.get("items")
+        if isinstance(items, list):
+            return items
+        leads = data.get("leads")
+        if isinstance(leads, list):
+            return leads
+    return []
+
+
+def _nicho_original_value(nicho: dict) -> str:
+    return nicho.get("nicho_original") or nicho.get("nicho") or ""
+
+
 def render_estado_badge(estado: str) -> str:
     if estado == "pendiente":
         return '<span class="badge badge-warn">Pendiente</span>'
@@ -179,9 +210,7 @@ else:
 
 # ── Cargar nichos del backend ───────────────────────
 resp = cached_get("/mis_nichos", token)
-nichos: list[dict] = []
-if resp:
-    nichos = resp.get("nichos", [])
+nichos: list[dict] = _extract_nichos(resp)
 
 if not nichos:
     st.info("Aún no tienes nichos guardados.")
@@ -191,16 +220,18 @@ if not nichos:
 todos_leads = []
 for n in nichos:
     datos = cached_get("leads_por_nicho", token, query={"nicho": n["nicho"]})
-    leads = datos.get("leads", []) if datos else []
-    n["total_leads"] = len(leads)
+    leads = _extract_leads(datos)
+    n["total_leads"] = datos.get("count", len(leads)) if isinstance(datos, dict) else len(leads)
+    original = _nicho_original_value(n)
 
     for idx, l in enumerate(leads):
-        d = normalizar_dominio(l["url"])
+        url_val = l.get("url") or l.get("dominio") or ""
+        d = normalizar_dominio(url_val)
         todos_leads.append(
             {
                 "dominio": d,
                 "nicho": n["nicho"],
-                "nicho_original": n["nicho_original"],
+                "nicho_original": l.get("nicho_original") or original,
                 "key": md5(f"{d}_{idx}"),
             }
         )
@@ -212,7 +243,7 @@ if busqueda:
     st.subheader("🔎 Resultados de búsqueda")
 
     leads_coinc = [l for l in todos_leads if busqueda in l["dominio"]]
-    nichos_coinc = [n for n in nichos if busqueda in n["nicho_original"].lower()]
+    nichos_coinc = [n for n in nichos if busqueda in _nicho_original_value(n).lower()]
 
     # Leads coincidentes
     for idx, l in enumerate(leads_coinc):
@@ -226,7 +257,7 @@ if busqueda:
 
     # Nichos coincidentes (solo listamos, sin interacción de momento)
     for n in nichos_coinc:
-        st.markdown(f"📂 {n['nicho_original']}")
+        st.markdown(f"📂 {_nicho_original_value(n)}")
 
     st.stop()  # solo mostramos resultados, no renderizamos nada más
 
@@ -250,9 +281,10 @@ for n in nichos_visibles:
     key_exp = f"expandir_{n['nicho']}"
     expanded_por_defecto = "solo_nicho_visible" in st.session_state
     expanded = st.session_state.get(key_exp, expanded_por_defecto)
+    original = _nicho_original_value(n)
 
     with st.expander(
-        f"📂 {n['nicho_original']} ({n['total_leads']} leads)",
+        f"📂 {original} ({n['total_leads']} leads)",
         expanded=expanded,
     ):
         top_cols = st.columns([8, 2])
@@ -260,8 +292,9 @@ for n in nichos_visibles:
         # ── Descargar CSV ───────────────────────────
         try:
             params_export = {"nicho": n["nicho"]}
-            if estado_filtro != "todos":
-                params_export["estado_contacto"] = estado_filtro
+            estado_actual = st.session_state.get(f"estado_filtro_{n['nicho']}", "todos")
+            if estado_actual != "todos":
+                params_export["estado_contacto"] = estado_actual
             resp = requests.get(
                 f"{BACKEND_URL}/exportar_leads_nicho",
                 headers={"Authorization": f"Bearer {token}"},
@@ -271,7 +304,7 @@ for n in nichos_visibles:
                 top_cols[0].download_button(
                     "📥 Descargar CSV",
                     resp.content,
-                    file_name=f"{n['nicho_original']}.csv",
+                    file_name=f"{original}.csv",
                     mime="text/csv",
                     key=f"csv_{n['nicho']}",
                 )
@@ -309,7 +342,7 @@ for n in nichos_visibles:
             query=query_params,
             nocache_key=st.session_state["forzar_recarga"],
         )
-        leads = resp_leads.get("leads", []) if resp_leads else []
+        leads = _extract_leads(resp_leads)
 
         # ── Filtro interno por dominio ───────────────
         filtro = st.text_input(
@@ -326,8 +359,9 @@ for n in nichos_visibles:
                 subscription_cta()
             else:
                 leads = [
-                    l for l in leads
-                    if filtro in normalizar_dominio(l["url"]).lower()
+                    l
+                    for l in leads
+                    if filtro in normalizar_dominio(l.get("url") or l.get("dominio")).lower()
                 ]
 
         st.markdown(f"### Total mostrados: {len(leads)}")
@@ -374,8 +408,8 @@ for n in nichos_visibles:
                                         "email": email_manual,
                                         "telefono": telefono_manual,
                                         "nombre": nombre_manual,
-                                        "nicho": n["nicho_original"]
-                                    }
+                                        "nicho": original,
+                                    },
                                 )
                                 if res:
                                     st.success("Lead añadido correctamente ✅")
@@ -390,7 +424,8 @@ for n in nichos_visibles:
             st.session_state["lead_a_mover"] = None
 
         for i, l in enumerate(leads):
-            dominio = normalizar_dominio(l["url"])
+            url_value = l.get("url") or l.get("dominio") or ""
+            dominio = normalizar_dominio(url_value)
             estado_actual = l.get("estado_contacto", "pendiente")
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
             cols_row = st.columns([4, 2, 2, 2, 2, 2])
@@ -462,7 +497,11 @@ for n in nichos_visibles:
 
             # Formulario de mover lead si está activo
             if st.session_state.get("lead_a_mover") == clave_base:
-                nichos_destino = [ni["nicho_original"] for ni in nichos if ni["nicho"] != n["nicho"]]
+                nichos_destino = [
+                    _nicho_original_value(ni)
+                    for ni in nichos
+                    if ni["nicho"] != n["nicho"]
+                ]
                 nuevo_nicho = st.selectbox("Mover a:", nichos_destino, key=f"select_nuevo_nicho_{clave_base}")
 
                 if st.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
@@ -475,9 +514,9 @@ for n in nichos_visibles:
                             token,
                             payload={
                                 "dominio": dominio,
-                                "origen": n["nicho_original"],
-                                "destino": nuevo_nicho
-                            }
+                                "origen": original,
+                                "destino": nuevo_nicho,
+                            },
                         )
                         if res:
                             st.success("Lead movido correctamente ✅")

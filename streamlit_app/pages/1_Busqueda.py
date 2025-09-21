@@ -269,7 +269,13 @@ memoria_data = cached_get("/mi_memoria", token)
 memoria = memoria_data.get("memoria", "") if memoria_data else ""
 
 nichos_data = cached_get("/mis_nichos", token)
-lista_nichos = [n.get("nicho") for n in (nichos_data.get("nichos", []) if nichos_data else [])]
+if isinstance(nichos_data, list):
+    nichos_lista_base = nichos_data
+elif isinstance(nichos_data, dict):
+    nichos_lista_base = nichos_data.get("nichos", [])
+else:
+    nichos_lista_base = []
+lista_nichos = [n.get("nicho") for n in nichos_lista_base]
 lista_nichos = [n for n in lista_nichos if n]
 lista_nichos = lista_nichos or []
 

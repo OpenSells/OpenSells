@@ -167,7 +167,13 @@ def sort_tareas(iterable: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 # ────────────────── Datos base ──────────────────────
 datos_nichos = cached_get("/mis_nichos", token)
-map_n = {n["nicho"]: n["nicho_original"] for n in (datos_nichos.get("nichos") if datos_nichos else [])}
+if isinstance(datos_nichos, list):
+    lista_nichos = datos_nichos
+elif isinstance(datos_nichos, dict):
+    lista_nichos = datos_nichos.get("nichos", [])
+else:
+    lista_nichos = []
+map_n = {n.get("nicho"): n.get("nicho_original") for n in lista_nichos if n.get("nicho")}
 
 @st.cache_data(ttl=30)
 def fetch_tareas_pendientes(tipo: str):
@@ -372,7 +378,12 @@ elif seleccion == "Nichos":
         st.session_state["nicho_seleccionado"] = None
 
     ln_data = cached_get("/mis_nichos", token)
-    ln = ln_data.get("nichos", []) if ln_data else []
+    if isinstance(ln_data, list):
+        ln = ln_data
+    elif isinstance(ln_data, dict):
+        ln = ln_data.get("nichos", [])
+    else:
+        ln = []
 
     if not ln:
         st.info("Crea nichos para ver tareas.")
@@ -382,13 +393,18 @@ elif seleccion == "Nichos":
             st.subheader("📂 Nichos")
 
             filtro_nicho = st.text_input("Buscar por nombre de nicho", placeholder="Ej: restaurantes")
-            filtrados = [n for n in ln if filtro_nicho.lower() in n["nicho_original"].lower()] if filtro_nicho else ln
+            filtrados = [
+                n
+                for n in ln
+                if filtro_nicho.lower()
+                in (n.get("nicho_original") or n.get("nicho") or "").lower()
+            ] if filtro_nicho else ln
 
             if not filtrados:
                 st.info("No se encontraron nichos con ese nombre.")
             else:
                 for n in filtrados:
-                    nombre = n["nicho_original"]
+                    nombre = (n.get("nicho_original") or n.get("nicho") or "").strip()
                     cols = st.columns([6, 1])
                     cols[0].markdown(f"📁 **{nombre}**")
                     if cols[1].button("➡️ Ver", key=f"ver_nicho_{nombre}"):

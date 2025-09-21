@@ -352,7 +352,7 @@ class ExtraerMultiplesPayload(BaseModel):
     pais: Optional[str] = "ES"
 
 
-class LeadItem(BaseModel):
+class LeadPayloadItem(BaseModel):
     dominio: Optional[str] = None
     url: Optional[str] = None
     email: Optional[str] = None
@@ -363,7 +363,23 @@ class LeadItem(BaseModel):
 class GuardarLeadsPayload(BaseModel):
     nicho: str
     nicho_original: Optional[str] = None
-    items: List[LeadItem]
+    items: List[LeadPayloadItem]
+
+
+class NichoSummary(BaseModel):
+    nicho: str
+    nicho_original: str
+    leads: int
+
+
+class LeadItem(BaseModel):
+    id: int | None = None
+    dominio: str
+    url: str
+    estado_contacto: str | None = None
+    timestamp: datetime
+    nicho: str
+    nicho_original: str
 
 
 @app.post("/extraer_multiples")
@@ -431,16 +447,16 @@ def guardar_leads(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    logger.info(
-        "[guardar_leads] user=%s nicho=%s total_items=%s",
-        getattr(usuario, "email_lower", None),
-        getattr(payload, "nicho", None),
-        len(payload.items) if getattr(payload, "items", None) else 0,
-    )
-
     if not payload.nicho:
         raise HTTPException(status_code=400, detail="Falta 'nicho'")
     nicho_norm = payload.nicho.strip()
+    logger.info(
+        "[guardar_leads] user=%s nicho=%s nicho_normalizado=%s total_items=%s",
+        getattr(usuario, "email_lower", None),
+        getattr(payload, "nicho", None),
+        nicho_norm,
+        len(payload.items) if getattr(payload, "items", None) else 0,
+    )
     if not payload.items:
         return {
             "insertados": 0,
@@ -656,49 +672,55 @@ def guardar_memoria(
     return {"ok": True}
 
 
-@app.get("/mis_nichos")
-def mis_nichos(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    stmt = (
-        select(LeadExtraido.nicho, func.count().label("leads"))
-        .where(LeadExtraido.user_email_lower == usuario.email_lower)
+@app.get("/mis_nichos", response_model=list[NichoSummary])
+def mis_nichos(db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
+    u = user.email.lower()
+    query = (
+        select(
+            LeadExtraido.nicho.label("nicho"),
+            func.min(LeadExtraido.nicho_original).label("nicho_original"),
+            func.count().label("leads"),
+        )
+        .where(LeadExtraido.user_email_lower == u)
         .group_by(LeadExtraido.nicho)
         .order_by(LeadExtraido.nicho)
     )
     try:
-        rows = db.execute(stmt).all()
+        rows = db.execute(query).all()
     except Exception as exc:
         logger.exception("[mis_nichos] error al consultar nichos")
         raise HTTPException(status_code=500, detail=str(exc))
 
-    logger.info(
-        "[mis_nichos] user=%s nichos=%s",
-        getattr(usuario, "email_lower", None),
-        len(rows),
-    )
-    return {
-        "nichos": [
-            {"nicho": row.nicho, "leads": row.leads}
-            for row in rows
-            if row.nicho
-        ]
-    }
+    data = [
+        NichoSummary(
+            nicho=row.nicho,
+            nicho_original=(row.nicho_original or row.nicho),
+            leads=int(row.leads),
+        )
+        for row in rows
+        if row.nicho
+    ]
+    logger.info("[mis_nichos] user=%s nichos=%d", u, len(data))
+    return data
 
 
 
 @app.get("/leads_por_nicho")
 def leads_por_nicho(
-    nicho: str = Query(..., description="Nombre del nicho a consultar"),
+    nicho: str,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
+    user: Usuario = Depends(get_current_user),
 ):
     nicho = (nicho or "").strip()
     if not nicho:
         raise HTTPException(status_code=400, detail="Falta 'nicho'")
 
-    stmt = (
+    u = user.email.lower()
+    query = (
         select(
+            LeadExtraido.id,
             LeadExtraido.dominio,
             LeadExtraido.url,
             LeadExtraido.estado_contacto,
@@ -707,7 +729,7 @@ def leads_por_nicho(
             LeadExtraido.nicho_original,
         )
         .where(
-            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.user_email_lower == u,
             LeadExtraido.nicho == nicho,
         )
         .order_by(LeadExtraido.timestamp.desc())
@@ -716,39 +738,27 @@ def leads_por_nicho(
     )
 
     try:
-        rows = db.execute(stmt).all()
+        result = db.execute(query)
     except Exception as exc:
-        logger.exception(
-            "[leads_por_nicho] error user=%s nicho=%s", getattr(usuario, "email_lower", None), nicho
-        )
+        logger.exception("[leads_por_nicho] error user=%s nicho=%s", u, nicho)
         raise HTTPException(status_code=500, detail=str(exc))
 
-    leads = [
-        {
-            "dominio": row.dominio,
-            "url": row.url,
-            "estado_contacto": row.estado_contacto,
-            "timestamp": row.timestamp.isoformat() if row.timestamp else None,
-            "nicho": row.nicho,
-            "nicho_original": row.nicho_original,
-        }
+    rows = result.fetchall()
+    items = [
+        LeadItem(
+            id=row.id,
+            dominio=row.dominio,
+            url=row.url,
+            estado_contacto=row.estado_contacto,
+            timestamp=row.timestamp,
+            nicho=row.nicho,
+            nicho_original=(row.nicho_original or row.nicho),
+        ).dict()
         for row in rows
     ]
 
-    logger.info(
-        "[leads_por_nicho] user=%s nicho=%s count=%s",
-        getattr(usuario, "email_lower", None),
-        nicho,
-        len(leads),
-    )
-
-    return {
-        "nicho": nicho,
-        "leads": leads,
-        "limit": limit,
-        "offset": offset,
-        "count": len(leads),
-    }
+    logger.info("[leads_por_nicho] user=%s nicho=%s count=%d", u, nicho, len(items))
+    return {"items": items, "limit": limit, "offset": offset, "count": len(items)}
 
 
 @app.get("/exportar_leads_nicho")
