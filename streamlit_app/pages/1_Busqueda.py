@@ -104,6 +104,8 @@ for flag, valor in {
     "estado_actual": "",
     "fase_extraccion": None,
     "guardando_mostrado": False,
+    "guardar_realizado": False,
+    "export_realizado": False,
     "mostrar_resultado": False,
     "variantes_display": [],
     "has_extended_variant": False,
@@ -197,22 +199,41 @@ def procesar_extraccion():
 
     # 3. Guardar leads ----------------------------------------------------
     if fase == "exportando":
-        # Mostrar texto "Guardando leads" solo una vez
         if not st.session_state.guardando_mostrado:
-            st.session_state.estado_actual = "Guardando leads"
+            st.session_state.estado_actual = "Guardando leads en tu cuenta…"
             st.session_state.guardando_mostrado = True
             st.rerun()
 
-        # Ejecutar exportación solo una vez
+        if not st.session_state.get("guardar_realizado"):
+            payload_guardar = {
+                "nicho": st.session_state.nicho_actual,
+                "nicho_original": st.session_state.nicho_actual,
+                "resultados": st.session_state.resultados,
+            }
+            r_save = requests.post(
+                f"{BACKEND_URL}/guardar_leads",
+                json=payload_guardar,
+                headers=headers,
+                timeout=120,
+            )
+            st.session_state.guardar_realizado = True
+
+            if r_save.status_code != 200:
+                st.error("No se pudieron guardar los leads en la base de datos.")
+                st.session_state.loading = False
+                st.stop()
+
         if not st.session_state.get("export_realizado"):
             r = requests.post(
-                f"{BACKEND_URL}/exportar_csv", json=st.session_state.payload_export, headers=headers
+                f"{BACKEND_URL}/exportar_csv",
+                json=st.session_state.payload_export,
+                headers=headers,
+                timeout=120,
             )
             st.session_state.export_exitoso = r.status_code == 200
             st.session_state.export_realizado = True
 
-        # Finalizar --------------------------------------------------------
-        st.session_state.loading = False  # cierra popup en el siguiente rerun
+        st.session_state.loading = False
         st.session_state.mostrar_resultado = True
         st.rerun()
 
@@ -482,6 +503,7 @@ if st.session_state.get("mostrar_resultado"):
     for flag in [
         "fase_extraccion",
         "guardando_mostrado",
+        "guardar_realizado",
         "mostrar_resultado",
         "export_realizado",
         "export_exitoso",

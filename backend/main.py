@@ -1,6 +1,7 @@
 # --- Standard library ---
 import os
 import logging
+import re
 from urllib.parse import urlparse
 
 # --- Third-party ---
@@ -10,7 +11,7 @@ from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import func
+from sqlalchemy import func, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
@@ -75,10 +76,20 @@ if os.getenv("ENV") == "dev":
 
 
 
-def normalizar_dominio(dominio: str) -> str:
-    if dominio.startswith("http://") or dominio.startswith("https://"):
-        dominio = urlparse(dominio).netloc
-    return dominio.replace("www.", "").strip().lower()
+def normalizar_dominio(value: str) -> str:
+    if not value:
+        return ""
+    v = value.strip()
+    if v.startswith("http://") or v.startswith("https://"):
+        try:
+            netloc = urlparse(v).netloc
+            v = netloc or v
+        except Exception:
+            pass
+    v = re.sub(r"^www\.", "", v, flags=re.IGNORECASE)
+    v = v.lower()
+    v = v.split("/")[0].strip()
+    return v
 
 
 # --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
@@ -338,6 +349,20 @@ class ExtraerMultiplesPayload(BaseModel):
     pais: Optional[str] = "ES"
 
 
+class LeadIn(BaseModel):
+    dominio: Optional[str] = None
+    url: Optional[str] = None
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    origen: Optional[str] = None
+
+
+class GuardarLeadsPayload(BaseModel):
+    nicho: str
+    nicho_original: Optional[str] = None
+    resultados: List[LeadIn]
+
+
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
@@ -395,6 +420,58 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
     }
 
     return {"payload_export": payload_export, "resultados": resultados}
+
+
+@app.post("/guardar_leads")
+def guardar_leads(
+    payload: GuardarLeadsPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not payload.nicho:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+    if not payload.resultados:
+        return {"saved": 0, "duplicates": 0}
+
+    tbl = LeadExtraido.__table__
+    to_insert = []
+    nicho_norm = payload.nicho.strip()
+    nicho_orig = (payload.nicho_original or payload.nicho).strip()
+
+    for r in payload.resultados:
+        dom = normalizar_dominio(r.dominio or r.url or "")
+        if not dom:
+            continue
+        url_val = r.url or (f"https://{dom}")
+        if url_val and not url_val.startswith("http"):
+            url_val = f"https://{url_val}"
+
+        to_insert.append(
+            {
+                "user_email": usuario.email,
+                "user_email_lower": usuario.email_lower,
+                "dominio": dom,
+                "url": url_val,
+                "timestamp": func.now(),
+                "nicho": nicho_norm,
+                "nicho_original": nicho_orig,
+                "estado_contacto": "nuevo",
+            }
+        )
+
+    if not to_insert:
+        return {"saved": 0, "duplicates": 0}
+
+    # Nota: Asegúrate de que exista el índice único UX en la base de datos:
+    # CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_user_domain
+    #   ON leads_extraidos(user_email_lower, dominio);
+    stmt = insert(tbl).values(to_insert).on_conflict_do_nothing(
+        index_elements=[tbl.c.user_email_lower, tbl.c.dominio]
+    )
+    result = db.execute(stmt)
+    saved = getattr(result, "rowcount", None) or 0
+    db.commit()
+    return {"saved": saved, "duplicates": max(len(to_insert) - saved, 0)}
 
 
 @app.get("/health")
@@ -1104,7 +1181,6 @@ def obtener_estado(dominio: str, usuario=Depends(get_current_user), db: Session 
 from backend.database import engine, SessionLocal, DATABASE_URL  # <-- tu módulo real
 
 import logging
-from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 logger = logging.getLogger("uvicorn")
