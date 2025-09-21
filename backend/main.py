@@ -1,4 +1,5 @@
 # --- Standard library ---
+import asyncio
 import csv
 import io
 import os
@@ -18,6 +19,8 @@ from sqlalchemy import func, select, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
 from backend.models import LeadTarea
+
+import httpx
 
 # --- Local / project ---
 from backend.database import engine, SessionLocal, DATABASE_URL, get_db
@@ -93,6 +96,166 @@ def normalizar_dominio(value: str) -> str:
     v = v.lower()
     v = v.split("/")[0].strip()
     return v
+
+
+# --- Búsqueda y scraping ---
+
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+MAX_SEARCH_RESULTS = 60
+MAX_LEADS_PER_EXTRACTION = 30
+EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}")
+CONTACT_PATHS: tuple[str, ...] = (
+    "/contacto",
+    "/contact",
+    "/aviso-legal",
+    "/legal",
+    "/politica-privacidad",
+)
+BLOCKED_PATTERNS = (
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "linkedin.com",
+    "doctoralia.es",
+    "paginasamarillas.es",
+    "tripadvisor.es",
+    "habitissimo.es",
+    "youtube.com",
+    "yelp.com",
+    "maps.google.",
+)
+KNOWN_MULTI_TLDS = {
+    "com.ar",
+    "com.br",
+    "com.co",
+    "com.ec",
+    "com.es",
+    "com.mx",
+    "com.pe",
+    "com.cl",
+    "com.ve",
+    "co.uk",
+}
+
+
+def base_domain(domain: str) -> str:
+    if not domain:
+        return ""
+    parts = domain.split(".")
+    if len(parts) <= 2:
+        return domain
+    last_two = ".".join(parts[-2:])
+    last_three = ".".join(parts[-3:])
+    if last_two in KNOWN_MULTI_TLDS and len(parts) >= 3:
+        return last_three
+    return last_two
+
+
+def search_domains(queries: list[str], per_query: int = 12) -> list[str]:
+    api_key = os.getenv("BRAVE_API_KEY")
+    if not api_key:
+        logger.error("[buscar_variantes_seleccionadas] falta BRAVE_API_KEY para búsquedas")
+        raise HTTPException(500, detail="Servicio de búsqueda no configurado")
+
+    headers = {
+        "Accept": "application/json",
+        "X-Subscription-Token": api_key,
+    }
+    dominios: list[str] = []
+    vistos: set[str] = set()
+
+    with httpx.Client(timeout=10) as client:
+        for query in queries:
+            q = (query or "").strip()
+            if not q:
+                continue
+            try:
+                resp = client.get(
+                    BRAVE_SEARCH_URL,
+                    params={"q": q, "count": per_query},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                logger.warning("[buscar_variantes_seleccionadas] fallo consulta Brave q=%s err=%s", q, exc)
+                continue
+
+            results = data.get("web", {}).get("results", []) or []
+            for item in results:
+                url = item.get("url") or ""
+                domain = normalizar_dominio(url)
+                domain = base_domain(domain)
+                if not domain:
+                    continue
+                if any(domain.endswith(pat) or pat in domain for pat in BLOCKED_PATTERNS):
+                    continue
+                if domain in vistos:
+                    continue
+                vistos.add(domain)
+                dominios.append(domain)
+                if len(dominios) >= MAX_SEARCH_RESULTS:
+                    break
+            logger.info(
+                "[buscar_variantes_seleccionadas] query=%s dominios_parciales=%d",
+                q,
+                len(dominios),
+            )
+            if len(dominios) >= MAX_SEARCH_RESULTS:
+                break
+
+    return dominios
+
+
+async def _fetch_email_for_domain(client: httpx.AsyncClient, domain: str) -> Optional[str]:
+    async def get_text(url: str) -> str:
+        try:
+            resp = await client.get(url, timeout=8)
+            if resp.status_code < 400:
+                return resp.text or ""
+        except Exception as exc:
+            logger.debug("[scrape] fallo request url=%s err=%s", url, exc)
+        return ""
+
+    base_url = f"https://{domain}"
+    html = await get_text(base_url)
+    matches = EMAIL_RE.findall(html)
+    if matches:
+        return matches[0]
+
+    for idx, path in enumerate(CONTACT_PATHS, start=1):
+        if idx > 2:
+            break
+        html = await get_text(f"{base_url}{path}")
+        matches = EMAIL_RE.findall(html)
+        if matches:
+            return matches[0]
+    return None
+
+
+async def scrape_domains(domains: list[str]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        tasks = [_fetch_email_for_domain(client, d) for d in domains]
+        emails = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for domain, email in zip(domains, emails):
+        if isinstance(email, Exception):
+            logger.debug("[scrape] excepción dominio=%s err=%s", domain, email)
+            email_value = None
+        else:
+            email_value = email
+        results.append(
+            {
+                "dominio": domain,
+                "url": f"https://{domain}",
+                "email": email_value,
+                "telefono": None,
+                "origen": "scraping_web",
+            }
+        )
+
+    return results
 
 
 # --- Compatibilidad con 1_Busqueda.py: endpoints de búsqueda/variantes/extracción ---
@@ -330,21 +493,25 @@ class VariantesPayload(BaseModel):
 @app.post("/buscar_variantes_seleccionadas")
 def buscar_dominios(payload: VariantesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Genera 'dominios' a partir de las variantes seleccionadas (placeholder).
-    En producción, sustituir por búsqueda real (Google/Maps + scraping).
+    Genera 'dominios' a partir de las variantes seleccionadas realizando
+    consultas reales contra Brave Search.
     """
     if not payload.variantes:
         raise HTTPException(400, detail="variantes vacío")
 
-    dominios = []
-    for v in payload.variantes[:3]:
-        slug = "".join(ch for ch in v.lower() if ch.isalnum() or ch in "- ").replace(" ", "-")
-        if slug:
-            dominios.append(f"{slug}.com")
-    if not dominios:
-        dominios = ["ejemplo-empresa.com", "otra-empresa.com"]
+    queries = [v for v in payload.variantes if v]
+    dominios = search_domains(queries)
+    logger.info(
+        "[buscar_variantes_seleccionadas] user=%s queries=%d dominios=%d",
+        getattr(usuario, "email_lower", None),
+        len(queries),
+        len(dominios),
+    )
 
-    return {"dominios": list(dict.fromkeys(dominios))[:15]}
+    if not dominios:
+        raise HTTPException(502, detail="No se encontraron dominios para las variantes proporcionadas")
+
+    return {"dominios": dominios[:MAX_SEARCH_RESULTS]}
 
 
 class ExtraerMultiplesPayload(BaseModel):
@@ -385,35 +552,43 @@ class LeadItem(BaseModel):
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Simula la extracción de leads de múltiples URLs y devuelve la estructura
-    esperada por la UI: { payload_export, resultados }.
-    Integra aquí scraping real más adelante (BeautifulSoup + ScraperAPI).
+    Extrae leads desde los dominios recibidos realizando un scraping ligero y
+    devuelve la estructura esperada por la UI: { payload_export, resultados }.
     """
     if not payload.urls:
         raise HTTPException(400, detail="urls vacío")
 
-    # Normaliza dominios
-    def _dom(url: str):
-        from urllib.parse import urlparse
-
-        u = url if url.startswith("http") else f"https://{url}"
-        return urlparse(u).netloc.replace("www.", "")
-
-    resultados = []
-    nuevos = 0
-    for u in payload.urls[:50]:
-        d = _dom(u)
-        if not d:
+    raw_domains = []
+    seen: set[str] = set()
+    for url in payload.urls:
+        dom = normalizar_dominio(url)
+        if not dom:
             continue
-        # Datos básicos ficticios (placeholder)
-        resultados.append({
-            "dominio": d,
-            "url": f"https://{d}",
-            "email": f"info@{d}",
-            "telefono": None,
-            "origen": "scraping_web",
-        })
-        nuevos += 1
+        if dom in seen:
+            continue
+        seen.add(dom)
+        raw_domains.append(dom)
+
+    domains_slice = raw_domains[:MAX_LEADS_PER_EXTRACTION]
+    if not domains_slice:
+        raise HTTPException(400, detail="No se encontraron dominios válidos para extraer")
+
+    try:
+        resultados = asyncio.run(scrape_domains(domains_slice))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            resultados = loop.run_until_complete(scrape_domains(domains_slice))
+        finally:
+            loop.close()
+
+    nuevos = len(resultados)
+    logger.info(
+        "[extraer_multiples] user=%s dominios_solicitados=%d dominios_utilizados=%d",
+        getattr(usuario, "email_lower", None),
+        len(payload.urls),
+        nuevos,
+    )
 
     # Consumo de cuotas/créditos sin romper planes actuales
     try:
@@ -424,6 +599,7 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
             # Capar volumen en free si aplica
             if plan_name == "free" and cap is not None and nuevos > cap:
                 resultados = resultados[:cap]
+                nuevos = len(resultados)
             if plan_name == "free":
                 consume_free_search(db, usuario.id, plan_name)
             else:
