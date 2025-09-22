@@ -152,18 +152,20 @@ class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
 
     id = Column(Integer, primary_key=True)
-    dominio = Column(String, nullable=False)
+    user_email_lower = Column(String, nullable=False, index=True)
+    dominio = Column(String, nullable=False, index=True)
     email = Column(String)
     telefono = Column(String)
     informacion = Column(Text)
-    user_email = Column(String)
-    user_email_lower = Column(String, index=True, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    @validates("user_email")
-    def _set_lower(self, key, value):
-        self.user_email_lower = (value or "").strip().lower()
-        return (value or "").strip()
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email_lower",
+            "dominio",
+            name="uix_lead_info_extra_usuario_dominio",
+        ),
+    )
 
 class LeadExtraido(Base):
     __tablename__ = "leads_extraidos"
