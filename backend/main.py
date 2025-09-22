@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 # --- Third-party ---
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +29,7 @@ from backend.models import (
     HistorialExport,
     LeadEstado,
     LeadExtraido,
+    LeadInfoExtra,
     LeadTarea,
     UsuarioMemoria,
 )
@@ -675,6 +676,14 @@ class MoveLeadRequest(BaseModel):
     nicho_destino: str
     actualizar_nicho_original: bool = False
 
+    @root_validator(pre=True)
+    def _legacy_payload(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if "nicho_origen" not in values and "origen" in values:
+            values["nicho_origen"] = values["origen"]
+        if "nicho_destino" not in values and "destino" in values:
+            values["nicho_destino"] = values["destino"]
+        return values
+
     @validator("dominio", "nicho_origen", "nicho_destino", pre=True)
     def _strip_and_validate(cls, value: Any) -> str:
         if isinstance(value, str):
@@ -684,7 +693,7 @@ class MoveLeadRequest(BaseModel):
         return value
 
 
-VALID_ESTADOS_LEAD = {"pendiente", "contactado", "no_responde", "descartado"}
+VALID_ESTADOS_LEAD = {"pendiente", "contactado", "cerrado", "fallido"}
 
 
 class NotaLeadPayload(BaseModel):
@@ -700,9 +709,46 @@ class NotaLeadPayload(BaseModel):
         return value
 
 
+def _normalize_estado_contacto(value: str) -> str:
+    estado = (value or "").strip().lower()
+    if estado not in VALID_ESTADOS_LEAD:
+        raise HTTPException(status_code=400, detail="Estado inválido.")
+    return estado
+
+
+def _lead_por_dominio(
+    db: Session, user_email_lower: str, dominio_norm: str, lock: bool = False
+) -> LeadExtraido | None:
+    stmt = select(LeadExtraido).where(
+        LeadExtraido.user_email_lower == user_email_lower,
+        LeadExtraido.dominio == dominio_norm,
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    return db.execute(stmt).scalars().first()
+
+
+def _set_estado_contacto_por_dominio(
+    db: Session, user_email_lower: str, dominio_norm: str, estado_value: str
+) -> LeadExtraido:
+    lead = _lead_por_dominio(db, user_email_lower, dominio_norm, lock=True)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+    lead.estado_contacto = estado_value
+    db.add(lead)
+    return lead
+
+
 class EstadoLeadPayload(BaseModel):
     dominio: str
     estado: str
+
+    @root_validator(pre=True)
+    def _normalize_keys(cls, values: dict[str, Any]) -> dict[str, Any]:
+        estado = values.get("estado")
+        if not estado and values.get("estado_contacto"):
+            values["estado"] = values["estado_contacto"]
+        return values
 
     @validator("dominio", "estado", pre=True)
     def _strip(cls, value: Any) -> str:
@@ -710,6 +756,28 @@ class EstadoLeadPayload(BaseModel):
             value = value.strip()
         if not value:
             raise ValueError("Campo obligatorio")
+        return value
+
+
+class GuardarInfoExtraPayload(BaseModel):
+    dominio: str
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    informacion: Optional[str] = None
+
+    @validator("dominio", pre=True)
+    def _validate_dominio(cls, value: Any) -> str:
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("Dominio requerido")
+        return value
+
+    @validator("email", "telefono", "informacion", pre=True, always=True)
+    def _strip_optional(cls, value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
         return value
 
 
@@ -971,18 +1039,26 @@ def obtener_info_extra(
     if not dominio_norm:
         raise HTTPException(status_code=400, detail="Dominio inválido")
 
-    lead = (
+    lead = _lead_por_dominio(db, usuario.email_lower, dominio_norm)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    info_extra = (
         db.execute(
-            select(LeadExtraido).where(
-                LeadExtraido.user_email_lower == usuario.email_lower,
-                LeadExtraido.dominio == dominio_norm,
+            select(LeadInfoExtra)
+            .where(
+                LeadInfoExtra.user_email_lower == usuario.email_lower,
+                LeadInfoExtra.dominio == dominio_norm,
             )
+            .limit(1)
         )
         .scalars()
         .first()
     )
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    email = info_extra.email if info_extra else None
+    telefono = info_extra.telefono if info_extra else None
+    informacion = info_extra.informacion if info_extra else None
 
     ensure_lead_nota_schema(db)
 
@@ -1035,7 +1111,79 @@ def obtener_info_extra(
         "notas": notas,
         "tareas_pendientes": pendientes,
         "tareas_totales": totales,
+        "email": email or "",
+        "telefono": telefono or "",
+        "informacion": informacion or "",
     }
+
+
+@app.post("/guardar_info_extra")
+def guardar_info_extra(
+    payload: GuardarInfoExtraPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    lead = _lead_por_dominio(db, usuario.email_lower, dominio_norm, lock=True)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    try:
+        row = (
+            db.execute(
+                select(LeadInfoExtra)
+                .where(
+                    LeadInfoExtra.user_email_lower == usuario.email_lower,
+                    LeadInfoExtra.dominio == dominio_norm,
+                )
+                .with_for_update()
+            )
+            .scalars()
+            .first()
+        )
+
+        created = False
+        if row:
+            row.email = payload.email
+            row.telefono = payload.telefono
+            row.informacion = payload.informacion
+        else:
+            row = LeadInfoExtra(
+                dominio=dominio_norm,
+                email=payload.email,
+                telefono=payload.telefono,
+                informacion=payload.informacion,
+                user_email=usuario.email,
+                user_email_lower=usuario.email_lower,
+            )
+            db.add(row)
+            created = True
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[guardar_info_extra] error inesperado user=%s dominio=%s",
+            usuario.email_lower,
+            dominio_norm,
+        )
+        raise HTTPException(status_code=500, detail="Error al guardar la información.") from exc
+
+    logger.info(
+        "[guardar_info_extra] user=%s dominio=%s created=%s",
+        usuario.email_lower,
+        dominio_norm,
+        created,
+    )
+
+    data = {"ok": True, "dominio": dominio_norm, "created": created}
+    return JSONResponse(data, status_code=201 if created else 200)
 
 
 @app.post("/nota_lead", status_code=201)
@@ -1100,25 +1248,10 @@ def actualizar_estado_lead(
     if not dominio_norm:
         raise HTTPException(status_code=400, detail="Dominio inválido")
 
-    estado_value = payload.estado.lower()
-    if estado_value not in VALID_ESTADOS_LEAD:
-        raise HTTPException(status_code=400, detail="Estado inválido.")
+    estado_value = _normalize_estado_contacto(payload.estado)
 
     try:
-        stmt = (
-            select(LeadExtraido)
-            .where(
-                LeadExtraido.user_email_lower == usuario.email_lower,
-                LeadExtraido.dominio == dominio_norm,
-            )
-            .with_for_update()
-        )
-        lead = db.execute(stmt).scalars().first()
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead no encontrado.")
-
-        lead.estado_contacto = estado_value
-        db.add(lead)
+        _set_estado_contacto_por_dominio(db, usuario.email_lower, dominio_norm, estado_value)
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1137,9 +1270,94 @@ def actualizar_estado_lead(
     return {"ok": True, "estado": estado_value}
 
 
+@app.post("/leads/estado_contacto")
+def actualizar_estado_por_dominio(
+    payload: EstadoLeadPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    estado_value = _normalize_estado_contacto(payload.estado)
+
+    try:
+        _set_estado_contacto_por_dominio(db, usuario.email_lower, dominio_norm, estado_value)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[leads_estado_contacto] error al actualizar user=%s dominio=%s",
+            usuario.email_lower,
+            dominio_norm,
+        )
+        raise HTTPException(status_code=500, detail="Error al actualizar el estado.") from exc
+
+    logger.info(
+        "[leads_estado_contacto] user=%s dominio=%s estado=%s",
+        usuario.email_lower,
+        dominio_norm,
+        estado_value,
+    )
+
+    return {"ok": True, "estado": estado_value}
+
+
+@app.patch("/leads/{lead_id}/estado_contacto")
+def actualizar_estado_por_id(
+    lead_id: int,
+    payload: EstadoLeadPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    estado_value = _normalize_estado_contacto(payload.estado)
+
+    try:
+        stmt = (
+            select(LeadExtraido)
+            .where(
+                LeadExtraido.id == lead_id,
+                LeadExtraido.user_email_lower == usuario.email_lower,
+            )
+            .with_for_update()
+        )
+        lead = db.execute(stmt).scalars().first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+        lead.estado_contacto = estado_value
+        db.add(lead)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[leads_estado_contacto_id] error user=%s lead_id=%s",
+            usuario.email_lower,
+            lead_id,
+        )
+        raise HTTPException(status_code=500, detail="Error al actualizar el estado.") from exc
+
+    logger.info(
+        "[leads_estado_contacto_id] user=%s lead_id=%s estado=%s",
+        usuario.email_lower,
+        lead_id,
+        estado_value,
+    )
+
+    return {"ok": True, "estado": estado_value}
+
+
 @app.delete("/eliminar_lead")
 def eliminar_lead(
     dominio: str = Query(..., min_length=1),
+    nicho: Optional[str] = Query(None),
     solo_de_este_nicho: bool = Query(True),
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1149,18 +1367,12 @@ def eliminar_lead(
     if not dominio_norm:
         raise HTTPException(status_code=400, detail="Dominio inválido")
 
-    lead = (
-        db.execute(
-            select(LeadExtraido).where(
-                LeadExtraido.user_email_lower == usuario.email_lower,
-                LeadExtraido.dominio == dominio_norm,
-            )
-        )
-        .scalars()
-        .first()
-    )
+    lead = _lead_por_dominio(db, usuario.email_lower, dominio_norm, lock=True)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    nicho_norm = normalizar_nicho(nicho) if nicho else None
+    lead_nicho = lead.nicho
 
     ensure_lead_nota_schema(db)
 
@@ -1177,6 +1389,9 @@ def eliminar_lead(
             ),
             {"user": usuario.email_lower, "dominio": dominio_norm},
         )
+        db.query(LeadInfoExtra).filter_by(
+            user_email_lower=usuario.email_lower, dominio=dominio_norm
+        ).delete(synchronize_session=False)
         db.delete(lead)
         db.commit()
     except Exception as exc:
@@ -1186,7 +1401,12 @@ def eliminar_lead(
         )
         raise HTTPException(status_code=500, detail="Error al eliminar el lead.") from exc
 
-    logger.info("[eliminar_lead] user=%s dominio=%s", usuario.email_lower, dominio_norm)
+    logger.info(
+        "[eliminar_lead] user=%s dominio=%s nicho=%s",
+        usuario.email_lower,
+        dominio_norm,
+        nicho_norm or lead_nicho,
+    )
 
     return {"ok": True, "dominio": dominio_norm}
 

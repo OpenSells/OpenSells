@@ -206,12 +206,33 @@ Respuesta `200 OK`:
   "estado_contacto": "pendiente",
   "nicho": "dentistas_murcia",
   "nicho_original": "Dentistas Murcia",
+  "email": "",
+  "telefono": "",
+  "informacion": "",
   "notas": [
     {"id": 42, "texto": "Llamar el lunes", "timestamp": "2025-03-01T10:15:00+00:00"}
   ],
   "tareas_pendientes": 2,
   "tareas_totales": 3
 }
+```
+
+```bash
+curl -X POST "$BACKEND_URL/guardar_info_extra" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dominio": "ejemplo.com",
+    "email": "contacto@ejemplo.com",
+    "telefono": "+34 600 000 000",
+    "informacion": "Cliente interesado en web y RRSS"
+  }'
+```
+
+Respuesta `201 Created` la primera vez (luego `200 OK` en actualizaciones):
+
+```json
+{"ok": true, "dominio": "ejemplo.com", "created": true}
 ```
 
 ```bash
@@ -231,21 +252,22 @@ Respuesta `201 Created`:
 ```
 
 ```bash
-curl -X PATCH "$BACKEND_URL/estado_lead" \
+curl -X POST "$BACKEND_URL/leads/estado_contacto" \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
     "dominio": "ejemplo.com",
-    "estado": "contactado"
+    "estado_contacto": "contactado"
   }'
 ```
 
-Estados permitidos: `pendiente`, `contactado`, `no_responde`, `descartado`.
+Estados permitidos: `pendiente`, `contactado`, `cerrado`, `fallido`. También se mantiene el shim `PATCH /leads/{lead_id}/estado_contacto` para llamadas legadas.
 
 ```bash
 curl -X DELETE "$BACKEND_URL/eliminar_lead" \
   -H "Authorization: Bearer <TOKEN>" \
-  -G --data-urlencode "dominio=ejemplo.com" \
+  -G --data-urlencode "nicho=dentistas-murcia" \
+  --data-urlencode "dominio=ejemplo.com" \
   --data-urlencode "solo_de_este_nicho=true"
 ```
 
@@ -256,6 +278,26 @@ Respuesta `200 OK`:
 ```
 
 Si el dominio no existe para el usuario autenticado, los endpoints devuelven `404 Not Found` con `{ "detail": "Lead no encontrado." }`.
+
+#### Mover lead
+
+```bash
+curl -X POST "$BACKEND_URL/mover_lead" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dominio": "ejemplo.com",
+    "origen": "Dentistas Murcia",
+    "destino": "Dentistas Valencia",
+    "actualizar_nicho_original": false
+  }'
+```
+
+Respuestas habituales:
+
+* `200 OK` – `{ "ok": true, "dominio": "ejemplo.com", "de": "Dentistas Murcia", "a": "Dentistas Valencia" }`
+* `404 Not Found` – `{ "detail": "Lead no encontrado en el nicho de origen." }`
+* `409 Conflict` – `{ "detail": "El lead ya existe en el nicho 'dentistas-valencia'." }`
 
 ## Base de datos y migraciones
 - Esquema documentado en `AUDITORIA_TABLAS.md`; entidades clave: `usuarios`, `leads_extraidos`, `lead_estado`, `lead_tarea`, `lead_nota`, `user_usage_monthly`, `historial`.

@@ -12,7 +12,7 @@ def _lead_model():
 
 @pytest.mark.usefixtures("db_session")
 class TestMoverLeadEndpoint:
-    def test_mover_lead_ok(self, client, db_session):
+    def test_move_lead_retorna_en_mis_nichos(self, client, db_session):
         headers = auth(client, "user1@example.com")
         dominio = "ejemplo.com"
         origen_visible = "Dentistas Murcia"
@@ -37,8 +37,8 @@ class TestMoverLeadEndpoint:
             headers=headers,
             json={
                 "dominio": dominio,
-                "nicho_origen": origen_visible,
-                "nicho_destino": destino_visible,
+                "origen": origen_visible,
+                "destino": destino_visible,
                 "actualizar_nicho_original": True,
             },
         )
@@ -57,6 +57,12 @@ class TestMoverLeadEndpoint:
         )
         assert moved.nicho == normalizar_nicho(destino_visible)
         assert moved.nicho_original == destino_visible
+
+        mis_nichos = client.get("/mis_nichos", headers=headers)
+        assert mis_nichos.status_code == 200
+        data_nichos = mis_nichos.json()
+        assert any(n["nicho"] == moved.nicho for n in data_nichos)
+        assert any(n["nicho_original"] == destino_visible for n in data_nichos)
 
     def test_mover_lead_not_found(self, client):
         headers = auth(client, "user2@example.com")

@@ -33,12 +33,6 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
-from streamlit_app.utils.leads_api import (
-    api_info_extra,
-    api_nota_lead,
-    api_estado_lead,
-    api_eliminar_lead,
-)
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -113,18 +107,16 @@ def _estado_chip_label(estado:str)->str:
     label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
     return f"{icon} {label}"
 
-def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
-    antiguo=lead.get("estado_contacto")
-    lead["estado_contacto"]=nuevo
-    resp = http_client.patch(
-        f"/leads/{lead_id}/estado_contacto",
-        json={"estado_contacto": nuevo},
+def _cambiar_estado_lead(dominio: str, nuevo: str):
+    res = cached_post(
+        "leads/estado_contacto",
+        token,
+        payload={"dominio": dominio, "estado_contacto": nuevo},
     )
-    if not resp or resp.status_code>=400:
-        lead["estado_contacto"]=antiguo
-        st.toast("No se pudo actualizar el estado",icon="⚠️")
+    if res:
+        st.toast("Estado actualizado", icon="✅")
     else:
-        st.toast("Estado actualizado",icon="✅")
+        st.toast("No se pudo actualizar el estado", icon="⚠️")
 
 
 # ── Helpers ──────────────────────────────────────────
@@ -134,8 +126,8 @@ def normalizar_nicho(texto: str) -> str:
 
     texto = texto.strip().lower()
     texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
-    texto = re.sub(r"[^a-z0-9]+", "_", texto)
-    return texto.strip("_")
+    texto = re.sub(r"[^a-z0-9]+", "-", texto)
+    return texto.strip("-")
 
 def normalizar_dominio(url: str) -> str:
     if not url:
@@ -444,7 +436,7 @@ for n in nichos_visibles:
                 with st.popover(estado_label, help="Cambiar estado", use_container_width=False):
                     for est in ESTADOS.keys():
                         if st.button(_estado_chip_label(est), key=f"btn_est_{est}_{clave_base}"):
-                            _cambiar_estado_lead(l, l.get("id"), est)
+                            _cambiar_estado_lead(dominio, est)
                             st.rerun()
 
             with cols_row[5]:
@@ -520,8 +512,8 @@ for n in nichos_visibles:
                             headers={"Authorization": f"Bearer {token}"},
                             json={
                                 "dominio": dominio,
-                                "nicho_origen": original,
-                                "nicho_destino": nuevo_nicho,
+                                "origen": original,
+                                "destino": nuevo_nicho,
                                 "actualizar_nicho_original": False,
                             },
                         )
@@ -532,7 +524,15 @@ for n in nichos_visibles:
                                 st.success("Lead movido correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
                                 st.session_state["lead_a_mover"] = None
-                                st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
+                                try:
+                                    dest_key = next(
+                                        ni["nicho"]
+                                        for ni in nichos
+                                        if _nicho_original_value(ni) == nuevo_nicho
+                                    )
+                                except StopIteration:
+                                    dest_key = normalizar_nicho(nuevo_nicho)
+                                st.session_state["solo_nicho_visible"] = dest_key
                                 st.rerun()
                             elif resp.status_code == 404:
                                 st.error("No se encontró el lead en el nicho de origen.")
@@ -554,53 +554,73 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info_extra = api_info_extra(dominio)
-                if not info_extra:
-                    st.info("No se encontró información para este lead.")
+                resp_info = http_client.get(
+                    "/info_extra",
+                    params={"dominio": dominio},
+                )
+
+                if isinstance(resp_info, dict) and resp_info.get("_error") == "unauthorized":
+                    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
                 else:
-                    estado_actual = info_extra.get("estado_contacto") or "pendiente"
-                    tareas_pendientes = info_extra.get("tareas_pendientes", 0)
-                    tareas_totales = info_extra.get("tareas_totales", 0)
-
-                    col_estado, col_tareas = st.columns(2)
-                    col_estado.metric("Estado actual", estado_actual)
-                    col_tareas.metric("Tareas pendientes", tareas_pendientes)
-                    col_tareas.metric("Tareas totales", tareas_totales)
-
-                    estados_validos = ["pendiente", "contactado", "no_responde", "descartado"]
-                    try:
-                        idx_estado = estados_validos.index(estado_actual)
-                    except ValueError:
-                        idx_estado = 0
-
-                    with st.form(key=f"form_estado_{clave_base}"):
-                        nuevo_estado = st.selectbox(
-                            "Actualizar estado",
-                            estados_validos,
-                            index=idx_estado,
-                            key=f"estado_select_{clave_base}",
-                        )
-                        if st.form_submit_button("Guardar estado"):
-                            api_estado_lead(dominio, nuevo_estado)
-
-                    st.markdown("#### Notas")
-                    notas = info_extra.get("notas", [])
-                    if notas:
-                        for nota in notas:
-                            timestamp = nota.get("timestamp") or ""
-                            st.write(f"- {nota.get('texto')}  ")
-                            if timestamp:
-                                st.caption(timestamp)
+                    data = {}
+                    status = getattr(resp_info, "status_code", None)
+                    if status == 200:
+                        try:
+                            data = resp_info.json() or {}
+                        except Exception:
+                            data = {}
+                    elif status == 404:
+                        st.info("No se encontró información para este lead.")
+                        data = {}
+                    elif status is not None:
+                        st.error(f"Error al cargar la información ({status}).")
+                        data = {}
                     else:
-                        st.write("Sin notas todavía.")
+                        data = {}
 
-                    with st.form(key=f"form_nota_{clave_base}"):
-                        nota_texto = st.text_area("Añadir nota", key=f"nota_texto_{clave_base}")
-                        if st.form_submit_button("Guardar nota"):
-                            if nota_texto.strip():
-                                api_nota_lead(dominio, nota_texto)
+                    email_val = data.get("email") or ""
+                    telefono_val = data.get("telefono") or ""
+                    info_val = data.get("informacion") or ""
+
+                    with st.form(key=f"form_info_extra_{clave_base}"):
+                        col_a, col_b = st.columns(2)
+                        email_input = col_a.text_input(
+                            "Email",
+                            value=email_val,
+                            key=f"info_email_{clave_base}",
+                            placeholder="contacto@dominio.com",
+                        )
+                        telefono_input = col_b.text_input(
+                            "Teléfono",
+                            value=telefono_val,
+                            key=f"info_tel_{clave_base}",
+                            placeholder="+34 600 000 000",
+                        )
+                        info_input = st.text_area(
+                            "Notas / información",
+                            value=info_val,
+                            key=f"info_texto_{clave_base}",
+                            height=120,
+                        )
+
+                        if st.form_submit_button("Guardar"):
+                            payload = {
+                                "dominio": dominio,
+                                "email": email_input.strip() if email_input else None,
+                                "telefono": telefono_input.strip() if telefono_input else None,
+                                "informacion": info_input.strip() if info_input else None,
+                            }
+                            resp_guardar = http_client.post(
+                                "/guardar_info_extra",
+                                json=payload,
+                            )
+                            if isinstance(resp_guardar, dict) and resp_guardar.get("_error") == "unauthorized":
+                                st.warning("Sesión expirada. Vuelve a iniciar sesión.")
+                            elif getattr(resp_guardar, "status_code", 0) in (200, 201):
+                                st.toast("Información guardada", icon="✅")
+                                st.rerun()
                             else:
-                                st.warning("Escribe una nota antes de guardar.")
+                                st.toast("No se pudo guardar la información", icon="⚠️")
 
                     st.divider()
                     confirmar_key = f"confirmar_eliminar_{clave_base}"
@@ -608,8 +628,23 @@ for n in nichos_visibles:
                         st.warning("Confirma la eliminación del lead. Esta acción es irreversible.")
                         col_confirma, col_cancel = st.columns(2)
                         if col_confirma.button("Sí, eliminar", key=f"confirm_delete_{clave_base}"):
-                            api_eliminar_lead(dominio, True)
-                            st.session_state.pop(confirmar_key, None)
+                            res = cached_delete(
+                                "eliminar_lead",
+                                token,
+                                params={
+                                    "nicho": n["nicho"],
+                                    "dominio": dominio,
+                                    "solo_de_este_nicho": True,
+                                },
+                            )
+                            if res:
+                                st.success("Lead eliminado.")
+                                st.session_state.pop(confirmar_key, None)
+                                st.session_state["forzar_recarga"] += 1
+                                st.session_state["solo_nicho_visible"] = n["nicho"]
+                                st.rerun()
+                            else:
+                                st.error("❌ Error al eliminar el lead")
                         if col_cancel.button("Cancelar", key=f"cancel_delete_{clave_base}"):
                             st.session_state.pop(confirmar_key, None)
                     else:
