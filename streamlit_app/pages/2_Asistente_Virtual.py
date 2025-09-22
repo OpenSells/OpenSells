@@ -274,16 +274,42 @@ def api_leads_por_nicho(nicho: str):
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
-def mover_lead(dominio: str, origen: str, destino: str):
+def mover_lead(
+    dominio: str,
+    origen: str,
+    destino: str,
+    actualizar_nicho_original: bool = False,
+):
     st.session_state["lead_actual"] = dominio
     try:
         r = http_client.post(
             "/mover_lead",
             headers=_auth_headers(),
-            json={"dominio": dominio, "origen": origen, "destino": destino},
+            json={
+                "dominio": dominio,
+                "nicho_origen": origen,
+                "nicho_destino": destino,
+                "actualizar_nicho_original": actualizar_nicho_original,
+            },
         )
+        if isinstance(r, dict):
+            return {"error": "Sesión expirada", "status": r.get("_status", 401)}
         if r.status_code == 200:
             return r.json()
+        if r.status_code == 404:
+            return {"error": "No se encontró el lead en el nicho de origen.", "status": 404}
+        if r.status_code == 409:
+            detail = None
+            try:
+                payload_resp = r.json()
+                if isinstance(payload_resp, dict):
+                    detail = payload_resp.get("detail")
+            except Exception:
+                detail = None
+            return {
+                "error": detail or "El lead ya existe en otro nicho.",
+                "status": 409,
+            }
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}

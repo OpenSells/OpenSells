@@ -152,6 +152,42 @@ GET /historial
 ```
 Otros endpoints relevantes: `/tarea_lead`, `/tareas_pendientes`, `/mi_memoria`, `/estado_lead`, `/plan/usage`, `/plan/limits`, `/debug/incrementar_uso` (solo dev) y endpoints auxiliares esperados por la UI (exportaciones globales, gestión avanzada de leads).
 
+### Mover lead
+
+Regla clave: cada dominio solo puede existir una vez por usuario (`user_email_lower`). Si el lead ya pertenece a otro nicho del mismo usuario, el backend responde con conflicto.
+
+```bash
+curl -X POST "$BACKEND_URL/mover_lead" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dominio": "ejemplo.com",
+    "nicho_origen": "Dentistas Murcia",
+    "nicho_destino": "Dentistas Valencia",
+    "actualizar_nicho_original": false
+  }'
+```
+
+Respuestas posibles:
+
+- `200 OK`
+
+  ```json
+  {"ok": true, "dominio": "ejemplo.com", "de": "Dentistas Murcia", "a": "Dentistas Valencia"}
+  ```
+
+- `404 Not Found`
+
+  ```json
+  {"detail": "Lead no encontrado en el nicho de origen."}
+  ```
+
+- `409 Conflict`
+
+  ```json
+  {"detail": "El lead ya existe en el nicho 'dentistas valencia'."}
+  ```
+
 ## Base de datos y migraciones
 - Esquema documentado en `AUDITORIA_TABLAS.md`; entidades clave: `usuarios`, `leads_extraidos`, `lead_estado`, `lead_tarea`, `lead_nota`, `user_usage_monthly`, `historial`.
 - Claves únicas y `CHECK` basados en `user_email_lower` para garantizar multi-tenant.

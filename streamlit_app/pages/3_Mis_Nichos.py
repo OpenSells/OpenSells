@@ -509,23 +509,38 @@ for n in nichos_visibles:
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                         subscription_cta()
                     else:
-                        res = cached_post(
-                            "mover_lead",
-                            token,
-                            payload={
+                        resp = http_client.post(
+                            "/mover_lead",
+                            headers={"Authorization": f"Bearer {token}"},
+                            json={
                                 "dominio": dominio,
-                                "origen": original,
-                                "destino": nuevo_nicho,
+                                "nicho_origen": original,
+                                "nicho_destino": nuevo_nicho,
+                                "actualizar_nicho_original": False,
                             },
                         )
-                        if res:
-                            st.success("Lead movido correctamente ✅")
-                            st.session_state["forzar_recarga"] += 1
-                            st.session_state["lead_a_mover"] = None
-                            st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
-                            st.rerun()
+                        if isinstance(resp, dict):
+                            st.error("Sesión expirada. Vuelve a iniciar sesión.")
                         else:
-                            st.error("Error al mover lead")
+                            if resp.status_code == 200:
+                                st.success("Lead movido correctamente ✅")
+                                st.session_state["forzar_recarga"] += 1
+                                st.session_state["lead_a_mover"] = None
+                                st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
+                                st.rerun()
+                            elif resp.status_code == 404:
+                                st.error("No se encontró el lead en el nicho de origen.")
+                            elif resp.status_code == 409:
+                                detalle = None
+                                try:
+                                    payload_json = resp.json()
+                                    if isinstance(payload_json, dict):
+                                        detalle = payload_json.get("detail")
+                                except Exception:
+                                    detalle = None
+                                st.warning(detalle or "El lead ya existe en otro nicho.")
+                            else:
+                                st.error(f"Error al mover lead ({resp.status_code}).")
 
             # Botón Información extra
             if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):

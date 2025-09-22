@@ -45,6 +45,7 @@ from backend.core.usage_helpers import (
     register_ia_message,
 )
 from backend.core.usage_service import UsageService
+from backend.utils import normalizar_nicho
 
 # --- Load environment variables ---
 from dotenv import load_dotenv
@@ -572,6 +573,21 @@ class LeadItem(BaseModel):
     nicho_original: str
 
 
+class MoveLeadRequest(BaseModel):
+    dominio: str
+    nicho_origen: str
+    nicho_destino: str
+    actualizar_nicho_original: bool = False
+
+    @validator("dominio", "nicho_origen", "nicho_destino", pre=True)
+    def _strip_and_validate(cls, value: Any) -> str:
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("Campo obligatorio")
+        return value
+
+
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
@@ -736,6 +752,87 @@ def guardar_leads(
         "saltados": saltados,
         "total_recibidos": total_recibidos,
         "nicho": nicho_norm,
+    }
+
+
+@app.post("/mover_lead")
+def mover_lead(
+    payload: MoveLeadRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio = normalizar_dominio(payload.dominio)
+    if not dominio:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    nicho_origen_norm = normalizar_nicho(payload.nicho_origen)
+    nicho_destino_norm = normalizar_nicho(payload.nicho_destino)
+
+    if not nicho_origen_norm or not nicho_destino_norm:
+        raise HTTPException(status_code=400, detail="Nicho inválido")
+
+    if nicho_origen_norm == nicho_destino_norm:
+        raise HTTPException(status_code=400, detail="mismo nicho")
+
+    try:
+        stmt = (
+            select(LeadExtraido)
+            .where(
+                LeadExtraido.user_email_lower == usuario.email_lower,
+                LeadExtraido.dominio == dominio,
+            )
+            .with_for_update()
+        )
+        rows = db.execute(stmt).scalars().all()
+
+        if not rows:
+            raise HTTPException(
+                status_code=404, detail="Lead no encontrado en el nicho de origen."
+            )
+
+        if len(rows) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Existen múltiples registros para este dominio. Contacta soporte.",
+            )
+
+        lead = rows[0]
+
+        if lead.nicho != nicho_origen_norm:
+            detalle_conflicto = lead.nicho_original or lead.nicho
+            raise HTTPException(
+                status_code=409,
+                detail=f"El lead ya existe en el nicho '{detalle_conflicto}'.",
+            )
+
+        lead.nicho = nicho_destino_norm
+        if payload.actualizar_nicho_original:
+            lead.nicho_original = payload.nicho_destino
+
+        db.add(lead)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[mover_lead] error inesperado user=%s dominio=%s", usuario.email_lower, dominio)
+        raise HTTPException(status_code=500, detail="Error al mover el lead") from exc
+
+    logger.info(
+        "[mover_lead] user=%s dominio=%s %s->%s actualizar_original=%s",
+        usuario.email_lower,
+        dominio,
+        nicho_origen_norm,
+        nicho_destino_norm,
+        payload.actualizar_nicho_original,
+    )
+
+    return {
+        "ok": True,
+        "dominio": dominio,
+        "de": payload.nicho_origen,
+        "a": payload.nicho_destino,
     }
 
 
