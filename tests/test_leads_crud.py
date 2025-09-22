@@ -42,9 +42,9 @@ class TestLeadsCrudEndpoints:
         data = resp.json()
         assert data["dominio"] == dominio
         assert data["estado_contacto"] == "pendiente"
-        assert data["email"] == ""
-        assert data["telefono"] == ""
-        assert data["informacion"] == ""
+        assert data["email"] is None
+        assert data["telefono"] is None
+        assert data["informacion"] is None
 
         payload = {
             "dominio": dominio,
@@ -207,3 +207,33 @@ class TestLeadsCrudEndpoints:
         )
         assert again.status_code == 404
         assert again.json()["detail"] == "Lead no encontrado."
+
+    def test_info_extra_schema_idempotent(self, db_session):
+        from backend.main import ensure_lead_info_extra_schema
+
+        # Ejecutar dos veces para comprobar idempotencia
+        ensure_lead_info_extra_schema(db_session)
+        ensure_lead_info_extra_schema(db_session)
+
+        # Insertar/actualizar un registro para asegurarnos de que las columnas existen
+        db_session.execute(
+            text(
+                """
+                INSERT INTO lead_info_extra (user_email_lower, dominio, email, telefono, informacion)
+                VALUES (:user, :dominio, :email, :telefono, :informacion)
+                ON CONFLICT (user_email_lower, dominio)
+                DO UPDATE SET email = EXCLUDED.email,
+                                  telefono = EXCLUDED.telefono,
+                                  informacion = EXCLUDED.informacion,
+                                  updated_at = now()
+                """
+            ),
+            {
+                "user": "schema@example.com",
+                "dominio": "schema.com",
+                "email": "schema@example.com",
+                "telefono": "600000000",
+                "informacion": "Schema OK",
+            },
+        )
+        db_session.commit()

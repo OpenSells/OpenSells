@@ -206,9 +206,9 @@ Respuesta `200 OK`:
   "estado_contacto": "pendiente",
   "nicho": "dentistas_murcia",
   "nicho_original": "Dentistas Murcia",
-  "email": "",
-  "telefono": "",
-  "informacion": "",
+  "email": null,
+  "telefono": null,
+  "informacion": null,
   "notas": [
     {"id": 42, "texto": "Llamar el lunes", "timestamp": "2025-03-01T10:15:00+00:00"}
   ],

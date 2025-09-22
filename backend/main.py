@@ -180,6 +180,104 @@ def ensure_lead_nota_schema(db: Session) -> None:
     _LEAD_NOTA_SCHEMA_READY = True
 
 
+def ensure_lead_info_extra_schema(db: Session) -> None:
+    """Create/align the lead_info_extra table with the expected columns."""
+
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS lead_info_extra (
+                id SERIAL PRIMARY KEY,
+                user_email_lower TEXT NOT NULL,
+                dominio TEXT NOT NULL,
+                email TEXT,
+                telefono TEXT,
+                informacion TEXT,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (user_email_lower, dominio)
+            )
+            """
+        )
+    )
+
+    # Ensure columns exist (idempotent operations for legacy deployments).
+    db.execute(text("ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS email TEXT"))
+    db.execute(text("ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS telefono TEXT"))
+    db.execute(text("ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS informacion TEXT"))
+    db.execute(
+        text(
+            "ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()"
+        )
+    )
+    db.execute(
+        text(
+            "ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()"
+        )
+    )
+    db.execute(
+        text(
+            "ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS user_email_lower TEXT"
+        )
+    )
+    db.execute(
+        text("ALTER TABLE lead_info_extra ADD COLUMN IF NOT EXISTS dominio TEXT")
+    )
+
+    # Enforce NOT NULL constraints when possible.
+    db.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                ALTER TABLE lead_info_extra ALTER COLUMN user_email_lower SET NOT NULL;
+            EXCEPTION WHEN others THEN
+                NULL;
+            END$$
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                ALTER TABLE lead_info_extra ALTER COLUMN dominio SET NOT NULL;
+            EXCEPTION WHEN others THEN
+                NULL;
+            END$$
+            """
+        )
+    )
+
+    # Guarantee uniqueness by constraint (idempotent for Postgres).
+    db.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                ALTER TABLE lead_info_extra
+                ADD CONSTRAINT uix_lead_info_extra_user_dom UNIQUE (user_email_lower, dominio);
+            EXCEPTION WHEN duplicate_object THEN
+                NULL;
+            END$$
+            """
+        )
+    )
+
+    # Backfill timestamps if needed.
+    db.execute(
+        text(
+            "UPDATE lead_info_extra SET created_at = COALESCE(created_at, now()) WHERE created_at IS NULL"
+        )
+    )
+    db.execute(
+        text(
+            "UPDATE lead_info_extra SET updated_at = COALESCE(updated_at, now()) WHERE updated_at IS NULL"
+        )
+    )
+
+
 def normalizar_dominio(value: str) -> str:
     if not value:
         return ""
@@ -1043,6 +1141,7 @@ def obtener_info_extra(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead no encontrado.")
 
+    ensure_lead_info_extra_schema(db)
     info_extra = (
         db.execute(
             select(LeadInfoExtra)
@@ -1111,9 +1210,9 @@ def obtener_info_extra(
         "notas": notas,
         "tareas_pendientes": pendientes,
         "tareas_totales": totales,
-        "email": email or "",
-        "telefono": telefono or "",
-        "informacion": informacion or "",
+        "email": email,
+        "telefono": telefono,
+        "informacion": informacion,
     }
 
 
@@ -1131,37 +1230,43 @@ def guardar_info_extra(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead no encontrado.")
 
+    ensure_lead_info_extra_schema(db)
+
     try:
-        row = (
-            db.execute(
-                select(LeadInfoExtra)
-                .where(
-                    LeadInfoExtra.user_email_lower == usuario.email_lower,
-                    LeadInfoExtra.dominio == dominio_norm,
-                )
-                .with_for_update()
-            )
-            .scalars()
-            .first()
+        existing = db.execute(
+            text(
+                """
+                SELECT id
+                FROM lead_info_extra
+                WHERE user_email_lower = :user
+                  AND dominio = :dominio
+                LIMIT 1
+                """
+            ),
+            {"user": usuario.email_lower, "dominio": dominio_norm},
+        ).scalar()
+
+        db.execute(
+            text(
+                """
+                INSERT INTO lead_info_extra (user_email_lower, dominio, email, telefono, informacion)
+                VALUES (:user, :dominio, :email, :telefono, :informacion)
+                ON CONFLICT (user_email_lower, dominio)
+                DO UPDATE
+                SET email = EXCLUDED.email,
+                    telefono = EXCLUDED.telefono,
+                    informacion = EXCLUDED.informacion,
+                    updated_at = now()
+                """
+            ),
+            {
+                "user": usuario.email_lower,
+                "dominio": dominio_norm,
+                "email": payload.email,
+                "telefono": payload.telefono,
+                "informacion": payload.informacion,
+            },
         )
-
-        created = False
-        if row:
-            row.email = payload.email
-            row.telefono = payload.telefono
-            row.informacion = payload.informacion
-        else:
-            row = LeadInfoExtra(
-                dominio=dominio_norm,
-                email=payload.email,
-                telefono=payload.telefono,
-                informacion=payload.informacion,
-                user_email=usuario.email,
-                user_email_lower=usuario.email_lower,
-            )
-            db.add(row)
-            created = True
-
         db.commit()
     except HTTPException:
         db.rollback()
@@ -1175,13 +1280,13 @@ def guardar_info_extra(
         )
         raise HTTPException(status_code=500, detail="Error al guardar la información.") from exc
 
+    created = existing is None
     logger.info(
         "[guardar_info_extra] user=%s dominio=%s created=%s",
         usuario.email_lower,
         dominio_norm,
         created,
     )
-
     data = {"ok": True, "dominio": dominio_norm, "created": created}
     return JSONResponse(data, status_code=201 if created else 200)
 
@@ -1375,6 +1480,7 @@ def eliminar_lead(
     lead_nicho = lead.nicho
 
     ensure_lead_nota_schema(db)
+    ensure_lead_info_extra_schema(db)
 
     try:
         db.execute(

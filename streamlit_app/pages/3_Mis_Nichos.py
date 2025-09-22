@@ -108,13 +108,14 @@ def _estado_chip_label(estado:str)->str:
     return f"{icon} {label}"
 
 def _cambiar_estado_lead(dominio: str, nuevo: str):
-    res = cached_post(
+    ok = cached_post(
         "leads/estado_contacto",
         token,
         payload={"dominio": dominio, "estado_contacto": nuevo},
     )
-    if res:
+    if ok is not None:
         st.toast("Estado actualizado", icon="✅")
+        st.rerun()
     else:
         st.toast("No se pudo actualizar el estado", icon="⚠️")
 
@@ -124,10 +125,10 @@ def normalizar_nicho(texto: str) -> str:
     import unicodedata
     import re
 
-    texto = texto.strip().lower()
-    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8")
-    texto = re.sub(r"[^a-z0-9]+", "-", texto)
-    return texto.strip("-")
+    texto = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("ascii")
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9]+", "-", texto).strip("-")
+    return texto
 
 def normalizar_dominio(url: str) -> str:
     if not url:
@@ -177,16 +178,6 @@ def render_estado_badge(estado: str) -> str:
         return '<span class="badge badge-info">En proceso</span>'
     return '<span class="badge badge-ok">Contactado</span>'
 
-
-def _cambiar_estado(key: str, dominio: str):
-    nuevo = st.session_state.get(key)
-    cached_post(
-        "leads/estado_contacto",
-        token,
-        payload={"dominio": dominio, "estado_contacto": nuevo},
-    )
-    st.session_state["forzar_recarga"] += 1
-    st.rerun()
 
 # ── Forzar Recarga Caché ─────────────────────────────
 if "forzar_recarga" not in st.session_state:
@@ -437,7 +428,6 @@ for n in nichos_visibles:
                     for est in ESTADOS.keys():
                         if st.button(_estado_chip_label(est), key=f"btn_est_{est}_{clave_base}"):
                             _cambiar_estado_lead(dominio, est)
-                            st.rerun()
 
             with cols_row[5]:
                 with st.popover("➕ Tarea", help="Agregar tarea", use_container_width=False):
@@ -512,8 +502,8 @@ for n in nichos_visibles:
                             headers={"Authorization": f"Bearer {token}"},
                             json={
                                 "dominio": dominio,
-                                "origen": original,
-                                "destino": nuevo_nicho,
+                                "nicho_origen": original,
+                                "nicho_destino": nuevo_nicho,
                                 "actualizar_nicho_original": False,
                             },
                         )
@@ -524,15 +514,20 @@ for n in nichos_visibles:
                                 st.success("Lead movido correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
                                 st.session_state["lead_a_mover"] = None
-                                try:
-                                    dest_key = next(
+                                dest_key = next(
+                                    (
                                         ni["nicho"]
                                         for ni in nichos
                                         if _nicho_original_value(ni) == nuevo_nicho
+                                    ),
+                                    None,
+                                )
+                                if dest_key is not None:
+                                    st.session_state["solo_nicho_visible"] = dest_key
+                                else:
+                                    st.warning(
+                                        "No se pudo resolver el nicho destino en la lista actual."
                                     )
-                                except StopIteration:
-                                    dest_key = normalizar_nicho(nuevo_nicho)
-                                st.session_state["solo_nicho_visible"] = dest_key
                                 st.rerun()
                             elif resp.status_code == 404:
                                 st.error("No se encontró el lead en el nicho de origen.")
@@ -570,7 +565,7 @@ for n in nichos_visibles:
                         except Exception:
                             data = {}
                     elif status == 404:
-                        st.info("No se encontró información para este lead.")
+                        st.warning("Lead no encontrado.")
                         data = {}
                     elif status is not None:
                         st.error(f"Error al cargar la información ({status}).")

@@ -1,4 +1,5 @@
 import pytest
+import pytest
 
 from backend.utils import normalizar_nicho
 from tests.helpers import auth
@@ -37,8 +38,8 @@ class TestMoverLeadEndpoint:
             headers=headers,
             json={
                 "dominio": dominio,
-                "origen": origen_visible,
-                "destino": destino_visible,
+                "nicho_origen": origen_visible,
+                "nicho_destino": destino_visible,
                 "actualizar_nicho_original": True,
             },
         )
