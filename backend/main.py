@@ -24,7 +24,7 @@ from backend.models import LeadTarea
 import httpx
 
 # --- Local / project ---
-from backend.database import engine, SessionLocal, DATABASE_URL, get_db
+from backend.database import Base, engine, SessionLocal, DATABASE_URL, get_db
 from backend.models import (
     Usuario,
     HistorialExport,
@@ -81,6 +81,9 @@ if os.getenv("ENV") == "dev":
     from backend.routers import debug
 
     app.include_router(debug.router)
+
+    # Asegura que las tablas existan en entornos locales de desarrollo
+    Base.metadata.create_all(bind=engine)
 
 
 
