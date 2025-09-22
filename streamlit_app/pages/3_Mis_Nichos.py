@@ -109,52 +109,55 @@ def _estado_chip_label(estado:str)->str:
     label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
     return f"{icon} {label}"
 
-def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
-    """Actualiza el estado del lead contra el backend con fallback defensivo."""
-
-    antiguo=lead.get("estado_contacto")
-    if antiguo==nuevo:
-        return
-
-    lead["estado_contacto"]=nuevo
-    endpoint=f"/leads/{lead_id}/estado_contacto"
-    payload={"estado_contacto": nuevo}
+def _cambiar_estado_lead(lead: dict, lead_id: int, nuevo: str) -> bool:
+    import logging, requests
 
     try:
-        patch_method=getattr(http_client,"patch",None)
+        from streamlit_app.utils.auth_session import get_auth_token as _get_auth_token
+    except Exception:  # pragma: no cover - fallback defensivo
+        _get_auth_token = None
+
+    antiguo = lead.get("estado_contacto")
+    if antiguo == nuevo:
+        return True  # sin cambios necesarios
+
+    lead["estado_contacto"] = nuevo
+    endpoint = f"/leads/{lead_id}/estado_contacto"
+    payload = {"estado_contacto": nuevo}
+
+    try:
+        patch_method = getattr(http_client, "patch", None)
         if callable(patch_method):
-            resp=patch_method(endpoint,json=payload,timeout=20)
+            resp = http_client.patch(endpoint, json=payload, timeout=20)
         else:
-            base_url=(BACKEND_URL or getattr(http_client, "BASE_URL", "")).rstrip("/")
-            token_actual=get_auth_token()
-            headers={"Authorization":f"Bearer {token_actual}"} if token_actual else {}
-            resp=requests.patch(f"{base_url}{endpoint}",json=payload,headers=headers,timeout=20)
+            base_url = (BACKEND_URL or getattr(http_client, "BASE_URL", "")).rstrip("/")
+            token_actual = _get_auth_token() if _get_auth_token else None
+            headers = {"Authorization": f"Bearer {token_actual}"} if token_actual else {}
+            resp = requests.patch(
+                f"{base_url}{endpoint}", json=payload, headers=headers, timeout=20
+            )
     except Exception:
-        lead["estado_contacto"]=antiguo
-        st.toast("No se pudo actualizar el estado (error de red).",icon="⚠️")
+        lead["estado_contacto"] = antiguo
+        st.toast("No se pudo actualizar el estado (error de red).", icon="⚠️")
         logging.exception("Error al actualizar estado de lead %s", lead_id)
-        return
+        return False
 
-    status=getattr(resp,"status_code",None)
-    body=""
-    if isinstance(resp,dict):
-        status=resp.get("_status")
-        body=resp.get("_error") or ""
+    status = getattr(resp, "status_code", None)
+    if isinstance(resp, dict):
+        # Por si el client devuelve dict normalizado
         if resp.get("_error") == "unauthorized":
-            lead["estado_contacto"]=antiguo
-            st.toast("Sesión expirada. Vuelve a iniciar sesión.",icon="⚠️")
-            return
-    else:
-        body=getattr(resp,"text","")
+            lead["estado_contacto"] = antiguo
+            st.toast("Sesión expirada. Vuelve a iniciar sesión.", icon="⚠️")
+            return False
+        status = resp.get("_status", 500)
 
-    if not status or status>=400:
-        lead["estado_contacto"]=antiguo
-        cuerpo=body[:400] if body else ""
-        codigo=status if status is not None else "¿?"
-        st.toast(f"Error {codigo} al actualizar el estado. {cuerpo}",icon="⚠️")
-        return
+    if not status or status >= 400:
+        lead["estado_contacto"] = antiguo
+        st.toast(f"Error {status or '¿?'} al actualizar el estado.", icon="⚠️")
+        return False
 
-    st.toast("Estado actualizado",icon="✅")
+    st.toast("Estado actualizado", icon="✅")
+    return True
 
 
 # ── Helpers ──────────────────────────────────────────
@@ -223,44 +226,56 @@ if "forzar_recarga" not in st.session_state:
 # ── Título ───────────────────────────────────────────
 st.title("📁 Gestión de Nichos")
 
-# ── Búsqueda global (solo en vista “todos los nichos”) ─────────────
-if "solo_nicho_visible" not in st.session_state:
-    busqueda = st.text_input(
-        "🔍 Buscar nichos o leads:",
-        value=st.session_state.get("busqueda_global", ""),
-        key="input_busqueda_global",
-    ).lower().strip()
-else:
-    # Cuando estamos en vista de un solo nicho no usamos el buscador global
-    busqueda = ""
-
 # ── Cargar nichos del backend ───────────────────────
-resp = cached_get("/mis_nichos", token)
+resp = cached_get("/mis_nichos", token, nocache_key=st.session_state["forzar_recarga"])
 nichos: list[dict] = _extract_nichos(resp)
 
 if not nichos:
     st.info("Aún no tienes nichos guardados.")
     st.stop()
 
-# ── Construir índice rápido de leads (para búsquedas globales) ────
-todos_leads = []
-for n in nichos:
-    datos = cached_get("leads_por_nicho", token, query={"nicho": n["nicho"]})
-    leads = _extract_leads(datos)
-    n["total_leads"] = datos.get("count", len(leads)) if isinstance(datos, dict) else len(leads)
-    original = _nicho_original_value(n)
+# ── Búsqueda global (solo en vista “todos los nichos”) ─────────────
+todos_leads_global: list[dict] = []
+busqueda = ""
+if "solo_nicho_visible" not in st.session_state:
+    usar_buscador = st.toggle(
+        "🔎 Buscar en todos los nichos (puede ser más lento)",
+        key="toggle_buscador_global",
+    )
+    if usar_buscador:
+        busqueda = st.text_input(
+            "🔍 Buscar nichos o leads:",
+            value=st.session_state.get("busqueda_global", ""),
+            key="input_busqueda_global",
+        ).lower().strip()
+        st.session_state["busqueda_global"] = busqueda
 
-    for idx, l in enumerate(leads):
-        url_val = l.get("url") or l.get("dominio") or ""
-        d = normalizar_dominio(url_val)
-        todos_leads.append(
-            {
-                "dominio": d,
-                "nicho": n["nicho"],
-                "nicho_original": l.get("nicho_original") or original,
-                "key": md5(f"{d}_{idx}"),
-            }
-        )
+        for n in nichos:
+            datos = cached_get(
+                "leads_por_nicho",
+                token,
+                query={"nicho": n["nicho"]},
+                nocache_key=st.session_state["forzar_recarga"],
+            )
+            leads = _extract_leads(datos)
+            original = _nicho_original_value(n)
+
+            for idx, l in enumerate(leads):
+                url_val = l.get("url") or l.get("dominio") or ""
+                d = normalizar_dominio(url_val)
+                clave = f"{d}_{idx}_{n['nicho']}" if d else f"{idx}_{n['nicho']}"
+                todos_leads_global.append(
+                    {
+                        "dominio": d,
+                        "nicho": n["nicho"],
+                        "nicho_original": l.get("nicho_original") or original,
+                        "key": md5(clave),
+                    }
+                )
+    else:
+        st.session_state.pop("busqueda_global", None)
+else:
+    st.session_state.pop("toggle_buscador_global", None)
 
 # ── Resultados del buscador global ──────────────────
 if busqueda:
@@ -268,7 +283,7 @@ if busqueda:
     st.markdown("---")
     st.subheader("🔎 Resultados de búsqueda")
 
-    leads_coinc = [l for l in todos_leads if busqueda in l["dominio"]]
+    leads_coinc = [l for l in todos_leads_global if busqueda in l["dominio"]]
     nichos_coinc = [n for n in nichos if busqueda in _nicho_original_value(n).lower()]
 
     # Leads coincidentes
@@ -309,8 +324,9 @@ for n in nichos_visibles:
     expanded = st.session_state.get(key_exp, expanded_por_defecto)
     original = _nicho_original_value(n)
 
+    total_leads = n.get("leads", 0)
     with st.expander(
-        f"📂 {original} ({n['total_leads']} leads)",
+        f"📂 {original} ({total_leads} leads)",
         expanded=expanded,
     ):
         top_cols = st.columns([8, 2])
@@ -409,7 +425,18 @@ for n in nichos_visibles:
                         st.warning("Debes introducir al menos el dominio.")
                     else:
                         dominio_normalizado = normalizar_dominio(dominio_manual)
-                        dominios_existentes = {l["dominio"] for l in todos_leads}
+                        dominios_existentes = {
+                            normalizar_dominio(l.get("url") or l.get("dominio") or "")
+                            for l in leads
+                        }
+                        if todos_leads_global:
+                            dominios_existentes.update(
+                                {
+                                    item["dominio"]
+                                    for item in todos_leads_global
+                                    if item.get("dominio")
+                                }
+                            )
 
                         if dominio_normalizado in dominios_existentes:
                             st.markdown(
@@ -452,7 +479,9 @@ for n in nichos_visibles:
         for i, l in enumerate(leads):
             url_value = l.get("url") or l.get("dominio") or ""
             dominio = normalizar_dominio(url_value)
-            estado_actual = l.get("estado_contacto", "pendiente")
+            estado_actual = (l.get("estado_contacto") or "pendiente")
+            if estado_actual == "nuevo":
+                estado_actual = "pendiente"
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
             cols_row = st.columns([4, 2, 2, 2, 2, 2])
             cols_row[0].markdown(
@@ -464,8 +493,11 @@ for n in nichos_visibles:
                 with st.popover(estado_label, help="Cambiar estado", use_container_width=False):
                     for est in ESTADOS.keys():
                         if st.button(_estado_chip_label(est), key=f"btn_est_{est}_{clave_base}"):
-                            _cambiar_estado_lead(l, l.get("id"), est)
-                            st.rerun()
+                            if _cambiar_estado_lead(l, l.get("id"), est):
+                                st.session_state["forzar_recarga"] = (
+                                    st.session_state.get("forzar_recarga", 0) + 1
+                                )
+                                st.rerun()
 
             with cols_row[5]:
                 with st.popover("➕ Tarea", help="Agregar tarea", use_container_width=False):
