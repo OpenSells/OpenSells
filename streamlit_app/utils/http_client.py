@@ -125,6 +125,21 @@ def post(path: str, **kwargs):
     return r
 
 
+def patch(path: str, **kwargs):
+    custom_headers = kwargs.pop("headers", None)
+    timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
+    url = _full_url(path)
+    try:
+        r = _session.patch(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+    except (requests.ConnectionError, requests.ChunkedEncodingError):
+        _reset_session()
+        hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
+        r = _session.patch(url, headers=hdrs, timeout=timeout, **kwargs)
+    if r.status_code == 401:
+        return {"_error": "unauthorized", "_status": 401}
+    return r
+
+
 def put(path: str, **kwargs):
     custom_headers = kwargs.pop("headers", None)
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)

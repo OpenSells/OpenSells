@@ -156,6 +156,7 @@ Otros endpoints relevantes: `/tarea_lead`, `/tareas_pendientes`, `/mi_memoria`, 
 - Esquema documentado en `AUDITORIA_TABLAS.md`; entidades clave: `usuarios`, `leads_extraidos`, `lead_estado`, `lead_tarea`, `lead_nota`, `user_usage_monthly`, `historial`.
 - Claves únicas y `CHECK` basados en `user_email_lower` para garantizar multi-tenant.
 - Migraciones gestionadas con Alembic (`alembic upgrade head`).
+- En Render, aplica las migraciones ejecutando `alembic upgrade head` desde un shell del servicio (Dashboard → Shell → `cd OpenSells && alembic upgrade head`) o añadiendo el comando como deploy hook previo al arranque.
 - Scripts de mantenimiento:
   - `scripts/migrar_sqlite_a_postgres.py`: migra datos principales desde instancias SQLite legadas.
   - `scripts/migrar_memoria_sqlite_a_postgres.py`: migra memorias/conversaciones del asistente.

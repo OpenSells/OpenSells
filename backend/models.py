@@ -152,18 +152,26 @@ class LeadInfoExtra(Base):
     __tablename__ = "lead_info_extra"
 
     id = Column(Integer, primary_key=True)
-    dominio = Column(String, nullable=False)
-    email = Column(String)
-    telefono = Column(String)
-    informacion = Column(Text)
-    user_email = Column(String)
-    user_email_lower = Column(String, index=True, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    user_email_lower = Column(String, nullable=False, index=True)
+    dominio = Column(String, nullable=False, index=True)
+    email = Column(String, nullable=True)
+    telefono = Column(String, nullable=True)
+    informacion = Column(Text, nullable=True)
+    timestamp = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+    )
 
-    @validates("user_email")
-    def _set_lower(self, key, value):
-        self.user_email_lower = (value or "").strip().lower()
-        return (value or "").strip()
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email_lower",
+            "dominio",
+            name="uix_lead_info_extra_usuario_dominio",
+        ),
+    )
 
 class LeadExtraido(Base):
     __tablename__ = "leads_extraidos"
@@ -221,10 +229,20 @@ class LeadEstado(Base):
 
     id = Column(Integer, primary_key=True)
     user_email_lower = Column(String, nullable=False, index=True)
-    url = Column(String)
-    dominio = Column(String)
-    estado = Column(String, nullable=False, server_default="pendiente")
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    dominio = Column(String, nullable=False, index=True)
+    estado = Column(
+        String,
+        nullable=False,
+        server_default="pendiente",
+        default="pendiente",
+    )
+    timestamp = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+    )
 
     __table_args__ = (
         UniqueConstraint(

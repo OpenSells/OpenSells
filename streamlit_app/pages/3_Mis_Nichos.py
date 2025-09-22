@@ -180,16 +180,6 @@ def render_estado_badge(estado: str) -> str:
     return '<span class="badge badge-ok">Contactado</span>'
 
 
-def _cambiar_estado(key: str, dominio: str):
-    nuevo = st.session_state.get(key)
-    cached_post(
-        "leads/estado_contacto",
-        token,
-        payload={"dominio": dominio, "estado_contacto": nuevo},
-    )
-    st.session_state["forzar_recarga"] += 1
-    st.rerun()
-
 # ── Forzar Recarga Caché ─────────────────────────────
 if "forzar_recarga" not in st.session_state:
     st.session_state["forzar_recarga"] = 0

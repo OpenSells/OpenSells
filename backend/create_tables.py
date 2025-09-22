@@ -6,6 +6,7 @@ from backend.models import (
     LeadNota,
     LeadInfoExtra,
     LeadExtraido,
+    LeadEstado,
     UsuarioMemoria,
 )
 

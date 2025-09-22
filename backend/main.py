@@ -4,6 +4,7 @@ import csv
 import io
 import os
 import logging
+import unicodedata
 import re
 from urllib.parse import urlparse
 
@@ -23,11 +24,12 @@ from backend.models import LeadTarea
 import httpx
 
 # --- Local / project ---
-from backend.database import engine, SessionLocal, DATABASE_URL, get_db
+from backend.database import Base, engine, SessionLocal, DATABASE_URL, get_db
 from backend.models import (
     Usuario,
     HistorialExport,
     LeadEstado,
+    LeadInfoExtra,
     LeadExtraido,
     LeadTarea,
     UsuarioMemoria,
@@ -80,6 +82,9 @@ if os.getenv("ENV") == "dev":
 
     app.include_router(debug.router)
 
+    # Asegura que las tablas existan en entornos locales de desarrollo
+    Base.metadata.create_all(bind=engine)
+
 
 
 def normalizar_dominio(value: str) -> str:
@@ -96,6 +101,15 @@ def normalizar_dominio(value: str) -> str:
     v = v.lower()
     v = v.split("/")[0].strip()
     return v
+
+
+def normalizar_nicho(value: str) -> str:
+    if not value:
+        return ""
+    v = unicodedata.normalize("NFKD", value.strip().lower())
+    v = v.encode("ascii", "ignore").decode("ascii")
+    v = re.sub(r"[^a-z0-9]+", "_", v)
+    return v.strip("_")
 
 
 # --- Búsqueda y scraping ---
@@ -572,6 +586,123 @@ class LeadItem(BaseModel):
     nicho_original: str
 
 
+class InfoExtraPayload(BaseModel):
+    dominio: str
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    informacion: Optional[str] = None
+
+    @validator("dominio", pre=True)
+    def _strip_dominio(cls, value: Any):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @validator("email", "telefono", "informacion", pre=True)
+    def _empty_to_none(cls, value: Any):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class LeadManualPayload(BaseModel):
+    dominio: str
+    nicho: str
+    email: Optional[str] = None
+    telefono: Optional[str] = None
+    nombre: Optional[str] = None
+
+    @validator("dominio", "nicho", pre=True)
+    def _strip_required(cls, value: Any):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @validator("email", "telefono", "nombre", pre=True)
+    def _strip_optional(cls, value: Any):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class MoverLeadPayload(BaseModel):
+    dominio: str
+    origen: str
+    destino: str
+
+    @validator("dominio", "origen", "destino", pre=True)
+    def _strip_values(cls, value: Any):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class EstadoContactoUpdatePayload(BaseModel):
+    estado_contacto: Literal[
+        "pendiente",
+        "en_proceso",
+        "contactado",
+        "cerrado",
+        "fallido",
+    ]
+
+
+ESTADOS_CONTACTO_VALIDOS = {
+    "pendiente",
+    "en_proceso",
+    "contactado",
+    "cerrado",
+    "fallido",
+}
+
+
+_INFO_UNSET = object()
+
+
+def _upsert_info_extra(
+    db: Session,
+    *,
+    user_email_lower: str,
+    dominio: str,
+    email: Optional[str] | object = _INFO_UNSET,
+    telefono: Optional[str] | object = _INFO_UNSET,
+    informacion: Optional[str] | object = _INFO_UNSET,
+) -> None:
+    tbl = LeadInfoExtra.__table__
+    insert_values: dict[str, Any] = {
+        "user_email_lower": user_email_lower,
+        "dominio": dominio,
+    }
+    if email is not _INFO_UNSET:
+        insert_values["email"] = email
+    if telefono is not _INFO_UNSET:
+        insert_values["telefono"] = telefono
+    if informacion is not _INFO_UNSET:
+        insert_values["informacion"] = informacion
+
+    stmt = pg_insert(tbl).values(insert_values)
+
+    update_values: dict[Any, Any] = {}
+    if email is not _INFO_UNSET:
+        update_values[tbl.c.email] = email
+    if telefono is not _INFO_UNSET:
+        update_values[tbl.c.telefono] = telefono
+    if informacion is not _INFO_UNSET:
+        update_values[tbl.c.informacion] = informacion
+
+    if update_values:
+        update_values[tbl.c.timestamp] = func.now()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[tbl.c.user_email_lower, tbl.c.dominio],
+            set_=update_values,
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing()
+
+    db.execute(stmt)
+
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
@@ -960,15 +1091,262 @@ def leads_por_nicho(
     return {"items": items, "limit": limit, "offset": offset, "count": len(items)}
 
 
+
+
+@app.get("/info_extra")
+def obtener_info_extra(
+    dominio: str = Query(..., description="Dominio del lead"),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    row = (
+        db.query(LeadInfoExtra)
+        .filter(
+            LeadInfoExtra.user_email_lower == usuario.email_lower,
+            LeadInfoExtra.dominio == dominio_norm,
+        )
+        .first()
+    )
+    if not row:
+        return {"email": "", "telefono": "", "informacion": ""}
+
+    return {
+        "email": row.email or "",
+        "telefono": row.telefono or "",
+        "informacion": row.informacion or "",
+    }
+
+
+@app.post("/guardar_info_extra")
+def guardar_info_extra(
+    payload: InfoExtraPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    _upsert_info_extra(
+        db,
+        user_email_lower=usuario.email_lower,
+        dominio=dominio_norm,
+        email=payload.email,
+        telefono=payload.telefono,
+        informacion=payload.informacion,
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/añadir_lead_manual")
+def añadir_lead_manual(
+    payload: LeadManualPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    nicho_original = payload.nicho or ""
+    nicho_norm = normalizar_nicho(nicho_original)
+    if not nicho_norm:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    url_value = f"https://{dominio_norm}"
+    tbl = LeadExtraido.__table__
+    stmt = (
+        pg_insert(tbl)
+        .values(
+            user_email=usuario.email,
+            user_email_lower=usuario.email_lower,
+            dominio=dominio_norm,
+            url=url_value,
+            estado_contacto="pendiente",
+            nicho=nicho_norm,
+            nicho_original=nicho_original or nicho_norm,
+            timestamp=func.now(),
+        )
+        .on_conflict_do_nothing()
+        .returning(tbl.c.id)
+    )
+    result = db.execute(stmt)
+    created_id = result.scalar()
+
+    if payload.email or payload.telefono:
+        _upsert_info_extra(
+            db,
+            user_email_lower=usuario.email_lower,
+            dominio=dominio_norm,
+            email=payload.email,
+            telefono=payload.telefono,
+        )
+
+    db.commit()
+    return {"ok": True, "created": bool(created_id)}
+
+
+@app.delete("/eliminar_lead")
+def eliminar_lead(
+    dominio: str = Query(..., description="Dominio a eliminar"),
+    nicho: str | None = Query(None),
+    solo_de_este_nicho: bool = Query(False),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    base_query = db.query(LeadExtraido).filter(
+        LeadExtraido.user_email_lower == usuario.email_lower,
+        LeadExtraido.dominio == dominio_norm,
+    )
+
+    if solo_de_este_nicho:
+        if not nicho:
+            raise HTTPException(status_code=400, detail="Falta 'nicho'")
+        nicho_norm = normalizar_nicho(nicho)
+        row = base_query.filter(LeadExtraido.nicho == nicho_norm).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Lead no encontrado en ese nicho")
+        db.delete(row)
+        db.commit()
+        return {"ok": True}
+
+    deleted = base_query.delete(synchronize_session=False)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
+
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/mover_lead")
+def mover_lead(
+    payload: MoverLeadPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    destino_norm = normalizar_nicho(payload.destino)
+    if not destino_norm:
+        raise HTTPException(status_code=400, detail="Falta 'destino'")
+
+    lead = (
+        db.query(LeadExtraido)
+        .filter(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.dominio == dominio_norm,
+        )
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
+
+    origen_norm = normalizar_nicho(payload.origen)
+    if origen_norm and lead.nicho != origen_norm:
+        raise HTTPException(status_code=404, detail="Lead no encontrado en el nicho de origen")
+
+    lead.nicho = destino_norm
+    lead.nicho_original = (payload.destino or "").strip() or lead.nicho_original
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/eliminar_nicho")
+def eliminar_nicho(
+    nicho: str = Query(..., description="Nicho a eliminar"),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    nicho_norm = normalizar_nicho(nicho)
+    if not nicho_norm:
+        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    deleted = (
+        db.query(LeadExtraido)
+        .filter(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.nicho == nicho_norm,
+        )
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"ok": True, "deleted": deleted}
+
+
+@app.patch("/leads/{lead_id}/estado_contacto")
+def actualizar_estado_contacto(
+    lead_id: int,
+    payload: EstadoContactoUpdatePayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    lead = (
+        db.query(LeadExtraido)
+        .filter(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            LeadExtraido.id == lead_id,
+        )
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado")
+
+    lead.estado_contacto = payload.estado_contacto
+    estado_tbl = LeadEstado.__table__
+    stmt = (
+        pg_insert(estado_tbl)
+        .values(
+            user_email_lower=usuario.email_lower,
+            dominio=lead.dominio,
+            estado=payload.estado_contacto,
+            timestamp=func.now(),
+        )
+        .on_conflict_do_update(
+            index_elements=[estado_tbl.c.user_email_lower, estado_tbl.c.dominio],
+            set_={
+                estado_tbl.c.estado: payload.estado_contacto,
+                estado_tbl.c.timestamp: func.now(),
+            },
+        )
+    )
+    db.execute(stmt)
+    db.commit()
+    return {"ok": True}
+
 @app.get("/exportar_leads_nicho")
 def exportar_leads_nicho(
     nicho: str = Query(..., description="Nombre del nicho a exportar"),
+    estado_contacto: Optional[str] = Query(
+        None, description="Filtrar por estado de contacto"
+    ),
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     nicho = (nicho or "").strip()
     if not nicho:
         raise HTTPException(status_code=400, detail="Falta 'nicho'")
+
+    estado_contacto = (estado_contacto or "").strip()
+    if estado_contacto and estado_contacto not in ESTADOS_CONTACTO_VALIDOS:
+        raise HTTPException(status_code=400, detail="Estado de contacto no válido")
+
+    filters = [
+        LeadExtraido.user_email_lower == usuario.email_lower,
+        LeadExtraido.nicho == nicho,
+    ]
+    if estado_contacto:
+        filters.append(LeadExtraido.estado_contacto == estado_contacto)
 
     stmt = (
         select(
@@ -979,10 +1357,7 @@ def exportar_leads_nicho(
             LeadExtraido.nicho,
             LeadExtraido.nicho_original,
         )
-        .where(
-            LeadExtraido.user_email_lower == usuario.email_lower,
-            LeadExtraido.nicho == nicho,
-        )
+        .where(*filters)
         .order_by(LeadExtraido.timestamp.desc())
     )
 
