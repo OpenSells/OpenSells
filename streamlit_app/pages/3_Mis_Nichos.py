@@ -10,6 +10,7 @@
 #   3. Limpieza y tipado ligero.
 
 import os
+import logging
 import streamlit as st
 import hashlib
 import requests
@@ -89,6 +90,7 @@ with st.sidebar:
 
 ESTADOS = {
     "pendiente": ("Pendiente", "🟡"),
+    "en_proceso": ("En proceso", "🟠"),
     "contactado": ("Contactado", "🟦"),
     "cerrado": ("Cerrado", "🟢"),
     "fallido": ("Fallido", "🔴"),
@@ -108,17 +110,51 @@ def _estado_chip_label(estado:str)->str:
     return f"{icon} {label}"
 
 def _cambiar_estado_lead(lead:dict,lead_id:int,nuevo:str):
+    """Actualiza el estado del lead contra el backend con fallback defensivo."""
+
     antiguo=lead.get("estado_contacto")
+    if antiguo==nuevo:
+        return
+
     lead["estado_contacto"]=nuevo
-    resp = http_client.patch(
-        f"/leads/{lead_id}/estado_contacto",
-        json={"estado_contacto": nuevo},
-    )
-    if not resp or resp.status_code>=400:
+    endpoint=f"/leads/{lead_id}/estado_contacto"
+    payload={"estado_contacto": nuevo}
+
+    try:
+        patch_method=getattr(http_client,"patch",None)
+        if callable(patch_method):
+            resp=patch_method(endpoint,json=payload,timeout=20)
+        else:
+            base_url=(BACKEND_URL or getattr(http_client, "BASE_URL", "")).rstrip("/")
+            token_actual=get_auth_token()
+            headers={"Authorization":f"Bearer {token_actual}"} if token_actual else {}
+            resp=requests.patch(f"{base_url}{endpoint}",json=payload,headers=headers,timeout=20)
+    except Exception:
         lead["estado_contacto"]=antiguo
-        st.toast("No se pudo actualizar el estado",icon="⚠️")
+        st.toast("No se pudo actualizar el estado (error de red).",icon="⚠️")
+        logging.exception("Error al actualizar estado de lead %s", lead_id)
+        return
+
+    status=getattr(resp,"status_code",None)
+    body=""
+    if isinstance(resp,dict):
+        status=resp.get("_status")
+        body=resp.get("_error") or ""
+        if resp.get("_error") == "unauthorized":
+            lead["estado_contacto"]=antiguo
+            st.toast("Sesión expirada. Vuelve a iniciar sesión.",icon="⚠️")
+            return
     else:
-        st.toast("Estado actualizado",icon="✅")
+        body=getattr(resp,"text","")
+
+    if not status or status>=400:
+        lead["estado_contacto"]=antiguo
+        cuerpo=body[:400] if body else ""
+        codigo=status if status is not None else "¿?"
+        st.toast(f"Error {codigo} al actualizar el estado. {cuerpo}",icon="⚠️")
+        return
+
+    st.toast("Estado actualizado",icon="✅")
 
 
 # ── Helpers ──────────────────────────────────────────
