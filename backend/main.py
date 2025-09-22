@@ -1062,7 +1062,10 @@ def leads_por_nicho(
             LeadExtraido.user_email_lower == u,
             LeadExtraido.nicho == nicho,
         )
-        .order_by(LeadExtraido.timestamp.desc())
+        .order_by(
+            func.lower(LeadExtraido.dominio).asc(),
+            LeadExtraido.id.asc(),
+        )
         .limit(limit)
         .offset(offset)
     )
@@ -1358,7 +1361,10 @@ def exportar_leads_nicho(
             LeadExtraido.nicho_original,
         )
         .where(*filters)
-        .order_by(LeadExtraido.timestamp.desc())
+        .order_by(
+            func.lower(LeadExtraido.dominio).asc(),
+            LeadExtraido.id.asc(),
+        )
     )
 
     try:

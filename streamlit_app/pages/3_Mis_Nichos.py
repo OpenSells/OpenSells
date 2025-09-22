@@ -176,6 +176,14 @@ def normalizar_dominio(url: str) -> str:
     url = url if url.startswith(("http://", "https://")) else f"http://{url}"
     return urlparse(url).netloc.replace("www.", "").split("/")[0]
 
+
+def _normaliza_dominio_para_orden(lead: dict) -> str:
+    d = (lead.get("dominio") or "").strip()
+    if not d:
+        u = (lead.get("url") or "").strip()
+        d = u
+    return d.lower()
+
 def md5(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
 
@@ -258,6 +266,10 @@ if "solo_nicho_visible" not in st.session_state:
                 nocache_key=st.session_state["forzar_recarga"],
             )
             leads = _extract_leads(datos)
+            leads = sorted(
+                leads,
+                key=lambda l: (_normaliza_dominio_para_orden(l), l.get("id", 0)),
+            )
             original = _nicho_original_value(n)
 
             for idx, l in enumerate(leads):
@@ -385,6 +397,10 @@ for n in nichos_visibles:
             nocache_key=st.session_state["forzar_recarga"],
         )
         leads = _extract_leads(resp_leads)
+        leads = sorted(
+            leads,
+            key=lambda l: (_normaliza_dominio_para_orden(l), l.get("id", 0)),
+        )
 
         # ── Filtro interno por dominio ───────────────
         filtro = st.text_input(
