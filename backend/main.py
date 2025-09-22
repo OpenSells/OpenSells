@@ -83,6 +83,102 @@ if os.getenv("ENV") == "dev":
 
 
 
+_LEAD_NOTA_SCHEMA_READY = False
+
+
+def _column_exists(db: Session, table: str, column: str) -> bool:
+    result = db.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = :table
+              AND column_name = :column
+            LIMIT 1
+            """
+        ),
+        {"table": table, "column": column},
+    )
+    return result.scalar() is not None
+
+
+def ensure_lead_nota_schema(db: Session) -> None:
+    global _LEAD_NOTA_SCHEMA_READY
+    if _LEAD_NOTA_SCHEMA_READY:
+        return
+
+    # Create table if it does not exist (idempotent on Postgres).
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS lead_nota (
+                id SERIAL PRIMARY KEY,
+                user_email_lower TEXT NOT NULL,
+                dominio TEXT NOT NULL,
+                texto TEXT NOT NULL,
+                timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+    )
+
+    # Legacy compatibility: ensure required columns exist and backfill from old schema.
+    db.execute(text("ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS dominio TEXT"))
+    db.execute(text("ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS texto TEXT"))
+    db.execute(
+        text(
+            "ALTER TABLE lead_nota ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ NOT NULL DEFAULT now()"
+        )
+    )
+
+    if _column_exists(db, "lead_nota", "url"):
+        db.execute(
+            text(
+                """
+                UPDATE lead_nota
+                SET dominio = COALESCE(dominio, url),
+                    texto = COALESCE(texto, nota)
+                WHERE (dominio IS NULL OR texto IS NULL)
+                """
+            )
+        )
+
+    # Attempt to enforce NOT NULL constraints when possible.
+    db.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                ALTER TABLE lead_nota ALTER COLUMN dominio SET NOT NULL;
+            EXCEPTION WHEN others THEN
+                -- leave column nullable if legacy rows exist
+                NULL;
+            END$$
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                ALTER TABLE lead_nota ALTER COLUMN texto SET NOT NULL;
+            EXCEPTION WHEN others THEN
+                NULL;
+            END$$
+            """
+        )
+    )
+
+    db.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_lead_nota_user_dom_ts ON lead_nota (user_email_lower, dominio, timestamp DESC)"
+        )
+    )
+
+    _LEAD_NOTA_SCHEMA_READY = True
+
+
 def normalizar_dominio(value: str) -> str:
     if not value:
         return ""
@@ -588,6 +684,35 @@ class MoveLeadRequest(BaseModel):
         return value
 
 
+VALID_ESTADOS_LEAD = {"pendiente", "contactado", "no_responde", "descartado"}
+
+
+class NotaLeadPayload(BaseModel):
+    dominio: str
+    texto: str
+
+    @validator("dominio", "texto", pre=True)
+    def _strip(cls, value: Any) -> str:
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("Campo obligatorio")
+        return value
+
+
+class EstadoLeadPayload(BaseModel):
+    dominio: str
+    estado: str
+
+    @validator("dominio", "estado", pre=True)
+    def _strip(cls, value: Any) -> str:
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("Campo obligatorio")
+        return value
+
+
 @app.post("/extraer_multiples")
 def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     """
@@ -834,6 +959,236 @@ def mover_lead(
         "de": payload.nicho_origen,
         "a": payload.nicho_destino,
     }
+
+
+@app.get("/info_extra")
+def obtener_info_extra(
+    dominio: str = Query(..., min_length=1),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    lead = (
+        db.execute(
+            select(LeadExtraido).where(
+                LeadExtraido.user_email_lower == usuario.email_lower,
+                LeadExtraido.dominio == dominio_norm,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    ensure_lead_nota_schema(db)
+
+    notas_rows = db.execute(
+        text(
+            """
+            SELECT id, texto, timestamp
+            FROM lead_nota
+            WHERE user_email_lower = :user
+              AND dominio = :dominio
+            ORDER BY timestamp DESC, id DESC
+            """
+        ),
+        {"user": usuario.email_lower, "dominio": dominio_norm},
+    ).mappings()
+
+    notas = [
+        {
+            "id": row["id"],
+            "texto": row["texto"],
+            "timestamp": row["timestamp"].isoformat() if row["timestamp"] else None,
+        }
+        for row in notas_rows
+    ]
+
+    tareas_counts = db.execute(
+        text(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN completado = FALSE THEN 1 ELSE 0 END), 0) AS pendientes,
+                COUNT(*) AS totales
+            FROM lead_tarea
+            WHERE user_email_lower = :user
+              AND dominio = :dominio
+            """
+        ),
+        {"user": usuario.email_lower, "dominio": dominio_norm},
+    ).mappings().first()
+
+    pendientes_val = tareas_counts["pendientes"] if tareas_counts else 0
+    totales_val = tareas_counts["totales"] if tareas_counts else 0
+    pendientes = int(pendientes_val or 0)
+    totales = int(totales_val or 0)
+
+    return {
+        "dominio": lead.dominio,
+        "estado_contacto": lead.estado_contacto,
+        "nicho": lead.nicho,
+        "nicho_original": lead.nicho_original,
+        "notas": notas,
+        "tareas_pendientes": pendientes,
+        "tareas_totales": totales,
+    }
+
+
+@app.post("/nota_lead", status_code=201)
+def crear_nota_lead(
+    payload: NotaLeadPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    lead = (
+        db.execute(
+            select(LeadExtraido).where(
+                LeadExtraido.user_email_lower == usuario.email_lower,
+                LeadExtraido.dominio == dominio_norm,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    ensure_lead_nota_schema(db)
+
+    try:
+        result = db.execute(
+            text(
+                """
+                INSERT INTO lead_nota (user_email_lower, dominio, texto)
+                VALUES (:user, :dominio, :texto)
+                RETURNING id, texto, timestamp
+                """
+            ),
+            {"user": usuario.email_lower, "dominio": dominio_norm, "texto": payload.texto},
+        )
+        row = result.mappings().one()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[nota_lead] error al insertar nota user=%s dominio=%s", usuario.email_lower, dominio_norm)
+        raise HTTPException(status_code=500, detail="Error al guardar la nota.") from exc
+
+    logger.info("[nota_lead] user=%s dominio=%s nota_id=%s", usuario.email_lower, dominio_norm, row["id"])
+
+    return {
+        "id": row["id"],
+        "texto": row["texto"],
+        "timestamp": row["timestamp"].isoformat() if row["timestamp"] else None,
+    }
+
+
+@app.patch("/estado_lead")
+def actualizar_estado_lead(
+    payload: EstadoLeadPayload,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    dominio_norm = normalizar_dominio(payload.dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    estado_value = payload.estado.lower()
+    if estado_value not in VALID_ESTADOS_LEAD:
+        raise HTTPException(status_code=400, detail="Estado inválido.")
+
+    try:
+        stmt = (
+            select(LeadExtraido)
+            .where(
+                LeadExtraido.user_email_lower == usuario.email_lower,
+                LeadExtraido.dominio == dominio_norm,
+            )
+            .with_for_update()
+        )
+        lead = db.execute(stmt).scalars().first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+        lead.estado_contacto = estado_value
+        db.add(lead)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[estado_lead] error al actualizar user=%s dominio=%s", usuario.email_lower, dominio_norm
+        )
+        raise HTTPException(status_code=500, detail="Error al actualizar el estado.") from exc
+
+    logger.info(
+        "[estado_lead] user=%s dominio=%s estado=%s", usuario.email_lower, dominio_norm, estado_value
+    )
+
+    return {"ok": True, "estado": estado_value}
+
+
+@app.delete("/eliminar_lead")
+def eliminar_lead(
+    dominio: str = Query(..., min_length=1),
+    solo_de_este_nicho: bool = Query(True),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _ = solo_de_este_nicho  # Mantener compatibilidad con la firma existente
+    dominio_norm = normalizar_dominio(dominio)
+    if not dominio_norm:
+        raise HTTPException(status_code=400, detail="Dominio inválido")
+
+    lead = (
+        db.execute(
+            select(LeadExtraido).where(
+                LeadExtraido.user_email_lower == usuario.email_lower,
+                LeadExtraido.dominio == dominio_norm,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead no encontrado.")
+
+    ensure_lead_nota_schema(db)
+
+    try:
+        db.execute(
+            text(
+                "DELETE FROM lead_nota WHERE user_email_lower = :user AND dominio = :dominio"
+            ),
+            {"user": usuario.email_lower, "dominio": dominio_norm},
+        )
+        db.execute(
+            text(
+                "DELETE FROM lead_tarea WHERE user_email_lower = :user AND dominio = :dominio"
+            ),
+            {"user": usuario.email_lower, "dominio": dominio_norm},
+        )
+        db.delete(lead)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[eliminar_lead] error al eliminar user=%s dominio=%s", usuario.email_lower, dominio_norm
+        )
+        raise HTTPException(status_code=500, detail="Error al eliminar el lead.") from exc
+
+    logger.info("[eliminar_lead] user=%s dominio=%s", usuario.email_lower, dominio_norm)
+
+    return {"ok": True, "dominio": dominio_norm}
 
 
 @app.get("/health")

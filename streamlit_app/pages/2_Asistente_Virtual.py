@@ -16,6 +16,12 @@ from streamlit_app.assistant_api import (
 from streamlit_app.utils.assistant_guard import violates_policy, sanitize_output
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.leads_api import (
+    api_info_extra,
+    api_nota_lead,
+    api_estado_lead,
+    api_eliminar_lead,
+)
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
@@ -124,46 +130,30 @@ def buscar_leads(query: str):
 
 def obtener_estado_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
-    try:
-        r = http_client.get("/estado_lead", headers=_auth_headers(), params={"dominio": dominio})
-        if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
+    data = api_info_extra(dominio)
+    if not data:
+        return {"error": "Lead no encontrado."}
+    return {"estado": data.get("estado_contacto")}
 
 
 def actualizar_estado_lead(dominio: str, estado: str):
     st.session_state["lead_actual"] = dominio
-    try:
-        r = http_client.post("/estado_lead", headers=_auth_headers(), json={"dominio": dominio, "estado": estado})
-        if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
+    api_estado_lead(dominio, estado)
+    return {}
 
 
 def obtener_nota_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
-    try:
-        r = http_client.get("/nota_lead", headers=_auth_headers(), params={"dominio": dominio})
-        if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
+    data = api_info_extra(dominio)
+    if not data:
+        return {"error": "Lead no encontrado."}
+    return {"notas": data.get("notas", [])}
 
 
 def actualizar_nota_lead(dominio: str, nota: str):
     st.session_state["lead_actual"] = dominio
-    try:
-        r = http_client.post("/nota_lead", headers=_auth_headers(), json={"dominio": dominio, "nota": nota})
-        if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
+    api_nota_lead(dominio, nota)
+    return {}
 
 
 def obtener_tareas_lead(dominio: str):
@@ -345,16 +335,8 @@ def eliminar_nicho(nicho: str):
 
 def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | None = None):
     st.session_state["lead_actual"] = dominio
-    params = {"dominio": dominio, "solo_de_este_nicho": solo_de_este_nicho}
-    if nicho:
-        params["nicho"] = nicho
-    try:
-        r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
-        if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
+    api_eliminar_lead(dominio, solo_de_este_nicho)
+    return {}
 
 
 def historial_tareas(tipo: str = "general", nicho: str | None = None):
@@ -413,12 +395,10 @@ def _render_lead_actions():
             nota = st.text_area("Nota", key=f"nota_{dominio}")
             submitted = st.form_submit_button("Guardar nota")
             if submitted:
-                res = actualizar_nota_lead(dominio, nota)
-                if res.get("error"):
-                    c2.error(res["error"])
+                if nota.strip():
+                    api_nota_lead(dominio, nota)
                 else:
-                    st.toast("Nota guardada")
-                    st.session_state[nota_key] = False
+                    c2.warning("Escribe una nota antes de guardar.")
 
     # Cambiar estado
     estado_key = f"show_estado_{dominio}"
@@ -428,17 +408,12 @@ def _render_lead_actions():
         with c3.form(key=f"estado_form_{dominio}"):
             estado = st.selectbox(
                 "Nuevo estado",
-                ["nuevo", "contactado", "en_proceso", "cliente", "descartado"],
+                ["pendiente", "contactado", "no_responde", "descartado"],
                 key=f"estado_{dominio}",
             )
             submitted = st.form_submit_button("Guardar estado")
             if submitted:
-                res = actualizar_estado_lead(dominio, estado)
-                if res.get("error"):
-                    c3.error(res["error"])
-                else:
-                    st.toast("Estado actualizado")
-                    st.session_state[estado_key] = False
+                api_estado_lead(dominio, estado)
 
 
 TOOLS = {

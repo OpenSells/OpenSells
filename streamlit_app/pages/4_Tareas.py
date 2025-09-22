@@ -13,6 +13,12 @@ from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from streamlit_app.utils.leads_api import (
+    api_info_extra,
+    api_nota_lead,
+    api_estado_lead,
+    api_eliminar_lead,
+)
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 
@@ -554,36 +560,66 @@ elif seleccion == "Leads":
 
         # Toggle info extra
         if st.toggle("📝 Información extra del lead", key="toggle_info"):
-            info = cached_get(
-                "info_extra",
-                token,
-                query={"dominio": norm},
-                nocache_key=time.time()
-            ) or {}
-            with st.form(key="form_info_extra_detalle"):
-                c1, c2 = st.columns(2)
-                email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key="email_info")
-                tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key="tel_info")
-                info_nueva = st.text_area("🗒️ Información libre", value=info.get("informacion", ""), key="nota_info")
-                if st.form_submit_button("💾 Guardar información"):
-                    if not tiene_suscripcion_activa(plan):
-                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                        subscription_cta()
-                    else:
-                        respuesta = cached_post(
-                            "guardar_info_extra",
-                            token,
-                            payload={
-                                "dominio": norm,
-                                "email": email_nuevo,
-                                "telefono": tel_nuevo,
-                                "informacion": info_nueva
-                            }
-                        )
-                        if respuesta and respuesta.get("mensaje"):
-                            limpiar_cache()  # ✅ Limpia la caché para que se vea la información actualizada
-                            st.success("Información guardada correctamente ✅")
-                            st.rerun()
+            info_extra = api_info_extra(norm)
+            if not info_extra:
+                st.info("No hay información adicional para este lead.")
+            else:
+                estado_actual = info_extra.get("estado_contacto") or "pendiente"
+                pendientes = info_extra.get("tareas_pendientes", 0)
+                totales = info_extra.get("tareas_totales", 0)
+
+                col_estado, col_tareas = st.columns(2)
+                col_estado.metric("Estado actual", estado_actual)
+                col_tareas.metric("Tareas pendientes", pendientes)
+                col_tareas.metric("Tareas totales", totales)
+
+                estados_validos = ["pendiente", "contactado", "no_responde", "descartado"]
+                try:
+                    idx_estado = estados_validos.index(estado_actual)
+                except ValueError:
+                    idx_estado = 0
+
+                with st.form(key="form_estado_lead_detalle"):
+                    nuevo_estado = st.selectbox(
+                        "Actualizar estado",
+                        estados_validos,
+                        index=idx_estado,
+                        key="estado_detalle",
+                    )
+                    if st.form_submit_button("Guardar estado"):
+                        api_estado_lead(norm, nuevo_estado)
+
+                st.markdown("#### Notas")
+                notas = info_extra.get("notas", [])
+                if notas:
+                    for nota in notas:
+                        timestamp = nota.get("timestamp") or ""
+                        st.markdown(f"- {nota.get('texto')}")
+                        if timestamp:
+                            st.caption(timestamp)
+                else:
+                    st.write("Sin notas guardadas.")
+
+                with st.form(key="form_nota_lead_detalle"):
+                    texto_nota = st.text_area("Añadir nota", key="nota_detalle")
+                    if st.form_submit_button("Guardar nota"):
+                        if texto_nota.strip():
+                            api_nota_lead(norm, texto_nota)
+                        else:
+                            st.warning("Escribe una nota antes de guardar.")
+
+                confirmar_key = "confirmar_delete_lead"
+                if st.session_state.get(confirmar_key):
+                    st.warning("Confirma la eliminación del lead seleccionado.")
+                    col_del_ok, col_del_cancel = st.columns(2)
+                    if col_del_ok.button("Sí, eliminar", key="delete_lead_ok"):
+                        api_eliminar_lead(norm, True)
+                        st.session_state.pop(confirmar_key, None)
+                    if col_del_cancel.button("Cancelar", key="delete_lead_cancel"):
+                        st.session_state.pop(confirmar_key, None)
+                else:
+                    if st.button("Eliminar lead", key="delete_lead"):
+                        st.session_state[confirmar_key] = True
 
         st.markdown("#### 📋 Tareas activas")
         tareas_datos = cached_get(

@@ -33,6 +33,12 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
+from streamlit_app.utils.leads_api import (
+    api_info_extra,
+    api_nota_lead,
+    api_estado_lead,
+    api_eliminar_lead,
+)
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -548,30 +554,64 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
+                info_extra = api_info_extra(dominio)
+                if not info_extra:
+                    st.info("No se encontró información para este lead.")
+                else:
+                    estado_actual = info_extra.get("estado_contacto") or "pendiente"
+                    tareas_pendientes = info_extra.get("tareas_pendientes", 0)
+                    tareas_totales = info_extra.get("tareas_totales", 0)
 
-                with st.form(key=f"form_info_extra_{clave_base}"):
-                    c1, c2 = st.columns(2)
-                    email_nuevo = c1.text_input("📧 Email", value=info.get("email", ""), key=f"email_{clave_base}")
-                    tel_nuevo = c2.text_input("📞 Teléfono", value=info.get("telefono", ""), key=f"tel_{clave_base}")
-                    info_nueva = st.text_area("📝 Información libre", value=info.get("informacion", ""), key=f"info_{clave_base}")
+                    col_estado, col_tareas = st.columns(2)
+                    col_estado.metric("Estado actual", estado_actual)
+                    col_tareas.metric("Tareas pendientes", tareas_pendientes)
+                    col_tareas.metric("Tareas totales", tareas_totales)
 
-                    if st.form_submit_button("💾 Guardar información"):
-                        if not tiene_suscripcion_activa(plan):
-                            st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                            subscription_cta()
-                        else:
-                            res = cached_post(
-                                "guardar_info_extra",
-                                token,
-                                payload={
-                                    "dominio": dominio,
-                                    "email": email_nuevo,
-                                    "telefono": tel_nuevo,
-                                    "informacion": info_nueva
-                                }
-                            )
-                            if res:
-                                st.success("Información guardada correctamente ✅")
-                                st.session_state["forzar_recarga"] += 1
-                                st.rerun()
+                    estados_validos = ["pendiente", "contactado", "no_responde", "descartado"]
+                    try:
+                        idx_estado = estados_validos.index(estado_actual)
+                    except ValueError:
+                        idx_estado = 0
+
+                    with st.form(key=f"form_estado_{clave_base}"):
+                        nuevo_estado = st.selectbox(
+                            "Actualizar estado",
+                            estados_validos,
+                            index=idx_estado,
+                            key=f"estado_select_{clave_base}",
+                        )
+                        if st.form_submit_button("Guardar estado"):
+                            api_estado_lead(dominio, nuevo_estado)
+
+                    st.markdown("#### Notas")
+                    notas = info_extra.get("notas", [])
+                    if notas:
+                        for nota in notas:
+                            timestamp = nota.get("timestamp") or ""
+                            st.write(f"- {nota.get('texto')}  ")
+                            if timestamp:
+                                st.caption(timestamp)
+                    else:
+                        st.write("Sin notas todavía.")
+
+                    with st.form(key=f"form_nota_{clave_base}"):
+                        nota_texto = st.text_area("Añadir nota", key=f"nota_texto_{clave_base}")
+                        if st.form_submit_button("Guardar nota"):
+                            if nota_texto.strip():
+                                api_nota_lead(dominio, nota_texto)
+                            else:
+                                st.warning("Escribe una nota antes de guardar.")
+
+                    st.divider()
+                    confirmar_key = f"confirmar_eliminar_{clave_base}"
+                    if st.session_state.get(confirmar_key):
+                        st.warning("Confirma la eliminación del lead. Esta acción es irreversible.")
+                        col_confirma, col_cancel = st.columns(2)
+                        if col_confirma.button("Sí, eliminar", key=f"confirm_delete_{clave_base}"):
+                            api_eliminar_lead(dominio, True)
+                            st.session_state.pop(confirmar_key, None)
+                        if col_cancel.button("Cancelar", key=f"cancel_delete_{clave_base}"):
+                            st.session_state.pop(confirmar_key, None)
+                    else:
+                        if st.button("Eliminar lead", key=f"delete_{clave_base}"):
+                            st.session_state[confirmar_key] = True

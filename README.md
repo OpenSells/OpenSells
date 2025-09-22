@@ -188,6 +188,75 @@ Respuestas posibles:
   {"detail": "El lead ya existe en el nicho 'dentistas valencia'."}
   ```
 
+### Gestión de leads (info extra, notas, estado, eliminación)
+
+Todos los endpoints requieren el encabezado `Authorization: Bearer <TOKEN>` y respetan la regla de un dominio por usuario.
+
+```bash
+curl -X GET "$BACKEND_URL/info_extra" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -G --data-urlencode "dominio=ejemplo.com"
+```
+
+Respuesta `200 OK`:
+
+```json
+{
+  "dominio": "ejemplo.com",
+  "estado_contacto": "pendiente",
+  "nicho": "dentistas_murcia",
+  "nicho_original": "Dentistas Murcia",
+  "notas": [
+    {"id": 42, "texto": "Llamar el lunes", "timestamp": "2025-03-01T10:15:00+00:00"}
+  ],
+  "tareas_pendientes": 2,
+  "tareas_totales": 3
+}
+```
+
+```bash
+curl -X POST "$BACKEND_URL/nota_lead" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dominio": "ejemplo.com",
+    "texto": "Enviar propuesta"
+  }'
+```
+
+Respuesta `201 Created`:
+
+```json
+{"id": 43, "texto": "Enviar propuesta", "timestamp": "2025-03-01T12:00:00+00:00"}
+```
+
+```bash
+curl -X PATCH "$BACKEND_URL/estado_lead" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dominio": "ejemplo.com",
+    "estado": "contactado"
+  }'
+```
+
+Estados permitidos: `pendiente`, `contactado`, `no_responde`, `descartado`.
+
+```bash
+curl -X DELETE "$BACKEND_URL/eliminar_lead" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -G --data-urlencode "dominio=ejemplo.com" \
+  --data-urlencode "solo_de_este_nicho=true"
+```
+
+Respuesta `200 OK`:
+
+```json
+{"ok": true, "dominio": "ejemplo.com"}
+```
+
+Si el dominio no existe para el usuario autenticado, los endpoints devuelven `404 Not Found` con `{ "detail": "Lead no encontrado." }`.
+
 ## Base de datos y migraciones
 - Esquema documentado en `AUDITORIA_TABLAS.md`; entidades clave: `usuarios`, `leads_extraidos`, `lead_estado`, `lead_tarea`, `lead_nota`, `user_usage_monthly`, `historial`.
 - Claves únicas y `CHECK` basados en `user_email_lower` para garantizar multi-tenant.
