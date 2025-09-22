@@ -126,11 +126,17 @@ def post(path: str, **kwargs):
 
 
 def patch(path: str, **kwargs):
+    """HTTP PATCH helper aligned with the rest of the public helpers."""
     custom_headers = kwargs.pop("headers", None)
     timeout = kwargs.pop("timeout", DEFAULT_TIMEOUT)
     url = _full_url(path)
     try:
-        r = _session.patch(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
+        r = _session.patch(
+            url,
+            headers=_merge_headers(custom_headers),
+            timeout=timeout,
+            **kwargs,
+        )
     except (requests.ConnectionError, requests.ChunkedEncodingError):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
