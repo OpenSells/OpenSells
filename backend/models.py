@@ -202,8 +202,8 @@ class LeadExtraido(Base):
 class UsuarioMemoria(Base):
     __tablename__ = "usuario_memoria"
 
-    # Clave lógica única por email normalizado
-    email_lower = Column(String, nullable=False, unique=True)
+    # Clave lógica única por email normalizado (úsala como PK)
+    email_lower = Column(String, primary_key=True, nullable=False, unique=True)
 
     # Representa el email normalizado del usuario (mismo valor que email_lower)
     user_email_lower = Column(String, nullable=False, index=True)
