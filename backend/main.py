@@ -982,7 +982,11 @@ class MemoriaPayload(BaseModel):
 
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    row = db.get(UsuarioMemoria, usuario.email_lower)
+    row = (
+        db.query(UsuarioMemoria)
+        .filter(UsuarioMemoria.email_lower == usuario.email_lower)
+        .first()
+    )
     return {"memoria": row.descripcion if row else ""}
 
 
@@ -992,14 +996,40 @@ def guardar_memoria(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    row = db.get(UsuarioMemoria, usuario.email_lower)
-    if row:
-        row.descripcion = payload.descripcion
-    else:
-        row = UsuarioMemoria(email_lower=usuario.email_lower, descripcion=payload.descripcion)
-        db.add(row)
-    db.commit()
-    return {"ok": True}
+    descripcion = (payload.descripcion or "").strip()
+    try:
+        tbl = UsuarioMemoria.__table__
+        stmt = (
+            pg_insert(tbl)
+            .values(
+                email_lower=usuario.email_lower,
+                descripcion=descripcion,
+            )
+            .on_conflict_do_update(
+                index_elements=[tbl.c.email_lower],
+                set_={tbl.c.descripcion: descripcion},
+            )
+        )
+        db.execute(stmt)
+        db.commit()
+        return {"ok": True}
+    except Exception:
+        db.rollback()
+        row = (
+            db.query(UsuarioMemoria)
+            .filter(UsuarioMemoria.email_lower == usuario.email_lower)
+            .first()
+        )
+        if row:
+            row.descripcion = descripcion
+        else:
+            row = UsuarioMemoria(
+                email_lower=usuario.email_lower,
+                descripcion=descripcion,
+            )
+            db.add(row)
+        db.commit()
+        return {"ok": True}
 
 
 @app.get("/mis_nichos", response_model=list[NichoSummary])
