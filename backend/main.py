@@ -885,6 +885,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    actual: str
+    nueva: str
+
+
 # ---- ENDPOINTS AUTH ----
 @app.post("/register")
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
@@ -928,6 +933,33 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     token = crear_token({"sub": user.email})
     return {"access_token": token}
+
+
+@app.post("/cambiar_password")
+def cambiar_password(
+    payload: ChangePasswordRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verificar_password(payload.actual, usuario.hashed_password):
+        raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+
+    nueva_password = payload.nueva or ""
+    if len(nueva_password) < 8 or nueva_password == payload.actual:
+        raise HTTPException(status_code=400, detail="Contraseña nueva inválida")
+
+    try:
+        usuario.hashed_password = hashear_password(nueva_password)
+        db.add(usuario)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[cambiar_password] error user=%s", getattr(usuario, "email_lower", None)
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"ok": True}
 
 
 @app.get("/me")
