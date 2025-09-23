@@ -101,7 +101,11 @@ def get(path: str, **kwargs):
     url = _full_url(path)
     try:
         r = _session.get(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
-    except (requests.ConnectionError, requests.ChunkedEncodingError):
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ReadTimeout,
+    ):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
         r = _session.get(url, headers=hdrs, timeout=timeout, **kwargs)
@@ -116,7 +120,11 @@ def post(path: str, **kwargs):
     url = _full_url(path)
     try:
         r = _session.post(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
-    except (requests.ConnectionError, requests.ChunkedEncodingError):
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ReadTimeout,
+    ):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
         r = _session.post(url, headers=hdrs, timeout=timeout, **kwargs)
@@ -137,7 +145,11 @@ def patch(path: str, **kwargs):
             timeout=timeout,
             **kwargs,
         )
-    except (requests.ConnectionError, requests.ChunkedEncodingError):
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ReadTimeout,
+    ):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
         r = _session.patch(url, headers=hdrs, timeout=timeout, **kwargs)
@@ -152,7 +164,11 @@ def put(path: str, **kwargs):
     url = _full_url(path)
     try:
         r = _session.put(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
-    except (requests.ConnectionError, requests.ChunkedEncodingError):
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ReadTimeout,
+    ):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
         r = _session.put(url, headers=hdrs, timeout=timeout, **kwargs)
@@ -167,7 +183,11 @@ def delete(path: str, **kwargs):
     url = _full_url(path)
     try:
         r = _session.delete(url, headers=_merge_headers(custom_headers), timeout=timeout, **kwargs)
-    except (requests.ConnectionError, requests.ChunkedEncodingError):
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.ChunkedEncodingError,
+        requests.exceptions.ReadTimeout,
+    ):
         _reset_session()
         hdrs = _merge_headers({**(custom_headers or {}), "Connection": "close"})
         r = _session.delete(url, headers=hdrs, timeout=timeout, **kwargs)
