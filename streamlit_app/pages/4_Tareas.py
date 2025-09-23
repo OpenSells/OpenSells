@@ -499,7 +499,7 @@ elif seleccion == "Leads":
         # nocache_key asegura que cada búsqueda se envíe con el token vigente
         datos_buscar = (
             cached_get(
-                "buscar_leads",
+                "/buscar_leads",
                 token,
                 query=query,
                 nocache_key=time.time(),
@@ -519,7 +519,10 @@ elif seleccion == "Leads":
                     st.session_state["lead_seleccionado"] = norm
                     st.rerun()
         else:
-            st.info("Escribe un dominio para buscar.")
+            if q:
+                st.info("No se encontraron leads para esa búsqueda.")
+            else:
+                st.info("Escribe un dominio para buscar.")
     
     # Modo detalle de lead
     else:

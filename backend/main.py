@@ -1942,6 +1942,42 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
     }
 
 
+@app.get("/buscar_leads")
+def buscar_leads_guardados(
+    query: str = Query(..., min_length=1, description="Subcadena del dominio a buscar"),
+    limit: int = Query(50, ge=1, le=200),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = (query or "").strip().lower()
+    if not q:
+        raise HTTPException(status_code=400, detail="Falta 'query'")
+
+    stmt = (
+        select(LeadExtraido.dominio)
+        .where(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            func.lower(LeadExtraido.dominio).like(f"%{q}%"),
+        )
+        .order_by(func.lower(LeadExtraido.dominio).asc(), LeadExtraido.id.asc())
+        .limit(limit)
+    )
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception("[buscar_leads GET] error user=%s", getattr(usuario, "email_lower", None))
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    vistos: set[str] = set()
+    resultados: list[str] = []
+    for (dom,) in rows:
+        if dom and dom not in vistos:
+            vistos.add(dom)
+            resultados.append(dom)
+
+    return {"resultados": resultados}
+
+
 @app.get("/historial")
 def ver_historial(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (
