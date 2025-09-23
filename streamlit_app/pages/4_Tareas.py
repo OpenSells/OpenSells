@@ -405,23 +405,28 @@ elif seleccion == "Nichos":
             else:
                 for n in filtrados:
                     nombre = (n.get("nicho_original") or n.get("nicho") or "").strip()
+                    nicho_key = (n.get("nicho") or "").strip()
+                    # Fallback ultra-raro si n["nicho"] viniera vacío:
+                    # from hashlib import md5
+                    # if not nicho_key: nicho_key = md5(nombre.encode()).hexdigest()[:8]
                     cols = st.columns([6, 1])
                     cols[0].markdown(f"📁 **{nombre}**")
-                    if cols[1].button("➡️ Ver", key=f"ver_nicho_{nombre}"):
-                        st.session_state["nicho_seleccionado"] = nombre
+                    if cols[1].button("➡️ Ver", key=f"ver_nicho_{nicho_key}"):
+                        st.session_state["nicho_seleccionado"] = nicho_key
                         st.rerun()
 
         # Fase 2: Vista del nicho seleccionado
         else:
-            elegido = st.session_state["nicho_seleccionado"]
-            nk = next((n for n in ln if n["nicho_original"] == elegido), None)
+            elegido = st.session_state["nicho_seleccionado"]  # clave normalizada
+            nk = next((n for n in ln if n.get("nicho") == elegido), None)
             if nk is None:
                 st.error("❌ El nicho seleccionado ya no existe o fue filtrado.")
                 st.session_state["nicho_seleccionado"] = None
                 st.rerun()
 
             cols = st.columns([6, 1])
-            cols[0].markdown(f"### 📁 {elegido}")
+            titulo_nicho = (nk.get("nicho_original") or nk.get("nicho") or "").strip()
+            cols[0].markdown(f"### 📁 {titulo_nicho}")
             if cols[1].button("⬅️ Volver", key="volver_nichos", use_container_width=True):
                 st.session_state["nicho_seleccionado"] = None
                 st.rerun()
@@ -453,11 +458,11 @@ elif seleccion == "Nichos":
                         else:
                             st.warning("La descripción es obligatoria.")
 
-            tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk["nicho"]]
+            tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk.get("nicho")]
             st.markdown("#### 📋 Tareas activas")
             if debug:
                 st.caption(f"debug: nicho={len(tareas_n)}")
-            render_list(tareas_n, f"n{nk['nicho']}")
+            render_list(tareas_n, f"n{nk.get('nicho')}")
 
             # Toggle historial
             if st.toggle("📜 Ver historial de tareas de este nicho", key="toggle_historial_nicho"):
