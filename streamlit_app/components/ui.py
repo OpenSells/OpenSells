@@ -5,19 +5,16 @@ import streamlit as st
 def render_whatsapp_fab(
     phone_e164: str = "+34634159527",
     default_msg: str = "Necesito ayuda",
-    size_px: int = 56,              # diámetro del FAB
-    icon_px: int = 30,              # tamaño del SVG interno (ajustable 28–34)
-    icon_scale: float = 0.92        # escala fina del glifo (0.86–0.96); da margen pro
+    size_px: int = 56,      # diámetro del FAB
+    icon_px: int = 30,      # tamaño del SVG
+    icon_scale: float = 0.92
 ):
-    """
-    Renderiza un FAB de WhatsApp (profesional) en la esquina inferior derecha.
-    - Usa glifo oficial (burbuja + teléfono) en un SVG nítido.
-    - 'icon_scale' ajusta el margen interno para evitar que el teléfono toque la burbuja.
-    """
-
     phone = phone_e164.lstrip("+")
     wa_url = f"https://wa.me/{phone}?text={urllib.parse.quote(default_msg)}"
 
+    mobile_size = max(48, size_px - 4)
+
+    # OJO: todas las llaves literales del CSS/SVG van DOBLES: {{ }}
     css = f"""
     <style>
       .whatsapp-fab {{
@@ -37,24 +34,23 @@ def render_whatsapp_fab(
         -webkit-font-smoothing: antialiased;
         backface-visibility: hidden;
         transform: translateZ(0);
-      }
+      }}
       .whatsapp-fab:hover {{
         transform: translateY(-1px);
         box-shadow: 0 10px 24px rgba(0,0,0,0.28);
-      }
-      .whatsapp-fab svg {{ display:block; }}
+      }}
+      .whatsapp-fab svg {{ display: block; }}
       @media (max-width: 480px) {{
         .whatsapp-fab {{
-          width: {max(48, size_px-4)}px;
-          height: {max(48, size_px-4)}px;
+          width: {mobile_size}px;
+          height: {mobile_size}px;
           right: 14px; bottom: 14px;
         }}
-      }
+      }}
     </style>
     """
 
-    # Glifo oficial (vector limpio) en viewBox 0..32 (Simple Icons-like).
-    # Dos paths: 1) handset  2) burbuja/anillo. Se escalan juntos y se centran.
+    # Glifo oficial limpio (burbuja + teléfono) centrado y con margen.
     svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
          width="{icon_px}" height="{icon_px}" role="img" aria-hidden="true">
@@ -67,5 +63,7 @@ def render_whatsapp_fab(
     </svg>
     """
 
-    html = f'{css}<a class="whatsapp-fab" href="{wa_url}" target="_blank" rel="noopener noreferrer" aria-label="Contactar por WhatsApp">{svg}</a>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(
+        f'{css}<a class="whatsapp-fab" href="{wa_url}" target="_blank" rel="noopener noreferrer" aria-label="Contactar por WhatsApp">{svg}</a>',
+        unsafe_allow_html=True
+    )
