@@ -17,6 +17,18 @@ from streamlit_app.utils.logout_button import logout_button
 load_dotenv()
 
 
+def _is_dev_env() -> bool:
+    env = (os.getenv("ENV") or "").lower()
+    try:
+        env = (st.secrets.get("ENV") or env).lower()
+    except Exception:
+        pass
+    return env in {"dev", "development", "local"}
+
+
+SHOW_DEBUG = _is_dev_env()
+
+
 def _resolve_backend_url() -> str:
     """Resolve backend base URL preferring env vars, then secrets, then localhost."""
     env_value = os.getenv("BACKEND_URL")
@@ -54,7 +66,7 @@ if token and not user:
 with st.sidebar:
     logout_button()
 
-debug = st.sidebar.checkbox("Debug tareas", value=False)
+debug = st.sidebar.checkbox("Debug tareas", value=False) if SHOW_DEBUG else False
 
 plan = resolve_user_plan(token)["plan"]
 
@@ -65,7 +77,8 @@ HOY = date.today()
 
 PRIO_ORDER = {"alta": 0, "media": 1, "baja": 2}
 
-st.caption(f"DEBUG BACKEND_URL = {BACKEND_URL}")
+if SHOW_DEBUG:
+    st.caption(f"DEBUG BACKEND_URL = {BACKEND_URL}")
 
 
 def crear_tarea_backend(payload: Dict[str, Any], headers: Dict[str, str], debug_flag: bool) -> bool:
