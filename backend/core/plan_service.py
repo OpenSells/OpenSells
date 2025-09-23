@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.plan_config import PLANES, get_limits as _get_plan_limits
 from backend.core.stripe_mapping import stripe_price_to_plan
-from backend.core.usage_service import UsageService
+from backend.core.usage_service import UsageService, UsageDailyService
 from backend.models import LeadTarea
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,9 @@ class PlanService:
         usage_svc = UsageService(self.db)
         period = usage_svc.get_period_yyyymm()
         counts = usage_svc.get_usage(user.id, period)
+        daily_usage_svc = UsageDailyService(self.db)
+        day_period = daily_usage_svc.get_period_yyyymmdd()
+        daily_counts = daily_usage_svc.get_usage(user.id, day_period)
 
         tasks_current = (
             self.db.query(LeadTarea)
@@ -88,7 +91,7 @@ class PlanService:
                 else None,
                 "period": period,
             },
-            "ia_msgs": {"used": counts["ia_msgs"], "period": period},
+            "ia_msgs": {"used": daily_counts["ia_msgs"], "period": day_period},
             "tasks": {"used": counts["tasks"], "period": period},
             "csv_exports": {
                 "used": counts["csv_exports"],
@@ -100,13 +103,45 @@ class PlanService:
             "tasks_active": {"current": tasks_current, "limit": plan.tasks_active_max},
         }
 
+        if plan.type == "free":
+            usage["searches"] = {
+                "used": counts["leads"],
+                "remaining": (plan.searches_per_month - counts["leads"])
+                if plan.searches_per_month is not None
+                else None,
+                "period": period,
+            }
+        else:
+            usage["lead_credits"] = {
+                "used": counts["leads"],
+                "remaining": (plan.lead_credits_month - counts["leads"])
+                if plan.lead_credits_month is not None
+                else None,
+                "period": period,
+            }
+
         remaining = {
             "leads": usage["leads"]["remaining"],
             "csv_exports": usage["csv_exports"]["remaining"],
             "tasks_active": plan.tasks_active_max - tasks_current,
-            "ia_msgs": None,
+            "ia_msgs": (plan.ai_daily_limit - daily_counts["ia_msgs"])
+            if plan.ai_daily_limit is not None
+            else None,
             "tasks": None,
         }
+
+        if plan.type == "free":
+            remaining["searches"] = (
+                (plan.searches_per_month - counts["leads"])
+                if plan.searches_per_month is not None
+                else None
+            )
+        else:
+            remaining["lead_credits"] = (
+                (plan.lead_credits_month - counts["leads"])
+                if plan.lead_credits_month is not None
+                else None
+            )
 
         result = {
             "plan": plan_name,

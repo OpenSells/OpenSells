@@ -1,6 +1,5 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
-import os
 import re
 import streamlit as st
 import requests
@@ -86,6 +85,25 @@ def safe_json(resp: requests.Response) -> dict:
         return {}
 
 
+LIMIT_MESSAGES = {
+    "searches": "Has agotado tus 4 búsquedas del plan Free este mes.",
+    "lead_credits": "Sin créditos de leads (plan de pago).",
+    "ai": "Has alcanzado el límite diario de IA.",
+    "csv_exports": "Has alcanzado el límite de exportaciones.",
+}
+
+
+def mostrar_banner_limite(detail: dict | None):
+    if not isinstance(detail, dict):
+        st.warning("🚫 No tienes permiso para continuar con esta acción.")
+        return
+    resource = detail.get("resource")
+    mensaje = LIMIT_MESSAGES.get(resource) or "🚫 No tienes permiso para continuar con esta acción."
+    st.warning(mensaje)
+    if resource in {"lead_credits", "csv_exports"}:
+        subscription_cta()
+
+
 def _set_variantes_from_response(data: dict | None):
     data = data or {}
     variantes_reales = data.get("variantes") or data.get("variantes_generadas") or []
@@ -116,10 +134,15 @@ for flag, valor in {
     "seleccion_display": [],
     VIEW_KEY: [],
     CANON_KEY: [],
+    "limit_error_detail": None,
+    "truncated_free": False,
 }.items():
     st.session_state.setdefault(flag, valor)
 
 headers = auth_headers(token)
+
+if st.session_state.get("limit_error_detail"):
+    mostrar_banner_limite(st.session_state.get("limit_error_detail"))
 
 
 # -------------------- Popup --------------------
@@ -222,13 +245,21 @@ def procesar_extraccion():
             st.session_state.payload_export = data.get("payload_export", {})
             st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
             st.session_state.resultados = data.get("resultados", [])
+            st.session_state.truncated_free = bool(data.get("truncated"))
+            st.session_state.limit_error_detail = None
             limpiar_cache()
             st.session_state.fase_extraccion = "exportando"
             st.rerun()
         elif r.status_code == 403:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Actualiza tu plan para continuar.")
-            subscription_cta()
+            data = safe_json(r)
+            detail = data.get("detail") if isinstance(data, dict) else None
+            st.session_state.limit_error_detail = detail
+            st.session_state.truncated_free = False
+            mostrar_banner_limite(detail)
             st.session_state.loading = False
+            st.session_state.estado_actual = ""
+            st.session_state.fase_extraccion = None
+            st.session_state.extraccion_realizada = False
             return
         else:
             st.error("Error al extraer los datos")
@@ -376,12 +407,16 @@ if nicho_actual:
 # -------------------- Generar variantes --------------------
 remaining_searches = None
 if plan_name == "free":
-    quota_searches = quotas.get("busquedas") or quotas.get("searches") or quotas.get("searches_per_month")
-    used_searches = usage.get("busquedas") or usage.get("searches") or usage.get("searches_per_month")
-    if isinstance(quota_searches, int):
-        used_searches = used_searches or 0
-        remaining_searches = max(quota_searches - used_searches, 0)
-disable_search = plan_name == "free" and remaining_searches == 0
+    quota_searches = quotas.get("searches_per_month")
+    used_searches = usage.get("searches")
+    if used_searches is None:
+        used_searches = usage.get("leads")
+    if isinstance(quota_searches, (int, float)):
+        used_val = int(used_searches or 0)
+        remaining_searches = max(int(quota_searches) - used_val, 0)
+disable_search = plan_name == "free" and remaining_searches is not None and remaining_searches == 0
+if plan_name == "free" and remaining_searches is not None:
+    st.caption(f"Te quedan {remaining_searches} búsquedas este mes.")
 if st.button(
     "🚀 Buscar variantes",
     disabled=disable_search,
@@ -483,50 +518,13 @@ if st.session_state.get("variantes"):
 
     disabled = len(seleccion_interna) == 0
     if st.button("🔎 Buscar dominios", disabled=disabled, key="btn_extraer"):
-        seleccionadas = seleccion_interna
-
-        # Comprobar si el usuario tiene plan activo
-        # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
-
-        if plan_name == "free":
-            try:
-                # Precio por defecto del plan Básico
-                price_id = os.getenv("STRIPE_PRICE_BASICO", "")
-                if not price_id:
-                    st.error("Falta configurar el price_id del plan Básico.")
-                    st.stop()
-                r_checkout = requests.post(
-                    f"{BACKEND_URL}/crear_checkout",
-                    headers=headers,
-                    params={"plan": price_id}
-                )
-                if r_checkout.ok:
-                    checkout_url = safe_json(r_checkout).get("url", "")
-                    st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                    subscription_cta()
-                    st.markdown(f"""
-                    <div style='text-align:center; margin-top: 1rem;'>
-                        <a href="{checkout_url}" target="_blank" style='
-                            background-color: #0d6efd;
-                            color: white;
-                            padding: 0.6rem 1.4rem;
-                            border-radius: 6px;
-                            text-decoration: none;
-                            font-weight: 600;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                            display: inline-block;
-                            transition: background-color 0.3s ease;'>
-                            💳 Suscribirme ahora
-                        </a>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-                    subscription_cta()
-            except Exception:
-                st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-                subscription_cta()
+        if not cliente_ideal.strip() or not nicho_actual:
+            st.warning("Completa cliente ideal y nicho para continuar")
+        elif not seleccion_interna:
+            st.warning("Selecciona al menos una variante")
         else:
+            st.session_state.limit_error_detail = None
+            st.session_state.truncated_free = False
             st.session_state.fase_extraccion = "buscando"
             st.session_state.loading = True
             st.session_state.procesando = "dominios"
@@ -542,6 +540,8 @@ if st.session_state.get("mostrar_resultado"):
 
     if st.session_state.get("resultados"):
         st.write("✅ Leads extraídos:")
+        if st.session_state.get("truncated_free"):
+            st.info("🔒 Free: máx 10 leads por búsqueda.")
         st.dataframe(st.session_state.resultados)
 
     # Limpiar flags para futuras búsquedas
