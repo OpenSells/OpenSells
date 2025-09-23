@@ -53,11 +53,19 @@ def render_whatsapp_fab(phone_e164: str = "+34634159527", default_msg: str = "Ne
     <a class="whatsapp-fab" href="{wa_url}" target="_blank" rel="noopener noreferrer" aria-label="Contactar por WhatsApp">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="32" height="32" role="img" aria-hidden="true">
         <title>WhatsApp</title>
-        <!-- Ajuste óptico: la burbuja tiene cola; compensamos a la derecha y arriba -->
-        <!-- Escala 0.875 (12.5% menos) y centrado por translate = (256*(1-0.875)/2) = 16 -->
-        <!-- Luego micro-compensamos: +1.2 en X y -0.6 en Y -->
-        <g transform="translate(17.2,15.4) scale(0.875)">
-          <path fill="#FFFFFF" d="M128 28C73.4 28 29 72.3 29 126.9c0 17.5 4.5 34 13 48.8L28 228l53-13.9c14 7.6 29.8 11.6 47 11.6 54.6 0 98.9-44.3 98.9-98.9C226.9 72.3 182.6 28 128 28zm0 174.9c-15.8 0-30.5-4.2-43.2-11.6l-3-.1-31.4 8.3 8.4-30.3-.9-3c-7.7-12.4-12.1-26.8-12.1-42.3 0-44.9 36.4-81.3 81.3-81.3s81.3 36.4 81.3 81.3-36.4 81.3-81.3 81.3zm41.2-52.3c-2.3-1.3-13.7-7.3-15.8-8.1-2.1-.8-3.6-1.2-5.1 1.2-1.5 2.3-5.9 7.8-7.1 9.4-1.3 1.5-2.6 1.7-4.7.6-2.3-1.2-9.5-3.5-18-11.1-6.7-5.9-11.2-13.1-12.5-15.8-1.3-2.7-.1-4.1 1.1-5.6 1.2-1.4 2.6-3 3.7-4.6 1.2-1.5 1.5-2.7 2.3-4.4.8-1.8.4-3.6-.2-5.1-.6-1.5-5.7-13.6-7.8-18.6-2.2-5-4.4-4.2-6.1-4.3l-5.2-.1c-1.8 0-5.1.7-7.7 3.3-2.7 2.7-10.4 10.2-10.4 24.9 0 14.7 10.7 28.9 12.3 31.1 1.5 2.2 21.1 32.5 51.3 45.5 7.1 3.1 12.7 4.9 17.1 6.1 7.1 2.1 13.6 1.7 18.8 1 5.7-.8 17.6-7.2 20-14.1 2.5-6.9 2.5-12.8 1.8-14.2-.7-1.4-2.8-2.2-5.5-3.6z"/>
+
+        <!-- Capa 1: anillo/burbuja perfectamente centrado -->
+        <!-- r=54 y stroke=14 dejan un margen cómodo dentro del botón -->
+        <circle cx="128" cy="128" r="54" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+
+        <!-- Capa 2: teléfono centrado ópticamente dentro del anillo -->
+        <!-- Usamos un handset compacto y lo centramos con translate al punto (128,128) -->
+        <g transform="translate(128,128)">
+          <!-- Scale controla el tamaño relativo del handset frente al anillo -->
+          <g transform="translate(-16,-16) scale(1.15)">
+            <!-- Handset estilizado (curva + cuerpo). Debe quedar claramente separado del anillo -->
+            <path fill="#FFFFFF" d="M22.8 29.6c-1.1-.6-6.4-3.4-7.3-3.8-.9-.3-1.7-.5-2.3.4-.6.9-2.7 3.6-3.2 4.2-.6.7-1.2.7-2.2.3-1.1-.5-4.5-1.6-8.4-4.9C-4 21-6.2 17.5-6.8 16.3c-.6-1.2 0-1.8.5-2.5.5-.6 1.1-1.3 1.6-2 .5-.7.6-1.2 1-2 .3-.8.2-1.6-.1-2.3-.3-.7-2.6-6.1-3.5-8.4C-8.1-3.5-9.1-3.1-9.9-3.1l-2.3 0c-.8 0-2.3.3-3.5 1.5-1.2 1.2-4.8 4.7-4.8 11.5 0 6.8 5 13.3 5.7 14.3.7 1 9.7 15 23.7 21 3.3 1.4 5.9 2.3 7.9 2.8 3.3 1 6.3.8 8.7.5 2.6-.4 8.1-3.3 9.2-6.5 1.2-3.2 1.1-5.9.8-6.6-.3-.7-1.3-1.1-2.5-1.7z"/>
+          </g>
         </g>
       </svg>
     </a>
