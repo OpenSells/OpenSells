@@ -171,6 +171,29 @@ else:
                 email = st.text_input("Email", placeholder="tucorreo@ejemplo.com")
                 password = st.text_input("Contraseña", type="password")
                 submitted = st.form_submit_button("Iniciar sesión", use_container_width=True)
+
+                # Separador visual pequeño
+                st.caption(" ")
+
+                # Desplegable: ¿Olvidaste tu contraseña?
+                with st.expander("¿Olvidaste tu contraseña?", expanded=False):
+                    st.write(
+                        "Si olvidaste tu contraseña, por favor **envía un email a** "
+                        "[opensellscontact@gmail.com]"
+                        "(mailto:opensellscontact@gmail.com?subject=Solicitud%20de%20cambio%20de%20contrase%C3%B1a)"
+                        " **solicitando el cambio de contraseña** desde el mismo correo con el que te registraste."
+                    )
+                    # Recomendación de contenido del email
+                    st.markdown(
+                        "- Tu **correo de registro**.\n"
+                        "- Opcional: una breve nota confirmando que autorizas el cambio.\n"
+                        "- Asunto sugerido: `Solicitud de cambio de contraseña`."
+                    )
+                    st.link_button(
+                        "📧 Enviar email ahora",
+                        "mailto:opensellscontact@gmail.com?subject=Solicitud%20de%20cambio%20de%20contrase%C3%B1a",
+                        use_container_width=False,
+                    )
             if submitted:
                 email_norm = email.strip().lower()
                 if not EMAIL_RE.match(email_norm):
