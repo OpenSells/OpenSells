@@ -3,6 +3,8 @@ import streamlit as st
 import sys
 from pathlib import Path
 
+from components.ui import render_whatsapp_fab
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -271,4 +273,7 @@ if _target:
 
 if __name__ == "__main__":
     pass
+
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
 

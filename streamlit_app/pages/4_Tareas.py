@@ -13,6 +13,7 @@ from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from components.ui import render_whatsapp_fab
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 
@@ -656,3 +657,6 @@ elif seleccion == "Leads":
                 st.caption(h["timestamp"])
         else:
             st.info("No hay tareas completadas para este lead.")
+
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")

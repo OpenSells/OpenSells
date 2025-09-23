@@ -34,6 +34,7 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
+from components.ui import render_whatsapp_fab
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()
@@ -634,3 +635,6 @@ for n in nichos_visibles:
                                 st.success("Información guardada correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
                                 st.rerun()
+
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")

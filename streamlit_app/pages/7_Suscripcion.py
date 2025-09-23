@@ -10,6 +10,7 @@ from streamlit_app.plan_utils import force_redirect, resolve_user_plan
 from streamlit_app.utils.plans import PLANS_FEATURES
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from components.ui import render_whatsapp_fab
 
 load_dotenv()
 
@@ -134,3 +135,5 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
                     st.error("Falta configurar el price_id del plan Business.")
 
 st.caption("El pago y la gestión se realizan en Stripe.")
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")

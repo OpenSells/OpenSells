@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from components.ui import render_whatsapp_fab
 
 st.set_page_config(page_title="Exportaciones", page_icon="📤")
 
@@ -29,3 +30,5 @@ with st.sidebar:
 
 st.title("📤 Exportaciones")
 st.info("Esta sección estará disponible pronto.")
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
