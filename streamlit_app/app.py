@@ -14,6 +14,8 @@ import logging
 from sqlalchemy.engine import make_url
 import streamlit as st
 
+from components.ui import render_whatsapp_fab
+
 from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils.nav import go, HOME_PAGE
@@ -92,3 +94,5 @@ except AttributeError:
             go("pages/3_Mis_Nichos.py")
         if st.button("💳 Activar suscripción"):
             go(suscription_page)
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")

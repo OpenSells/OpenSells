@@ -16,6 +16,7 @@ from streamlit_app.assistant_api import (
 from streamlit_app.utils.assistant_guard import violates_policy, sanitize_output
 from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
 from streamlit_app.utils.logout_button import logout_button
+from components.ui import render_whatsapp_fab
 
 st.set_page_config(page_title="Asistente Virtual", page_icon="🤖")
 
@@ -902,4 +903,6 @@ if pregunta:
                         mime="text/csv",
                         use_container_width=True,
                     )
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
 

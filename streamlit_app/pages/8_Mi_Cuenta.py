@@ -15,6 +15,7 @@ from streamlit_app.utils.auth_session import (
     get_auth_token,
 )
 from streamlit_app.utils.logout_button import logout_button
+from components.ui import render_whatsapp_fab
 
 # --- KPIs visibles y etiquetas ES ---
 PRIMARY_KEYS = [
@@ -483,7 +484,6 @@ with col1:
                     st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
-
 if is_debug_ui_enabled():
     with st.expander("Debug sesión"):
         st.write("Token (prefijo):", (st.session_state.get("token") or "")[:12])
@@ -527,3 +527,5 @@ with col2:
                     st.error(f"Error {r.status_code}: {r.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")

@@ -24,6 +24,7 @@ from streamlit_app.utils.auth_session import (
 )
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
+from components.ui import render_whatsapp_fab
 
 load_dotenv()
 
@@ -554,3 +555,5 @@ if st.session_state.get("mostrar_resultado"):
         "extraccion_realizada",
     ]:
         st.session_state.pop(flag, None)
+
+render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
