@@ -1003,11 +1003,15 @@ def guardar_memoria(
             pg_insert(tbl)
             .values(
                 email_lower=usuario.email_lower,
+                user_email_lower=usuario.email_lower,
                 descripcion=descripcion,
             )
             .on_conflict_do_update(
                 index_elements=[tbl.c.email_lower],
-                set_={tbl.c.descripcion: descripcion},
+                set_={
+                    tbl.c.descripcion: descripcion,
+                    tbl.c.user_email_lower: usuario.email_lower,
+                },
             )
         )
         db.execute(stmt)
@@ -1022,9 +1026,11 @@ def guardar_memoria(
         )
         if row:
             row.descripcion = descripcion
+            row.user_email_lower = usuario.email_lower
         else:
             row = UsuarioMemoria(
                 email_lower=usuario.email_lower,
+                user_email_lower=usuario.email_lower,
                 descripcion=descripcion,
             )
             db.add(row)
