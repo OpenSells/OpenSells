@@ -202,9 +202,28 @@ class LeadExtraido(Base):
 class UsuarioMemoria(Base):
     __tablename__ = "usuario_memoria"
 
-    email_lower = Column(String, primary_key=True, index=True)
-    descripcion = Column(Text)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Clave lógica única por email normalizado
+    email_lower = Column(String, nullable=False, unique=True)
+
+    # Representa el email normalizado del usuario (mismo valor que email_lower)
+    user_email_lower = Column(String, nullable=False, index=True)
+
+    descripcion = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("email_lower", name="usuario_memoria_email_lower_key"),
+    )
+
+    def __repr__(self):
+        return f"<UsuarioMemoria email_lower={self.email_lower!r}>"
 
 
 class HistorialExport(Base):
