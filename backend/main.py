@@ -885,6 +885,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    actual: str
+    nueva: str
+
+
 # ---- ENDPOINTS AUTH ----
 @app.post("/register")
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
@@ -928,6 +933,33 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     token = crear_token({"sub": user.email})
     return {"access_token": token}
+
+
+@app.post("/cambiar_password")
+def cambiar_password(
+    payload: ChangePasswordRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verificar_password(payload.actual, usuario.hashed_password):
+        raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+
+    nueva_password = payload.nueva or ""
+    if len(nueva_password) < 8 or nueva_password == payload.actual:
+        raise HTTPException(status_code=400, detail="Contraseña nueva inválida")
+
+    try:
+        usuario.hashed_password = hashear_password(nueva_password)
+        db.add(usuario)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "[cambiar_password] error user=%s", getattr(usuario, "email_lower", None)
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"ok": True}
 
 
 @app.get("/me")
@@ -982,7 +1014,11 @@ class MemoriaPayload(BaseModel):
 
 @app.get("/mi_memoria")
 def obtener_memoria(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
-    row = db.get(UsuarioMemoria, usuario.email_lower)
+    row = (
+        db.query(UsuarioMemoria)
+        .filter(UsuarioMemoria.email_lower == usuario.email_lower)
+        .first()
+    )
     return {"memoria": row.descripcion if row else ""}
 
 
@@ -992,14 +1028,46 @@ def guardar_memoria(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    row = db.get(UsuarioMemoria, usuario.email_lower)
-    if row:
-        row.descripcion = payload.descripcion
-    else:
-        row = UsuarioMemoria(email_lower=usuario.email_lower, descripcion=payload.descripcion)
-        db.add(row)
-    db.commit()
-    return {"ok": True}
+    descripcion = (payload.descripcion or "").strip()
+    try:
+        tbl = UsuarioMemoria.__table__
+        stmt = (
+            pg_insert(tbl)
+            .values(
+                email_lower=usuario.email_lower,
+                user_email_lower=usuario.email_lower,
+                descripcion=descripcion,
+            )
+            .on_conflict_do_update(
+                index_elements=[tbl.c.email_lower],
+                set_={
+                    tbl.c.descripcion: descripcion,
+                    tbl.c.user_email_lower: usuario.email_lower,
+                },
+            )
+        )
+        db.execute(stmt)
+        db.commit()
+        return {"ok": True}
+    except Exception:
+        db.rollback()
+        row = (
+            db.query(UsuarioMemoria)
+            .filter(UsuarioMemoria.email_lower == usuario.email_lower)
+            .first()
+        )
+        if row:
+            row.descripcion = descripcion
+            row.user_email_lower = usuario.email_lower
+        else:
+            row = UsuarioMemoria(
+                email_lower=usuario.email_lower,
+                user_email_lower=usuario.email_lower,
+                descripcion=descripcion,
+            )
+            db.add(row)
+        db.commit()
+        return {"ok": True}
 
 
 @app.get("/mis_nichos", response_model=list[NichoSummary])
@@ -1940,6 +2008,42 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
         "truncated": truncated,
         "credits_remaining": credits_remaining,
     }
+
+
+@app.get("/buscar_leads")
+def buscar_leads_guardados(
+    query: str = Query(..., min_length=1, description="Subcadena del dominio a buscar"),
+    limit: int = Query(50, ge=1, le=200),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = (query or "").strip().lower()
+    if not q:
+        raise HTTPException(status_code=400, detail="Falta 'query'")
+
+    stmt = (
+        select(LeadExtraido.dominio)
+        .where(
+            LeadExtraido.user_email_lower == usuario.email_lower,
+            func.lower(LeadExtraido.dominio).like(f"%{q}%"),
+        )
+        .order_by(func.lower(LeadExtraido.dominio).asc(), LeadExtraido.id.asc())
+        .limit(limit)
+    )
+    try:
+        rows = db.execute(stmt).all()
+    except Exception as exc:
+        logger.exception("[buscar_leads GET] error user=%s", getattr(usuario, "email_lower", None))
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    vistos: set[str] = set()
+    resultados: list[str] = []
+    for (dom,) in rows:
+        if dom and dom not in vistos:
+            vistos.add(dom)
+            resultados.append(dom)
+
+    return {"resultados": resultados}
 
 
 @app.get("/historial")

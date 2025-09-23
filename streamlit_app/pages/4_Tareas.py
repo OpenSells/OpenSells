@@ -198,7 +198,15 @@ def render_list(items, prefix: str):
         return
 
     for i, t in enumerate(items):
-        unique_key = f"{prefix}_{t['id']}_{i}"
+        # Fallback si llega un item sin id (p. ej. errores formateados como dict)
+        tid = t.get("id")
+        if not tid:
+            # si no hay id, crea una key estable por contenido para no chocar y
+            # marca que no se pueden ejecutar acciones que requieren id
+            tid = _hash(f"{t.get('texto','')}-{t.get('dominio','')}-{t.get('fecha','')}-{i}")
+            t["_no_id"] = True
+
+        unique_key = f"{prefix}_{tid}"
         cols = st.columns([1, 3, 2, 1.5, 1.5, 0.8, 0.8])
 
         tipo = ICON.get(t.get("tipo"), "❔")
@@ -236,21 +244,24 @@ def render_list(items, prefix: str):
         cols[3].markdown(fecha)
         cols[4].markdown(prioridad)
 
-        if cols[5].button("✔️", key=f"done_{unique_key}"):
-            if not tiene_suscripcion_activa(plan):
-                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                subscription_cta()
-            else:
-                cached_post("tarea_completada", token, params={"tarea_id": t['id']})
-                limpiar_cache()  # ✅ Añadir esto
-                st.success(f"Tarea {t['id']} marcada como completada ✅")
-                st.rerun()
+        can_act = not t.get("_no_id", False)
+        if cols[5].button("✔️", key=f"done_{unique_key}", disabled=not can_act):
+            if can_act:
+                if not tiene_suscripcion_activa(plan):
+                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                    subscription_cta()
+                else:
+                    cached_post("tarea_completada", token, params={"tarea_id": t['id']})
+                    limpiar_cache()  # ✅ Añadir esto
+                    st.success(f"Tarea {t['id']} marcada como completada ✅")
+                    st.rerun()
 
         if f"editando_{unique_key}" not in st.session_state:
             st.session_state[f"editando_{unique_key}"] = False
 
-        if cols[6].button("📝", key=f"edit_{unique_key}"):
-            st.session_state[f"editando_{unique_key}"] = not st.session_state[f"editando_{unique_key}"]
+        if cols[6].button("📝", key=f"edit_{unique_key}", disabled=not can_act):
+            if can_act:
+                st.session_state[f"editando_{unique_key}"] = not st.session_state[f"editando_{unique_key}"]
 
         if st.session_state[f"editando_{unique_key}"]:
             st.markdown("#### ✏️ Editar tarea")
@@ -268,29 +279,30 @@ def render_list(items, prefix: str):
                 key=f"prio_{unique_key}"
             )
 
-            if c4.button("💾", key=f"guardar_edit_{unique_key}"):
-                if not tiene_suscripcion_activa(plan):
-                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                    subscription_cta()
-                else:
-                    cached_post(
-                        "editar_tarea",
-                        token,
-                        payload={
-                            "texto": nuevo_texto.strip(),
-                            "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
-                            "prioridad": nueva_prioridad,
-                            "tipo": t.get("tipo"),
-                            "nicho": t.get("nicho"),
-                            "dominio": t.get("dominio"),
-                            "auto": t.get("auto", False),
-                        },
-                        params={"tarea_id": t["id"]}
-                    )
-                    st.session_state[f"editando_{unique_key}"] = False
-                    limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
-                    st.success("Tarea actualizada ✅")
-                    st.rerun()
+            if c4.button("💾", key=f"guardar_edit_{unique_key}", disabled=not can_act):
+                if can_act:
+                    if not tiene_suscripcion_activa(plan):
+                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
+                        subscription_cta()
+                    else:
+                        cached_post(
+                            "editar_tarea",
+                            token,
+                            payload={
+                                "texto": nuevo_texto.strip(),
+                                "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
+                                "prioridad": nueva_prioridad,
+                                "tipo": t.get("tipo"),
+                                "nicho": t.get("nicho"),
+                                "dominio": t.get("dominio"),
+                                "auto": t.get("auto", False),
+                            },
+                            params={"tarea_id": t["id"]}
+                        )
+                        st.session_state[f"editando_{unique_key}"] = False
+                        limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
+                        st.success("Tarea actualizada ✅")
+                        st.rerun()
 
             if c5.button("❌", key=f"cerrar_edit_{unique_key}"):
                 st.session_state[f"editando_{unique_key}"] = False
@@ -405,23 +417,28 @@ elif seleccion == "Nichos":
             else:
                 for n in filtrados:
                     nombre = (n.get("nicho_original") or n.get("nicho") or "").strip()
+                    nicho_key = (n.get("nicho") or "").strip()
+                    # Fallback ultra-raro si n["nicho"] viniera vacío:
+                    # from hashlib import md5
+                    # if not nicho_key: nicho_key = md5(nombre.encode()).hexdigest()[:8]
                     cols = st.columns([6, 1])
                     cols[0].markdown(f"📁 **{nombre}**")
-                    if cols[1].button("➡️ Ver", key=f"ver_nicho_{nombre}"):
-                        st.session_state["nicho_seleccionado"] = nombre
+                    if cols[1].button("➡️ Ver", key=f"ver_nicho_{nicho_key}"):
+                        st.session_state["nicho_seleccionado"] = nicho_key
                         st.rerun()
 
         # Fase 2: Vista del nicho seleccionado
         else:
-            elegido = st.session_state["nicho_seleccionado"]
-            nk = next((n for n in ln if n["nicho_original"] == elegido), None)
+            elegido = st.session_state["nicho_seleccionado"]  # clave normalizada
+            nk = next((n for n in ln if n.get("nicho") == elegido), None)
             if nk is None:
                 st.error("❌ El nicho seleccionado ya no existe o fue filtrado.")
                 st.session_state["nicho_seleccionado"] = None
                 st.rerun()
 
             cols = st.columns([6, 1])
-            cols[0].markdown(f"### 📁 {elegido}")
+            titulo_nicho = (nk.get("nicho_original") or nk.get("nicho") or "").strip()
+            cols[0].markdown(f"### 📁 {titulo_nicho}")
             if cols[1].button("⬅️ Volver", key="volver_nichos", use_container_width=True):
                 st.session_state["nicho_seleccionado"] = None
                 st.rerun()
@@ -453,11 +470,11 @@ elif seleccion == "Nichos":
                         else:
                             st.warning("La descripción es obligatoria.")
 
-            tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk["nicho"]]
+            tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk.get("nicho")]
             st.markdown("#### 📋 Tareas activas")
             if debug:
                 st.caption(f"debug: nicho={len(tareas_n)}")
-            render_list(tareas_n, f"n{nk['nicho']}")
+            render_list(tareas_n, f"n{nk.get('nicho')}")
 
             # Toggle historial
             if st.toggle("📜 Ver historial de tareas de este nicho", key="toggle_historial_nicho"):
@@ -494,7 +511,7 @@ elif seleccion == "Leads":
         # nocache_key asegura que cada búsqueda se envíe con el token vigente
         datos_buscar = (
             cached_get(
-                "buscar_leads",
+                "/buscar_leads",
                 token,
                 query=query,
                 nocache_key=time.time(),
@@ -514,7 +531,10 @@ elif seleccion == "Leads":
                     st.session_state["lead_seleccionado"] = norm
                     st.rerun()
         else:
-            st.info("Escribe un dominio para buscar.")
+            if q:
+                st.info("No se encontraron leads para esa búsqueda.")
+            else:
+                st.info("Escribe un dominio para buscar.")
     
     # Modo detalle de lead
     else:
@@ -586,13 +606,18 @@ elif seleccion == "Leads":
                             st.rerun()
 
         st.markdown("#### 📋 Tareas activas")
-        tareas_datos = cached_get(
-            "tareas_lead",
-            token,
-            query={"dominio": norm},
-            nocache_key=time.time()
+
+        # Usa el endpoint real /tareas con filtros tipo=lead y dominio, y solo pendientes
+        resp_tareas = http_client.get(
+            "/tareas",
+            headers=HDR,
+            params={"tipo": "lead", "dominio": norm, "solo_pendientes": True},
         )
-        tareas_l = ensure_list(tareas_datos)
+        if resp_tareas.status_code == 200:
+            payload_tareas = resp_tareas.json() or {}
+            tareas_l = payload_tareas.get("tareas", [])
+        else:
+            tareas_l = []
         if debug:
             st.caption(f"debug: lead={len(tareas_l)}")
         render_list(
