@@ -1,4 +1,15 @@
-import os
+# --- Path bootstrap (asegura que la raíz del repo esté en sys.path) ---
+import os, sys
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+STREAMLIT_DIR = THIS_DIR
+if os.path.basename(STREAMLIT_DIR) != "streamlit_app":
+    STREAMLIT_DIR = os.path.dirname(STREAMLIT_DIR)
+ROOT_DIR = os.path.dirname(STREAMLIT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+# ----------------------------------------------------------------------
+
 import requests
 import streamlit as st
 from hashlib import md5
@@ -8,13 +19,17 @@ from datetime import date
 from typing import Any, Dict, Iterable, List
 from dotenv import load_dotenv
 
-from auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
+from streamlit_app.auth_client import (
+    ensure_authenticated,
+    current_token,
+    auth_headers as auth_client_headers,
+)
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import remember_current_page
 from streamlit_app.utils.logout_button import logout_button
-from components.ui import render_whatsapp_fab
+from streamlit_app.components.ui import render_whatsapp_fab
 # ────────────────── Config ──────────────────────────
 load_dotenv()
 

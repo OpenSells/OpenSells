@@ -1,6 +1,6 @@
 import streamlit as st
 
-from auth_client import clear_token
+from streamlit_app.auth_client import clear_token
 from .auth_session import clear_page_remember
 from .nav import go
 

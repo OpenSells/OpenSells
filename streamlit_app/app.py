@@ -1,21 +1,25 @@
 """Main entry point for the Streamlit app."""
 
-import os
-import sys
-from pathlib import Path
+# --- Path bootstrap (asegura que la raíz del repo esté en sys.path) ---
+import os, sys
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+STREAMLIT_DIR = THIS_DIR
+if os.path.basename(STREAMLIT_DIR) != "streamlit_app":
+    STREAMLIT_DIR = os.path.dirname(STREAMLIT_DIR)
+ROOT_DIR = os.path.dirname(STREAMLIT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+# ----------------------------------------------------------------------
 
 import logging
 import streamlit as st
 from sqlalchemy.engine import make_url
 
-CURR_DIR = Path(__file__).resolve().parent
-if str(CURR_DIR) not in sys.path:
-    sys.path.append(str(CURR_DIR))
-
-from auth_client import ensure_authenticated, clear_token
-from components.ui import render_whatsapp_fab
-from utils.cookies_utils import init_cookie_manager_mount
-from utils.nav import HOME_PAGE, go
+from streamlit_app.auth_client import ensure_authenticated, clear_token
+from streamlit_app.components.ui import render_whatsapp_fab
+from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
+from streamlit_app.utils.nav import HOME_PAGE, go
 
 init_cookie_manager_mount()
 

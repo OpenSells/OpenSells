@@ -1,3 +1,15 @@
+# --- Path bootstrap (asegura que la raíz del repo esté en sys.path) ---
+import os, sys
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+STREAMLIT_DIR = THIS_DIR
+if os.path.basename(STREAMLIT_DIR) != "streamlit_app":
+    STREAMLIT_DIR = os.path.dirname(STREAMLIT_DIR)
+ROOT_DIR = os.path.dirname(STREAMLIT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+# ----------------------------------------------------------------------
+
 # 3_Mis_Nichos.py – Página de gestión de nichos y leads
 #
 # ✔️  Correcciones principales
@@ -9,7 +21,6 @@
 #      (solo desaparece al pulsar “Volver a todos los nichos” o al borrar el nicho completo).
 #   3. Limpieza y tipado ligero.
 
-import os
 import logging
 import hashlib
 import streamlit as st
@@ -18,7 +29,11 @@ import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-from auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
+from streamlit_app.auth_client import (
+    ensure_authenticated,
+    current_token,
+    auth_headers as auth_client_headers,
+)
 from streamlit_app.cache_utils import (
     cached_get,
     cached_post,
@@ -30,7 +45,7 @@ import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import remember_current_page, clear_page_remember
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
-from components.ui import render_whatsapp_fab
+from streamlit_app.components.ui import render_whatsapp_fab
 
 # ── Config ───────────────────────────────────────────
 load_dotenv()

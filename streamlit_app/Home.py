@@ -1,17 +1,23 @@
-import os
+# --- Path bootstrap (asegura que la raíz del repo esté en sys.path) ---
+import os, sys
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+STREAMLIT_DIR = THIS_DIR
+if os.path.basename(STREAMLIT_DIR) != "streamlit_app":
+    STREAMLIT_DIR = os.path.dirname(STREAMLIT_DIR)
+ROOT_DIR = os.path.dirname(STREAMLIT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+# ----------------------------------------------------------------------
+
 import re
-import sys
 from pathlib import Path
 
 import requests
 import streamlit as st
 
-from auth_client import ensure_authenticated, save_token, current_token
-from components.ui import render_whatsapp_fab
-
-CURR_DIR = os.path.dirname(__file__)
-if CURR_DIR not in sys.path:
-    sys.path.append(CURR_DIR)
+from streamlit_app.auth_client import ensure_authenticated, save_token, current_token
+from streamlit_app.components.ui import render_whatsapp_fab
 
 from streamlit_app.utils.constants import (
     BRAND,
