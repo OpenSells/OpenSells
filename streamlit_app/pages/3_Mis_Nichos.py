@@ -108,9 +108,20 @@ st.markdown(
 )
 
 
-def keep_context(nicho_slug: str, key_exp: str, focus_lead: str | None = None):
-    """Deja migas de contexto para el próximo render tras st.rerun()."""
-    st.session_state["solo_nicho_visible"] = nicho_slug
+def keep_context(
+    nicho_slug: str,
+    key_exp: str,
+    focus_lead: str | None = None,
+    *,
+    force_single: bool = False,
+):
+    """
+    Deja migas de contexto para el próximo render.
+    - force_single=True: fija vista 'solo este nicho'.
+    - force_single=False: NO cambia el modo de vista (se queda en 'todos' si así estaba).
+    """
+    if force_single:
+        st.session_state["solo_nicho_visible"] = nicho_slug
     st.session_state[key_exp] = True
     if focus_lead:
         st.session_state["focus_lead"] = focus_lead
@@ -125,9 +136,8 @@ def set_focus_now(lead_id: str):
 def open_panel_and_rerun(nicho_slug: str, key_exp: str, lead_anchor: str):
     """
     Abre expander, fija foco y fuerza un rerun inmediato SOLO para reflejar
-    el nuevo estado de apertura en el mismo ciclo de ejecución.
+    el nuevo estado de apertura, sin cambiar a 'solo_nicho_visible'.
     """
-    st.session_state["solo_nicho_visible"] = nicho_slug
     st.session_state[key_exp] = True
     st.session_state["focus_lead"] = lead_anchor
     st.session_state["ui_scroll_now"] = True
@@ -335,7 +345,7 @@ if busqueda:
         ):
             st.session_state["solo_nicho_visible"] = l["nicho"]
             st.session_state["busqueda_global"] = ""
-            keep_context(l["nicho"], f"expandir_{l['nicho']}")
+            keep_context(l["nicho"], f"expandir_{l['nicho']}", force_single=True)
             st.rerun()
 
     # Nichos coincidentes (solo listamos, sin interacción de momento)
@@ -513,7 +523,7 @@ for n in nichos_visibles:
                                 if res:
                                     st.success("Lead añadido correctamente ✅")
                                     st.session_state["forzar_recarga"] += 1
-                                    keep_context(n["nicho"], key_exp)
+                                    keep_context(n["nicho"], key_exp, force_single=False)
                                     st.rerun()
                                 else:
                                     st.error("Error al guardar el lead")
@@ -543,7 +553,12 @@ for n in nichos_visibles:
                                 st.session_state["forzar_recarga"] = (
                                     st.session_state.get("forzar_recarga", 0) + 1
                                 )
-                                keep_context(n["nicho"], key_exp, clave_base)
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
+                                )
                                 st.rerun()
 
             with cols_row[5]:
@@ -567,7 +582,12 @@ for n in nichos_visibles:
                             )
                             if resp and resp.status_code < 400:
                                 st.toast("Tarea creada", icon="✅")
-                                keep_context(n["nicho"], key_exp, clave_base)
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
+                                )
                                 st.rerun()
                             else:
                                 st.toast("No se pudo crear la tarea", icon="⚠️")
@@ -616,7 +636,12 @@ for n in nichos_visibles:
                         st.session_state["forzar_recarga"] = st.session_state.get(
                             "forzar_recarga", 0
                         ) + 1
-                        keep_context(n["nicho"], key_exp, clave_base)
+                        keep_context(
+                            n["nicho"],
+                            key_exp,
+                            clave_base,
+                            force_single=False,
+                        )
                         st.session_state.pop(confirm_key, None)
                         st.rerun()
                     else:
@@ -678,14 +703,24 @@ for n in nichos_visibles:
                             st.session_state["forzar_recarga"] += 1
                             st.session_state["lead_a_mover"] = None
                             dest_norm = normalizar_nicho(nuevo_nicho)
-                            keep_context(dest_norm, f"expandir_{dest_norm}", clave_base)
+                            keep_context(
+                                dest_norm,
+                                f"expandir_{dest_norm}",
+                                clave_base,
+                                force_single=True,
+                            )
                             st.rerun()
                         else:
                             st.error("Error al mover lead")
 
                 if c2.button("Cancelar", key=f"cancelar_mover_{clave_base}"):
                     st.session_state["lead_a_mover"] = None
-                    keep_context(n["nicho"], key_exp, clave_base)
+                    keep_context(
+                        n["nicho"],
+                        key_exp,
+                        clave_base,
+                        force_single=False,
+                    )
 
             # Botón Información extra
             notas_key = f"mostrar_info_{clave_base}"
@@ -730,7 +765,12 @@ for n in nichos_visibles:
                             if res:
                                 st.success("Información guardada correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
-                                keep_context(n["nicho"], key_exp, clave_base)
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
+                                )
                                 st.rerun()
 
 
