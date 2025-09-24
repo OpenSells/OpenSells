@@ -11,8 +11,9 @@
 
 import os
 import logging
-import streamlit as st
 import hashlib
+import streamlit as st
+import streamlit.components.v1 as components
 import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -105,6 +106,15 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+
+def keep_context(nicho_slug: str, key_exp: str, focus_lead: str | None = None):
+    """Deja migas de contexto para el próximo render tras st.rerun()."""
+    st.session_state["solo_nicho_visible"] = nicho_slug
+    st.session_state[key_exp] = True
+    if focus_lead:
+        st.session_state["focus_lead"] = focus_lead
+
 
 def _estado_chip_label(estado:str)->str:
     label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
@@ -307,6 +317,7 @@ if busqueda:
         ):
             st.session_state["solo_nicho_visible"] = l["nicho"]
             st.session_state["busqueda_global"] = ""
+            keep_context(l["nicho"], f"expandir_{l['nicho']}")
             st.rerun()
 
     # Nichos coincidentes (solo listamos, sin interacción de momento)
@@ -329,6 +340,34 @@ if "solo_nicho_visible" in st.session_state:
     ]
 else:
     nichos_visibles = nichos
+
+_focus_existing = st.session_state.get("focus_lead")
+if _focus_existing:
+    st.markdown(
+        f"<div id='{_focus_existing}' data-placeholder='true'></div>",
+        unsafe_allow_html=True,
+    )
+
+_focus_to_scroll = st.session_state.pop("focus_lead", None)
+if _focus_to_scroll:
+    components.html(
+        f"""
+    <script>
+      const targetId = "{_focus_to_scroll}";
+      const scrollToLead = () => {{
+        const elements = document.querySelectorAll(`[id='${{targetId}}']`);
+        if (elements.length) {{
+          const el = Array.from(elements).find(e => !e.dataset.placeholder) || elements[0];
+          el.scrollIntoView({{behavior: "instant", block: "center"}});
+        }} else {{
+          requestAnimationFrame(scrollToLead);
+        }}
+      };
+      scrollToLead();
+    </script>
+    """,
+        height=0,
+    )
 
 # ── Render de nichos y leads ────────────────────────
 for n in nichos_visibles:
@@ -484,8 +523,7 @@ for n in nichos_visibles:
                                 if res:
                                     st.success("Lead añadido correctamente ✅")
                                     st.session_state["forzar_recarga"] += 1
-                                    st.session_state["solo_nicho_visible"] = n["nicho"]
-                                    st.session_state[key_exp] = True
+                                    keep_context(n["nicho"], key_exp)
                                     st.rerun()
                                 else:
                                     st.error("Error al guardar el lead")
@@ -500,6 +538,7 @@ for n in nichos_visibles:
             if estado_actual == "nuevo":
                 estado_actual = "pendiente"
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
+            st.markdown(f"<div id='{clave_base}'></div>", unsafe_allow_html=True)
             cols_row = st.columns([4, 2, 2, 2, 2, 2])
             cols_row[0].markdown(
                 f"- 🌐 [**{dominio}**](https://{dominio})",
@@ -514,6 +553,7 @@ for n in nichos_visibles:
                                 st.session_state["forzar_recarga"] = (
                                     st.session_state.get("forzar_recarga", 0) + 1
                                 )
+                                keep_context(n["nicho"], key_exp, clave_base)
                                 st.rerun()
 
             with cols_row[5]:
@@ -537,6 +577,7 @@ for n in nichos_visibles:
                             )
                             if resp and resp.status_code < 400:
                                 st.toast("Tarea creada", icon="✅")
+                                keep_context(n["nicho"], key_exp, clave_base)
                                 st.rerun()
                             else:
                                 st.toast("No se pudo crear la tarea", icon="⚠️")
@@ -585,8 +626,7 @@ for n in nichos_visibles:
                         st.session_state["forzar_recarga"] = st.session_state.get(
                             "forzar_recarga", 0
                         ) + 1
-                        st.session_state[key_exp] = True
-                        st.session_state["solo_nicho_visible"] = n["nicho"]
+                        keep_context(n["nicho"], key_exp, clave_base)
                         st.session_state.pop(confirm_key, None)
                         st.rerun()
                     else:
@@ -627,7 +667,8 @@ for n in nichos_visibles:
                             st.success("Lead movido correctamente ✅")
                             st.session_state["forzar_recarga"] += 1
                             st.session_state["lead_a_mover"] = None
-                            st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
+                            dest_norm = normalizar_nicho(nuevo_nicho)
+                            keep_context(dest_norm, f"expandir_{dest_norm}", clave_base)
                             st.rerun()
                         else:
                             st.error("Error al mover lead")
@@ -664,6 +705,7 @@ for n in nichos_visibles:
                             if res:
                                 st.success("Información guardada correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
+                                keep_context(n["nicho"], key_exp, clave_base)
                                 st.rerun()
 
 
