@@ -122,6 +122,18 @@ def set_focus_now(lead_id: str):
     st.session_state["ui_scroll_now"] = True
 
 
+def open_panel_and_rerun(nicho_slug: str, key_exp: str, lead_anchor: str):
+    """
+    Abre expander, fija foco y fuerza un rerun inmediato SOLO para reflejar
+    el nuevo estado de apertura en el mismo ciclo de ejecución.
+    """
+    st.session_state["solo_nicho_visible"] = nicho_slug
+    st.session_state[key_exp] = True
+    st.session_state["focus_lead"] = lead_anchor
+    st.session_state["ui_scroll_now"] = True
+    st.rerun()
+
+
 def _estado_chip_label(estado:str)->str:
     label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
     return f"{icon} {label}"
@@ -615,13 +627,18 @@ for n in nichos_visibles:
                     st.toast("Borrado cancelado", icon="🟡")
 
             # Botón Mover compacto
+            panel_abierto = st.session_state.get("lead_a_mover") == clave_base
             if cols_row[3].button(
                 "🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False
             ):
-                st.session_state["lead_a_mover"] = clave_base
-                set_focus_now(clave_base)
-                st.session_state[key_exp] = True
-                st.session_state["solo_nicho_visible"] = n["nicho"]
+                if not panel_abierto:
+                    st.session_state["lead_a_mover"] = clave_base
+                    open_panel_and_rerun(n["nicho"], key_exp, clave_base)
+                else:
+                    st.session_state["lead_a_mover"] = None
+                    st.session_state[key_exp] = True
+                    st.session_state["focus_lead"] = clave_base
+                    st.session_state["ui_scroll_now"] = True
 
             # Formulario de mover lead si está activo
             if st.session_state.get("lead_a_mover") == clave_base:
@@ -671,11 +688,19 @@ for n in nichos_visibles:
                     keep_context(n["nicho"], key_exp, clave_base)
 
             # Botón Información extra
-            if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
-                st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
-                set_focus_now(clave_base)
-                st.session_state[key_exp] = True
-                st.session_state["solo_nicho_visible"] = n["nicho"]
+            notas_key = f"mostrar_info_{clave_base}"
+            notas_abiertas = st.session_state.get(notas_key, False)
+            if cols_row[4].button(
+                "📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False
+            ):
+                if not notas_abiertas:
+                    st.session_state[notas_key] = True
+                    open_panel_and_rerun(n["nicho"], key_exp, clave_base)
+                else:
+                    st.session_state[notas_key] = False
+                    st.session_state[key_exp] = True
+                    st.session_state["focus_lead"] = clave_base
+                    st.session_state["ui_scroll_now"] = True
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
