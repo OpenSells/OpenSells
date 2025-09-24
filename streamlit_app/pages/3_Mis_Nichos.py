@@ -11,8 +11,9 @@
 
 import os
 import logging
-import streamlit as st
 import hashlib
+import streamlit as st
+import streamlit.components.v1 as components
 import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -105,6 +106,43 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+
+def keep_context(
+    nicho_slug: str,
+    key_exp: str,
+    focus_lead: str | None = None,
+    *,
+    force_single: bool = False,
+):
+    """
+    Deja migas de contexto para el próximo render.
+    - force_single=True: fija vista 'solo este nicho'.
+    - force_single=False: NO cambia el modo de vista (se queda en 'todos' si así estaba).
+    """
+    if force_single:
+        st.session_state["solo_nicho_visible"] = nicho_slug
+    st.session_state[key_exp] = True
+    if focus_lead:
+        st.session_state["focus_lead"] = focus_lead
+        st.session_state["ui_scroll_now"] = True
+
+
+def set_focus_now(lead_id: str):
+    st.session_state["focus_lead"] = lead_id
+    st.session_state["ui_scroll_now"] = True
+
+
+def open_panel_and_rerun(nicho_slug: str, key_exp: str, lead_anchor: str):
+    """
+    Abre expander, fija foco y fuerza un rerun inmediato SOLO para reflejar
+    el nuevo estado de apertura, sin cambiar a 'solo_nicho_visible'.
+    """
+    st.session_state[key_exp] = True
+    st.session_state["focus_lead"] = lead_anchor
+    st.session_state["ui_scroll_now"] = True
+    st.rerun()
+
 
 def _estado_chip_label(estado:str)->str:
     label,icon=ESTADOS.get(estado,("Pendiente","🟡"))
@@ -307,6 +345,7 @@ if busqueda:
         ):
             st.session_state["solo_nicho_visible"] = l["nicho"]
             st.session_state["busqueda_global"] = ""
+            keep_context(l["nicho"], f"expandir_{l['nicho']}", force_single=True)
             st.rerun()
 
     # Nichos coincidentes (solo listamos, sin interacción de momento)
@@ -484,8 +523,7 @@ for n in nichos_visibles:
                                 if res:
                                     st.success("Lead añadido correctamente ✅")
                                     st.session_state["forzar_recarga"] += 1
-                                    st.session_state["solo_nicho_visible"] = n["nicho"]
-                                    st.session_state[key_exp] = True
+                                    keep_context(n["nicho"], key_exp, force_single=False)
                                     st.rerun()
                                 else:
                                     st.error("Error al guardar el lead")
@@ -500,6 +538,7 @@ for n in nichos_visibles:
             if estado_actual == "nuevo":
                 estado_actual = "pendiente"
             clave_base = f"{dominio}_{n['nicho']}_{i}".replace(".", "_")
+            st.markdown(f"<div id='{clave_base}'></div>", unsafe_allow_html=True)
             cols_row = st.columns([4, 2, 2, 2, 2, 2])
             cols_row[0].markdown(
                 f"- 🌐 [**{dominio}**](https://{dominio})",
@@ -513,6 +552,12 @@ for n in nichos_visibles:
                             if _cambiar_estado_lead(l, l.get("id"), est):
                                 st.session_state["forzar_recarga"] = (
                                     st.session_state.get("forzar_recarga", 0) + 1
+                                )
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
                                 )
                                 st.rerun()
 
@@ -537,49 +582,109 @@ for n in nichos_visibles:
                             )
                             if resp and resp.status_code < 400:
                                 st.toast("Tarea creada", icon="✅")
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
+                                )
                                 st.rerun()
                             else:
                                 st.toast("No se pudo crear la tarea", icon="⚠️")
                         else:
                             st.warning("La descripción es obligatoria")
 
-            # Botón eliminar
-            if cols_row[2].button("🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False):
-                if not tiene_suscripcion_activa(plan):
-                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                    subscription_cta()
-                else:
-                    res = cached_delete(
-                        "eliminar_lead",
-                        token,
-                        params={
-                            "nicho": n["nicho"],
-                            "dominio": dominio,
-                            "solo_de_este_nicho": True,
-                        },
-                    )
+            # Botón eliminar con confirmación
+            confirm_key = f"confirm_del_{clave_base}"
+            alcance_key = f"alcance_del_{clave_base}"
+
+            if cols_row[2].button(
+                "🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False
+            ):
+                st.session_state[confirm_key] = True
+                st.session_state[alcance_key] = st.session_state.get(alcance_key, "solo_nicho")
+
+            if st.session_state.get(confirm_key, False):
+                st.warning("¿Seguro que deseas eliminar este lead?", icon="⚠️")
+
+                alcance = st.radio(
+                    "Alcance del borrado:",
+                    options=["solo_nicho", "global"],
+                    format_func=lambda v: "Solo de este nicho"
+                    if v == "solo_nicho"
+                    else "Eliminar definitivamente (de todos mis nichos)",
+                    key=alcance_key,
+                    horizontal=False,
+                )
+
+                c_ok, c_cancel = st.columns(2)
+                if c_ok.button("✅ Eliminar ahora", key=f"btn_conf_del_{clave_base}"):
+                    params_del = {"dominio": dominio}
+                    if alcance == "solo_nicho":
+                        params_del.update(
+                            {
+                                "nicho": n["nicho"],
+                                "solo_de_este_nicho": True,
+                            }
+                        )
+                    else:
+                        params_del["solo_de_este_nicho"] = False
+
+                    res = cached_delete("eliminar_lead", token, params=params_del)
                     if res:
-                        st.session_state["forzar_recarga"] += 1
-                        st.session_state[key_exp] = True
-                        st.session_state["solo_nicho_visible"] = n["nicho"]
+                        st.success("Lead eliminado correctamente ✅")
+                        st.session_state["forzar_recarga"] = st.session_state.get(
+                            "forzar_recarga", 0
+                        ) + 1
+                        keep_context(
+                            n["nicho"],
+                            key_exp,
+                            clave_base,
+                            force_single=False,
+                        )
+                        st.session_state.pop(confirm_key, None)
                         st.rerun()
                     else:
                         st.error("❌ Error al eliminar el lead")
 
+                if c_cancel.button("Cancelar", key=f"btn_cancel_del_{clave_base}"):
+                    st.session_state.pop(confirm_key, None)
+                    st.toast("Borrado cancelado", icon="🟡")
+
             # Botón Mover compacto
-            if cols_row[3].button("🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
-                st.session_state["lead_a_mover"] = clave_base
+            panel_abierto = st.session_state.get("lead_a_mover") == clave_base
+            if cols_row[3].button(
+                "🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False
+            ):
+                if not panel_abierto:
+                    st.session_state["lead_a_mover"] = clave_base
+                    open_panel_and_rerun(n["nicho"], key_exp, clave_base)
+                else:
+                    st.session_state["lead_a_mover"] = None
+                    st.session_state[key_exp] = True
+                    st.session_state["focus_lead"] = clave_base
+                    st.session_state["ui_scroll_now"] = True
 
             # Formulario de mover lead si está activo
             if st.session_state.get("lead_a_mover") == clave_base:
-                nichos_destino = [
-                    _nicho_original_value(ni)
-                    for ni in nichos
-                    if ni["nicho"] != n["nicho"]
-                ]
-                nuevo_nicho = st.selectbox("Mover a:", nichos_destino, key=f"select_nuevo_nicho_{clave_base}")
+                nichos_destino = sorted(
+                    [
+                        _nicho_original_value(ni)
+                        for ni in nichos
+                        if ni["nicho"] != n["nicho"]
+                    ],
+                    key=lambda s: s.lower(),
+                )
+                default_idx = 0 if nichos_destino else None
+                nuevo_nicho = st.selectbox(
+                    "Mover a:",
+                    nichos_destino,
+                    index=default_idx if default_idx is not None else None,
+                    key=f"select_nuevo_nicho_{clave_base}",
+                )
 
-                if st.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
+                c1, c2 = st.columns(2)
+                if c1.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
                     if not tiene_suscripcion_activa(plan):
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                         subscription_cta()
@@ -597,14 +702,40 @@ for n in nichos_visibles:
                             st.success("Lead movido correctamente ✅")
                             st.session_state["forzar_recarga"] += 1
                             st.session_state["lead_a_mover"] = None
-                            st.session_state["solo_nicho_visible"] = normalizar_nicho(nuevo_nicho)
+                            dest_norm = normalizar_nicho(nuevo_nicho)
+                            keep_context(
+                                dest_norm,
+                                f"expandir_{dest_norm}",
+                                clave_base,
+                                force_single=True,
+                            )
                             st.rerun()
                         else:
                             st.error("Error al mover lead")
 
+                if c2.button("Cancelar", key=f"cancelar_mover_{clave_base}"):
+                    st.session_state["lead_a_mover"] = None
+                    keep_context(
+                        n["nicho"],
+                        key_exp,
+                        clave_base,
+                        force_single=False,
+                    )
+
             # Botón Información extra
-            if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
-                st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
+            notas_key = f"mostrar_info_{clave_base}"
+            notas_abiertas = st.session_state.get(notas_key, False)
+            if cols_row[4].button(
+                "📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False
+            ):
+                if not notas_abiertas:
+                    st.session_state[notas_key] = True
+                    open_panel_and_rerun(n["nicho"], key_exp, clave_base)
+                else:
+                    st.session_state[notas_key] = False
+                    st.session_state[key_exp] = True
+                    st.session_state["focus_lead"] = clave_base
+                    st.session_state["ui_scroll_now"] = True
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
@@ -634,7 +765,39 @@ for n in nichos_visibles:
                             if res:
                                 st.success("Información guardada correctamente ✅")
                                 st.session_state["forzar_recarga"] += 1
+                                keep_context(
+                                    n["nicho"],
+                                    key_exp,
+                                    clave_base,
+                                    force_single=False,
+                                )
                                 st.rerun()
+
+
+# --- Inyección de scroll al final (tras procesar clics y render) ---
+_focus_to_scroll = st.session_state.get("focus_lead")
+_scroll_now = st.session_state.get("ui_scroll_now", False)
+
+if _focus_to_scroll and _scroll_now:
+    components.html(
+        f"""
+    <script>
+      const id = "{_focus_to_scroll}";
+      const go = () => {{
+        const els = document.querySelectorAll(`[id='${{id}}']`);
+        if (els.length) {{
+          const el = Array.from(els).find(e => !e.dataset.placeholder) || els[0];
+          el.scrollIntoView({{behavior: "instant", block: "center"}});
+        }} else {{
+          requestAnimationFrame(go);
+        }}
+      }};
+      go();
+    </script>
+    """,
+        height=0,
+    )
+    st.session_state["ui_scroll_now"] = False
 
 
 render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
