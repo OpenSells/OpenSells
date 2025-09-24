@@ -637,19 +637,32 @@ for n in nichos_visibles:
                     st.toast("Borrado cancelado", icon="🟡")
 
             # Botón Mover compacto
-            if cols_row[3].button("🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
+            if cols_row[3].button(
+                "🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False
+            ):
                 st.session_state["lead_a_mover"] = clave_base
+                keep_context(n["nicho"], key_exp, clave_base)
 
             # Formulario de mover lead si está activo
             if st.session_state.get("lead_a_mover") == clave_base:
-                nichos_destino = [
-                    _nicho_original_value(ni)
-                    for ni in nichos
-                    if ni["nicho"] != n["nicho"]
-                ]
-                nuevo_nicho = st.selectbox("Mover a:", nichos_destino, key=f"select_nuevo_nicho_{clave_base}")
+                nichos_destino = sorted(
+                    [
+                        _nicho_original_value(ni)
+                        for ni in nichos
+                        if ni["nicho"] != n["nicho"]
+                    ],
+                    key=lambda s: s.lower(),
+                )
+                default_idx = 0 if nichos_destino else None
+                nuevo_nicho = st.selectbox(
+                    "Mover a:",
+                    nichos_destino,
+                    index=default_idx if default_idx is not None else None,
+                    key=f"select_nuevo_nicho_{clave_base}",
+                )
 
-                if st.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
+                c1, c2 = st.columns(2)
+                if c1.button("✅ Confirmar", key=f"confirmar_mover_{clave_base}"):
                     if not tiene_suscripcion_activa(plan):
                         st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
                         subscription_cta()
@@ -672,6 +685,10 @@ for n in nichos_visibles:
                             st.rerun()
                         else:
                             st.error("Error al mover lead")
+
+                if c2.button("Cancelar", key=f"cancelar_mover_{clave_base}"):
+                    st.session_state["lead_a_mover"] = None
+                    keep_context(n["nicho"], key_exp, clave_base)
 
             # Botón Información extra
             if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
