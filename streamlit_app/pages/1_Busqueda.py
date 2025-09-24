@@ -136,6 +136,10 @@ for flag, valor in {
     CANON_KEY: [],
     "limit_error_detail": None,
     "truncated_free": False,
+    "export_error_message": None,
+    "save_failed_count": 0,
+    "save_failed_items": [],
+    "save_inserted_count": 0,
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -291,6 +295,17 @@ def procesar_extraccion():
                 st.error("No se pudieron guardar los leads en la base de datos.")
                 st.session_state.loading = False
                 st.stop()
+            else:
+                save_data = safe_json(r_save)
+                st.session_state.save_inserted_count = int(
+                    (save_data or {}).get("insertados") or 0
+                )
+                st.session_state.save_failed_count = int(
+                    (save_data or {}).get("saltados") or 0
+                )
+                st.session_state.save_failed_items = (save_data or {}).get(
+                    "fallidos", []
+                ) or []
 
         if not st.session_state.get("export_realizado"):
             r = requests.post(
@@ -299,7 +314,27 @@ def procesar_extraccion():
                 headers=headers,
                 timeout=120,
             )
-            st.session_state.export_exitoso = r.status_code == 200
+            if r.status_code == 200:
+                st.session_state.export_exitoso = True
+                st.session_state.export_error_message = None
+            else:
+                st.session_state.export_exitoso = False
+                detalle = None
+                mensaje_detalle = ""
+                try:
+                    data = r.json()
+                    if isinstance(data, dict):
+                        detalle = data.get("detail")
+                except JSONDecodeError:
+                    data = None
+                if isinstance(detalle, dict):
+                    mensaje_detalle = detalle.get("message") or detalle.get("error") or ""
+                elif detalle:
+                    mensaje_detalle = str(detalle)
+                base_msg = "No se pudo exportar el archivo CSV."
+                if mensaje_detalle:
+                    base_msg = f"{base_msg} Detalle: {mensaje_detalle}."
+                st.session_state.export_error_message = base_msg
             st.session_state.export_realizado = True
 
         st.session_state.loading = False
@@ -525,6 +560,10 @@ if st.session_state.get("variantes"):
         else:
             st.session_state.limit_error_detail = None
             st.session_state.truncated_free = False
+            st.session_state.export_error_message = None
+            st.session_state.save_failed_count = 0
+            st.session_state.save_failed_items = []
+            st.session_state.save_inserted_count = 0
             st.session_state.fase_extraccion = "buscando"
             st.session_state.loading = True
             st.session_state.procesando = "dominios"
@@ -533,16 +572,34 @@ if st.session_state.get("variantes"):
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
 if st.session_state.get("mostrar_resultado"):
-    if st.session_state.get("export_exitoso"):
-        st.success("✅ Para trabajar con tus leads, ve a la página **Mis Nichos**.")
-    else:
-        st.error("Error al guardar/exportar los leads")
+    export_error_message = st.session_state.get("export_error_message")
+    export_success = st.session_state.get("export_exitoso")
+    leads = st.session_state.get("resultados") or []
+    truncated = st.session_state.get("truncated_free")
+    failed_count = st.session_state.get("save_failed_count") or 0
+    failed_items = st.session_state.get("save_failed_items") or []
 
-    if st.session_state.get("resultados"):
-        st.write("✅ Leads extraídos:")
-        if st.session_state.get("truncated_free"):
+    if export_success:
+        st.success("✅ Para trabajar con tus leads, ve a la página **Mis Nichos**.")
+    elif export_error_message:
+        st.error(export_error_message)
+
+    if leads:
+        st.markdown("### ✅ Leads extraídos")
+        if truncated:
             st.info("🔒 Free: máx 10 leads por búsqueda.")
-        st.dataframe(st.session_state.resultados)
+            st.caption("Resultado recortado por plan Free.")
+        st.dataframe(leads)
+    else:
+        st.info("No se encontraron leads para esta búsqueda.")
+
+    if failed_count:
+        st.warning(
+            f"⚠️ {failed_count} leads no se pudieron guardar correctamente en tu cuenta."
+        )
+        if failed_items:
+            st.caption("Dominios con error al guardar:")
+            st.write("\n".join(failed_items))
 
     # Limpiar flags para futuras búsquedas
     for flag in [
@@ -553,6 +610,10 @@ if st.session_state.get("mostrar_resultado"):
         "export_realizado",
         "export_exitoso",
         "extraccion_realizada",
+        "export_error_message",
+        "save_failed_count",
+        "save_failed_items",
+        "save_inserted_count",
     ]:
         st.session_state.pop(flag, None)
 
