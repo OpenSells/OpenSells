@@ -7,20 +7,16 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from json import JSONDecodeError
 
+from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 import streamlit_app.utils.http_client as http_client
 
 from streamlit_app.cache_utils import (
     cached_get,
     get_openai_client,
-    auth_headers,
     limpiar_cache,
 )
 from streamlit_app.plan_utils import subscription_cta
-from streamlit_app.utils.auth_session import (
-    is_authenticated,
-    remember_current_page,
-    get_auth_token,
-)
+from streamlit_app.utils.auth_session import remember_current_page
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.ui.account_helpers import fetch_account_overview, get_plan_name
 from components.ui import render_whatsapp_fab
@@ -31,14 +27,14 @@ st.set_page_config(page_title="Buscar Leads", page_icon="🔎", layout="centered
 
 PAGE_NAME = "Leads"
 remember_current_page(PAGE_NAME)
-if not is_authenticated():
+if not ensure_authenticated():
     st.title(PAGE_NAME)
-    st.info("Inicia sesión en la página Home para continuar.")
+    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
     st.stop()
 
 BACKEND_URL = http_client.BASE_URL
 
-token = get_auth_token()
+token = current_token()
 me, usage, quotas, _ = fetch_account_overview(token) if token else ({}, {}, {}, {})
 user = me
 st.session_state["user"] = user
@@ -142,7 +138,7 @@ for flag, valor in {
 }.items():
     st.session_state.setdefault(flag, valor)
 
-headers = auth_headers(token)
+headers = auth_client_headers()
 
 if st.session_state.get("limit_error_detail"):
     mostrar_banner_limite(st.session_state.get("limit_error_detail"))

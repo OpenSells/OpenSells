@@ -5,10 +5,11 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
+from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.plan_utils import force_redirect, resolve_user_plan
 from streamlit_app.utils.plans import PLANS_FEATURES
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import remember_current_page
 from streamlit_app.utils.logout_button import logout_button
 from components.ui import render_whatsapp_fab
 
@@ -32,21 +33,15 @@ st.set_page_config(page_title="💳 Suscripción", page_icon="💳")
 
 PAGE_NAME = "Suscripcion"
 remember_current_page(PAGE_NAME)
-if not is_authenticated():
+if not ensure_authenticated():
     st.title(PAGE_NAME)
-    st.info("Inicia sesión en la página Home para continuar.")
+    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
     st.stop()
 
-token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+token = current_token()
+user = st.session_state.get("user") or st.session_state.get("me")
+if user:
+    st.session_state["user"] = user
 
 with st.sidebar:
     logout_button()
@@ -93,7 +88,7 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
                     try:
                         r = requests.post(
                             f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {token}"},
+                            headers=auth_client_headers(),
                             params={"plan": price_basico},
                             timeout=30,
                         )
@@ -116,7 +111,7 @@ for idx, (nombre, feats) in enumerate(plan_features.items()):
                     try:
                         r = requests.post(
                             f"{BACKEND_URL}/crear_portal_pago",
-                            headers={"Authorization": f"Bearer {token}"},
+                            headers=auth_client_headers(),
                             params={"plan": price_premium},
                             timeout=30,
                         )

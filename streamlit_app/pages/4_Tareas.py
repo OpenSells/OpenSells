@@ -8,10 +8,11 @@ from datetime import date
 from typing import Any, Dict, Iterable, List
 from dotenv import load_dotenv
 
+from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.utils.auth_session import is_authenticated, remember_current_page, get_auth_token
+from streamlit_app.utils.auth_session import remember_current_page
 from streamlit_app.utils.logout_button import logout_button
 from components.ui import render_whatsapp_fab
 # ────────────────── Config ──────────────────────────
@@ -48,21 +49,15 @@ st.set_page_config(page_title="Tareas", page_icon="📋", layout="centered")
 
 PAGE_NAME = "Tareas"
 remember_current_page(PAGE_NAME)
-if not is_authenticated():
+if not ensure_authenticated():
     st.title(PAGE_NAME)
-    st.info("Inicia sesión en la página Home para continuar.")
+    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
     st.stop()
 
-token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+token = current_token()
+user = st.session_state.get("user") or st.session_state.get("me")
+if user:
+    st.session_state["user"] = user
 
 with st.sidebar:
     logout_button()
@@ -71,7 +66,7 @@ debug = st.sidebar.checkbox("Debug tareas", value=False) if SHOW_DEBUG else Fals
 
 plan = resolve_user_plan(token)["plan"]
 
-HDR = {"Authorization": f"Bearer {token}"}
+HDR = auth_client_headers()
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
 HOY = date.today()

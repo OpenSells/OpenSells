@@ -1,103 +1,41 @@
-import base64
+"""Backwards-compatible helpers around the new auth_client utilities."""
+
+from __future__ import annotations
+
 import streamlit as st
 
-# 👇 🔵 NEW: import conditional for extra_streamlit_components
-try:
-    import extra_streamlit_components as stx
-except Exception:  # pragma: no cover
-    stx = None
+from streamlit_app.auth_client import (
+    clear_token as _clear_token,
+    current_token as _current_token,
+    ensure_authenticated as _ensure_authenticated,
+    save_token as _save_token,
+)
 
-TOKEN_KEY = "auth_token"
-_LS_KEY = "wrapper_auth_b64"
-
-
-def _encode(v: str) -> str:
-    return base64.urlsafe_b64encode(v.encode()).decode()
-
-
-def _decode(v: str) -> str:
-    return base64.urlsafe_b64decode(v.encode()).decode()
-
-
-def _localstorage_set(b64: str | None):
-    if stx is None:
-        return
-    try:
-        stx.LocalStorage().set_item(_LS_KEY, b64 if b64 is not None else "")
-    except Exception:
-        pass
-
-
-def _localstorage_get() -> str | None:
-    if stx is None:
-        return None
-    try:
-        val = stx.LocalStorage().get_item(_LS_KEY)
-        if not val:
-            return None
-        return val
-    except Exception:
-        return None
+TOKEN_KEY = "jwt"
 
 
 def set_auth_token(token: str):
-    # State in memory
-    st.session_state[TOKEN_KEY] = token
-    # URL
-    qp = st.query_params
-    qp["t"] = _encode(token)
-    st.query_params = qp
-    # 👇 NEW: mirror in LocalStorage
-    _localstorage_set(_encode(token))
+    """Persist the token using the shared auth_client helpers."""
+    if not token:
+        return
+    _save_token(token)
 
 
 def clear_auth_token():
-    # Memory
-    if TOKEN_KEY in st.session_state:
-        del st.session_state[TOKEN_KEY]
-    # URL
-    qp = st.query_params
-    if "t" in qp:
-        del qp["t"]
-    st.query_params = qp
-    # 👇 NEW: clear LocalStorage
-    _localstorage_set(None)
+    """Clear any persisted authentication information."""
+    _clear_token()
 
 
 def get_auth_token() -> str | None:
-    # 1) memory
-    if TOKEN_KEY in st.session_state:
-        return st.session_state[TOKEN_KEY]
-    # 2) URL
-    t = st.query_params.get("t")
-    if t:
-        try:
-            tok = _decode(t)
-            st.session_state[TOKEN_KEY] = tok
-            # ensure mirror in LocalStorage
-            _localstorage_set(_encode(tok))
-            return tok
-        except Exception:
-            pass
-    # 3) 👇 NEW: LocalStorage
-    b64 = _localstorage_get()
-    if b64:
-        try:
-            tok = _decode(b64)
-            st.session_state[TOKEN_KEY] = tok
-            # ensure URL for subsequent refreshes
-            qp = st.query_params
-            if qp.get("t") != b64:
-                qp["t"] = b64
-                st.query_params = qp
-            return tok
-        except Exception:
-            pass
-    return None
+    """Return the current token, loading it from LocalStorage if needed."""
+    return _current_token()
 
 
 def is_authenticated() -> bool:
-    return get_auth_token() is not None
+    """Check whether a valid token + profile exist in the session."""
+    if not _ensure_authenticated():
+        return False
+    return _current_token() is not None
 
 
 def remember_current_page(page_name: str):
@@ -114,14 +52,20 @@ def clear_page_remember():
     st.query_params = qp
 
 
-# 👇 NEW: bootstrap helper
 def bootstrap_auth_once():
-    """
-    Attempts to restore the token from session_state, query params or LocalStorage.
-    Should be called at the start of Home.py once per render session.
-    """
     flag = "_auth_bootstrapped"
     if st.session_state.get(flag):
         return
-    _ = get_auth_token()
+    _ensure_authenticated()
     st.session_state[flag] = True
+
+
+__all__ = [
+    "set_auth_token",
+    "clear_auth_token",
+    "get_auth_token",
+    "is_authenticated",
+    "remember_current_page",
+    "clear_page_remember",
+    "bootstrap_auth_once",
+]

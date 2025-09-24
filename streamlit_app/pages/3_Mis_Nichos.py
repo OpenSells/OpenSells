@@ -18,6 +18,7 @@ import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
+from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 from streamlit_app.cache_utils import (
     cached_get,
     cached_post,
@@ -26,13 +27,7 @@ from streamlit_app.cache_utils import (
 )
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.utils.auth_session import (
-    is_authenticated,
-    remember_current_page,
-    get_auth_token,
-    clear_auth_token,
-    clear_page_remember,
-)
+from streamlit_app.utils.auth_session import remember_current_page, clear_page_remember
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.utils.nav import go, HOME_PAGE
 from components.ui import render_whatsapp_fab
@@ -70,21 +65,15 @@ st.markdown(
 
 PAGE_NAME = "Nichos"
 remember_current_page(PAGE_NAME)
-if not is_authenticated():
+if not ensure_authenticated():
     st.title(PAGE_NAME)
-    st.info("Inicia sesión en la página Home para continuar.")
+    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
     st.stop()
 
-token = get_auth_token()
-user = st.session_state.get("user")
-if token and not user:
-    resp_user = http_client.get("/me")
-    if isinstance(resp_user, dict) and resp_user.get("_error") == "unauthorized":
-        st.warning("Sesión expirada. Vuelve a iniciar sesión.")
-        st.stop()
-    if getattr(resp_user, "status_code", None) == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+token = current_token()
+user = st.session_state.get("user") or st.session_state.get("me")
+if user:
+    st.session_state["user"] = user
 plan = resolve_user_plan(token)["plan"]
 
 with st.sidebar:
@@ -151,11 +140,6 @@ def _estado_chip_label(estado:str)->str:
 def _cambiar_estado_lead(lead: dict, lead_id: int, nuevo: str) -> bool:
     import logging, requests
 
-    try:
-        from streamlit_app.utils.auth_session import get_auth_token as _get_auth_token
-    except Exception:  # pragma: no cover - fallback defensivo
-        _get_auth_token = None
-
     antiguo = lead.get("estado_contacto")
     if antiguo == nuevo:
         return True  # sin cambios necesarios
@@ -170,8 +154,7 @@ def _cambiar_estado_lead(lead: dict, lead_id: int, nuevo: str) -> bool:
             resp = http_client.patch(endpoint, json=payload, timeout=20)
         else:
             base_url = (BACKEND_URL or getattr(http_client, "BASE_URL", "")).rstrip("/")
-            token_actual = _get_auth_token() if _get_auth_token else None
-            headers = {"Authorization": f"Bearer {token_actual}"} if token_actual else {}
+            headers = auth_client_headers()
             resp = requests.patch(
                 f"{base_url}{endpoint}", json=payload, headers=headers, timeout=20
             )
@@ -391,7 +374,7 @@ for n in nichos_visibles:
                 params_export["estado_contacto"] = estado_actual
             resp = requests.get(
                 f"{BACKEND_URL}/exportar_leads_nicho",
-                headers={"Authorization": f"Bearer {token}"},
+                headers=auth_client_headers(),
                 params=params_export,
             )
             if resp.status_code == 200:

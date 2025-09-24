@@ -16,7 +16,7 @@ import streamlit as st
 
 from components.ui import render_whatsapp_fab
 
-from streamlit_app.utils.auth_utils import ensure_session_or_redirect, clear_session
+from streamlit_app.auth_client import ensure_authenticated, clear_token
 from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
 from streamlit_app.utils.nav import go, HOME_PAGE
 
@@ -33,19 +33,18 @@ if DATABASE_URL:
 
 st.set_page_config(page_title="OpenSells — tu motor de prospección y leads", page_icon="🧩")
 
-ensure_session_or_redirect()
-token = st.session_state.get("auth_token")
-user = st.session_state.get("user")
-if not user:
-    import streamlit_app.utils.http_client as http_client
-    resp_user = http_client.get("/me")
-    if resp_user is not None and resp_user.status_code == 200:
-        user = resp_user.json()
-        st.session_state["user"] = user
+if not ensure_authenticated():
+    go(HOME_PAGE)
+    st.stop()
+
+user = st.session_state.get("user") or st.session_state.get("me")
+if user:
+    st.session_state["user"] = user
 
 if st.sidebar.button("Cerrar sesión"):
-    clear_session(preserve_logout_flag=True)
+    clear_token()
     go(HOME_PAGE)
+    st.experimental_rerun()
 
 st.title("OpenSells — tu motor de prospección y leads")
 st.markdown(

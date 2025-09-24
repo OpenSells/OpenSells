@@ -7,13 +7,10 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 from typing import Any
 
+from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta, force_redirect
-from streamlit_app.utils.auth_session import (
-    is_authenticated,
-    remember_current_page,
-    get_auth_token,
-)
+from streamlit_app.utils.auth_session import remember_current_page
 from streamlit_app.utils.logout_button import logout_button
 from components.ui import render_whatsapp_fab
 
@@ -327,16 +324,17 @@ st.set_page_config(page_title="Mi Cuenta", page_icon="⚙️")
 
 PAGE_NAME = "Cuenta"
 remember_current_page(PAGE_NAME)
-if not is_authenticated():
+if not ensure_authenticated():
     st.title(PAGE_NAME)
-    st.info("Inicia sesión en la página Home para continuar.")
+    st.warning("Sesión expirada. Vuelve a iniciar sesión.")
     st.stop()
 
-token = get_auth_token()
-user = cached_get("/me", token) or {}
-st.session_state["user"] = user
-if "auth_email" not in st.session_state and user:
-    st.session_state["auth_email"] = user.get("email")
+token = current_token()
+user = cached_get("/me", token) if token else {}
+if user:
+    st.session_state["user"] = user
+    if "auth_email" not in st.session_state:
+        st.session_state["auth_email"] = user.get("email")
 
 # Recuperar plan y límites/uso
 mi_plan = _fetch_plan_payload(token) or {}
@@ -345,7 +343,7 @@ plan = str(mi_plan.get("plan", "free")).strip().lower()
 with st.sidebar:
     logout_button()
 
-headers = {"Authorization": f"Bearer {token}"}
+headers = auth_client_headers()
 
 # -------------------- Sección principal --------------------
 st.title("⚙️ Mi Cuenta")

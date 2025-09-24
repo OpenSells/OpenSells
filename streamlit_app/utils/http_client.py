@@ -3,7 +3,8 @@ import requests
 from typing import Any, Dict, Optional
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from .auth_session import get_auth_token
+
+from streamlit_app.auth_client import current_token
 
 BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
@@ -49,7 +50,7 @@ DEFAULT_TIMEOUT = (3.05, 15)  # (connect, read)
 
 def _base_headers() -> Dict[str, str]:
     h: Dict[str, str] = {"Accept": "application/json"}
-    tok = get_auth_token()
+    tok = current_token()
     if tok:
         h["Authorization"] = f"Bearer {tok}"
     return h

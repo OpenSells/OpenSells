@@ -1,8 +1,12 @@
+import os
 import re
 import streamlit as st
 import sys
 from pathlib import Path
 
+import requests
+
+from streamlit_app.auth_client import ensure_authenticated, save_token, current_token
 from components.ui import render_whatsapp_fab
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,12 +20,7 @@ from streamlit_app.utils.constants import (
 )
 from streamlit_app.utils.nav import go  # nav se importa del submódulo, no del paquete raíz
 import streamlit_app.utils.http_client as http_client
-from streamlit_app.utils.http_client import post, login as http_login
-from streamlit_app.utils.auth_utils import (
-    is_authenticated,
-    save_session,
-    restore_session_if_allowed,
-)
+from streamlit_app.utils.http_client import post
 from streamlit_app.utils.logout_button import logout_button
 from streamlit_app.plan_utils import (
     resolve_user_plan,
@@ -47,9 +46,9 @@ def page_exists(file: str) -> bool:
     return Path(file).exists()
 
 
-restore_session_if_allowed()
+BACKEND_URL = os.getenv("BACKEND_URL", http_client.BASE_URL)
 
-auth = is_authenticated()
+auth = ensure_authenticated()
 if auth:
     st.set_page_config(page_title=f"{BRAND} — Inicio", layout="wide")
 else:
@@ -90,7 +89,7 @@ with st.container():
     st.markdown("</div>", unsafe_allow_html=True)
 
 if auth:
-    token = st.session_state.get("auth_token", "")
+    token = current_token() or ""
     plan_info = resolve_user_plan(token)
     plan = plan_info["plan"]
     suscripcion_activa = tiene_suscripcion_activa(plan)
@@ -201,21 +200,31 @@ else:
                 if not EMAIL_RE.match(email_norm):
                     st.error("Introduce un email válido")
                 else:
-                    result = http_login(email_norm, password)
-                    if isinstance(result, dict) and result.get("_error"):
-                        st.error("No autorizado. Revisa tus credenciales.")
+                    try:
+                        resp = requests.post(
+                            f"{BACKEND_URL}/login",
+                            json={"email": email_norm, "password": password},
+                            timeout=15,
+                        )
+                    except Exception as exc:
+                        st.error(f"No se pudo conectar al backend: {exc}")
                     else:
-                        resp = result.get("response")
-                        token = result.get("token")
-                        if not token:
-                            status = getattr(resp, "status_code", "unknown")
-                            body = getattr(resp, "text", "")[:500]
-                            st.error("No se recibió token de acceso.")
-                            st.info(f"status: {status}\nbody: {body}")
+                        if resp.status_code == 200:
+                            token_payload = resp.json() if resp.headers.get("Content-Type", "").startswith("application/json") else {}
+                            token_val = token_payload.get("access_token") if isinstance(token_payload, dict) else None
+                            if token_val:
+                                save_token(token_val)
+                                st.session_state["auth_email"] = email_norm
+                                st.success("Sesión iniciada")
+                                st.experimental_rerun()
+                            else:
+                                st.error("Respuesta inválida del servidor (sin token).")
+                        elif resp.status_code == 401:
+                            st.error("Credenciales incorrectas.")
                         else:
-                            save_session(token, email_norm)
-                            go()
+                            st.error(f"Error al iniciar sesión: {resp.status_code}")
             st.markdown("</div>", unsafe_allow_html=True)
+
     with tabs[1]:
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -243,21 +252,34 @@ else:
                         st.error(f"Error al crear cuenta: {resp.status_code}. {body}")
                 else:
                     st.success("Cuenta creada. Iniciando sesión...")
-                    login_res = http_login(email, password_reg)
-                    if isinstance(login_res, dict) and login_res.get("_error"):
-                        st.error("Error al iniciar sesión automáticamente.")
+                    try:
+                        login_resp = requests.post(
+                            f"{BACKEND_URL}/login",
+                            json={"email": email, "password": password_reg},
+                            timeout=15,
+                        )
+                    except Exception as exc:
+                        st.error(f"Error al iniciar sesión automáticamente: {exc}")
                     else:
-                        resp_login = login_res.get("response")
-                        token = login_res.get("token")
-                        if not token:
-                            status = getattr(resp_login, "status_code", "unknown")
-                            body = getattr(resp_login, "text", "")[:500]
-                            st.error("No se recibió token de acceso.")
-                            st.info(f"status: {status}\nbody: {body}")
+                        if login_resp.status_code == 200:
+                            login_payload = (
+                                login_resp.json()
+                                if login_resp.headers.get("Content-Type", "").startswith("application/json")
+                                else {}
+                            )
+                            token_val = login_payload.get("access_token") if isinstance(login_payload, dict) else None
+                            if token_val:
+                                save_token(token_val)
+                                st.session_state["auth_email"] = email
+                                st.success("Sesión iniciada")
+                                st.experimental_rerun()
+                            else:
+                                st.error("No se recibió token de acceso.")
                         else:
-                            save_session(token, email)
-                            go()
+                            st.error("Error al iniciar sesión automáticamente.")
             st.markdown("</div>", unsafe_allow_html=True)
+
+    st.stop()
 
 
 # ---- Navegación fuera de callbacks ----
