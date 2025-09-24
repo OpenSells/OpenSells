@@ -712,6 +712,20 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
     if not payload.urls:
         raise HTTPException(400, detail="urls vacío")
 
+    svc = PlanService(db)
+    plan_name, plan = svc.get_effective_plan(usuario)
+    allowed, remaining_quota, leads_cap = can_start_search(db, usuario.id, plan_name)
+    if plan.type == "free" and not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "resource": "searches",
+                "plan": plan_name,
+                "remaining": 0,
+            },
+        )
+
     raw_domains = []
     seen: set[str] = set()
     for url in payload.urls:
@@ -737,6 +751,8 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
             loop.close()
 
     nuevos = len(resultados)
+    truncated = False
+
     logger.info(
         "[extraer_multiples] user=%s dominios_solicitados=%d dominios_utilizados=%d",
         getattr(usuario, "email_lower", None),
@@ -744,31 +760,40 @@ def extraer_multiples(payload: ExtraerMultiplesPayload, usuario=Depends(get_curr
         nuevos,
     )
 
-    # Consumo de cuotas/créditos sin romper planes actuales
-    try:
-        svc = PlanService(db)
-        plan_name, plan = svc.get_effective_plan(usuario)
-        ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
-        if ok:
-            # Capar volumen en free si aplica
-            if plan_name == "free" and cap is not None and nuevos > cap:
-                resultados = resultados[:cap]
-                nuevos = len(resultados)
-            if plan_name == "free":
-                consume_free_search(db, usuario.id, plan_name)
-            else:
-                # Créditos en función de leads únicos
-                consume_lead_credits(db, usuario.id, plan_name, len(resultados))
+    if plan.type == "free":
+        if leads_cap is not None and nuevos > leads_cap:
+            resultados = resultados[:leads_cap]
+            nuevos = len(resultados)
+            truncated = True
+        try:
+            consume_free_search(db, usuario.id, plan_name)
             db.commit()
-    except Exception as e:
-        logger.warning("[extraer_multiples] no se pudo registrar uso: %s", e)
+        except Exception as e:
+            logger.warning("[extraer_multiples] no se pudo registrar uso: %s", e)
+    else:
+        nuevos_unicos = nuevos
+        if plan.lead_credits_month is not None:
+            if not allowed or (remaining_quota is not None and remaining_quota < nuevos_unicos):
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "limit_exceeded",
+                        "resource": "lead_credits",
+                        "plan": plan_name,
+                        "remaining": max(remaining_quota or 0, 0),
+                    },
+                )
+            try:
+                consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+                db.commit()
+            except Exception as e:
+                logger.warning("[extraer_multiples] no se pudo registrar uso: %s", e)
 
     payload_export = {
         "filename": f"leads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        # La UI añade 'nicho' antes de llamar a /exportar_csv
     }
 
-    return {"payload_export": payload_export, "resultados": resultados}
+    return {"payload_export": payload_export, "resultados": resultados, "truncated": truncated}
 
 
 @app.post("/guardar_leads")
@@ -1412,6 +1437,20 @@ def exportar_leads_nicho(
     if estado_contacto and estado_contacto not in ESTADOS_CONTACTO_VALIDOS:
         raise HTTPException(status_code=400, detail="Estado de contacto no válido")
 
+    svc = PlanService(db)
+    plan_name, _ = svc.get_effective_plan(usuario)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "resource": "csv_exports",
+                "plan": plan_name,
+                "remaining": max(remaining or 0, 0) if remaining is not None else 0,
+            },
+        )
+
     filters = [
         LeadExtraido.user_email_lower == usuario.email_lower,
         LeadExtraido.nicho == nicho,
@@ -1464,22 +1503,6 @@ def exportar_leads_nicho(
 
     safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", nicho.lower()).strip("-") or "nicho"
     filename = f"leads_{safe_slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    svc = PlanService(db)
-    plan_name, plan = svc.get_effective_plan(usuario)
-    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
-    if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "feature": "csv",
-                "plan": plan_name,
-                "limit": plan.csv_exports_per_month,
-                "remaining": remaining,
-                "message": "Límite de exportaciones alcanzado",
-            },
-        )
 
     try:
         registro = HistorialExport(user_email=usuario.email_lower, filename=filename)
@@ -1889,11 +1912,9 @@ def exportar_csv(
             status_code=403,
             detail={
                 "error": "limit_exceeded",
-                "feature": "csv",
+                "resource": "csv_exports",
                 "plan": plan_name,
-                "limit": plan.csv_exports_per_month,
-                "remaining": remaining,
-                "message": "Límite de exportaciones alcanzado",
+                "remaining": max(remaining or 0, 0) if remaining is not None else 0,
             },
         )
     registro = HistorialExport(user_email=usuario.email_lower, filename=payload.filename)
@@ -1917,11 +1938,9 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
             status_code=403,
             detail={
                 "error": "limit_exceeded",
-                "feature": "ai",
+                "resource": "ai",
                 "plan": plan_name,
-                "limit": plan.ai_daily_limit,
-                "remaining": remaining,
-                "message": "Límite de IA alcanzado",
+                "remaining": remaining or 0,
             },
         )
 
@@ -1965,16 +1984,25 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
     svc = PlanService(db)
     plan_name, plan = svc.get_effective_plan(usuario)
     ok, remaining, cap = can_start_search(db, usuario.id, plan_name)
-    if not ok:
+    if plan.type == "free" and not ok:
         raise HTTPException(
             status_code=403,
             detail={
                 "error": "limit_exceeded",
-                "feature": "search",
+                "resource": "searches",
                 "plan": plan_name,
-                "limit": plan.searches_per_month,
-                "remaining": remaining,
-                "message": "Límite de búsquedas alcanzado",
+                "remaining": 0,
+            },
+        )
+
+    if plan.type == "paid" and plan.lead_credits_month is not None and not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "resource": "lead_credits",
+                "plan": plan_name,
+                "remaining": max(remaining, 0),
             },
         )
 
@@ -1985,21 +2013,30 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
     saved = payload.nuevos
     if plan.type == "free":
         if cap is not None and saved > cap:
-            duplicates += saved - cap
-            saved = cap
             truncated = True
+            excess = saved - cap
+            saved = cap
+            duplicates += max(excess, 0)
         consume_free_search(db, usuario.id, plan_name)
         credits_remaining = None
     else:
-        nuevos_unicos = payload.nuevos - payload.duplicados
-        available = remaining if remaining is not None else nuevos_unicos
-        if available < nuevos_unicos:
-            duplicates += nuevos_unicos - available
-            nuevos_unicos = available
-            truncated = True
-        consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+        nuevos_unicos = max(payload.nuevos - payload.duplicados, 0)
+        if plan.lead_credits_month is not None:
+            if remaining is None or remaining < nuevos_unicos:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "limit_exceeded",
+                        "resource": "lead_credits",
+                        "plan": plan_name,
+                        "remaining": max(remaining or 0, 0),
+                    },
+                )
+            consume_lead_credits(db, usuario.id, plan_name, nuevos_unicos)
+            credits_remaining = remaining - nuevos_unicos
+        else:
+            credits_remaining = None
         saved = nuevos_unicos
-        credits_remaining = (remaining - nuevos_unicos) if remaining is not None else None
 
     db.commit()
     return {

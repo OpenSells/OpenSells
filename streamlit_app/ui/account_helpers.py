@@ -89,7 +89,7 @@ def fetch_account_overview(auth_token: str):
 
     # Normalizar claves
     def norm(d: dict) -> dict:
-        out: dict = {}
+        out: dict = dict(d or {})
         aliases = {
             "leads_mes": [
                 "leads_mes",
@@ -109,12 +109,9 @@ def fetch_account_overview(auth_token: str):
         }
         for k_std, ks in aliases.items():
             for k in ks:
-                if k in d:
-                    out[k_std] = d.get(k)
+                if k in (d or {}):
+                    out[k_std] = (d or {}).get(k)
                     break
-        for k, v in d.items():
-            if k not in sum(aliases.values(), []):
-                out[k] = v
         return out
 
     usage = norm(usage or {})

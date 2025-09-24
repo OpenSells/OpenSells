@@ -1,6 +1,5 @@
 # 1_Busqueda.py – Página de búsqueda con flujo por pasos, cierre limpio del popup y sugerencias de nicho mejoradas
 
-import os
 import re
 import streamlit as st
 import requests
@@ -86,6 +85,25 @@ def safe_json(resp: requests.Response) -> dict:
         return {}
 
 
+LIMIT_MESSAGES = {
+    "searches": "Has agotado tus 4 búsquedas del plan Free este mes.",
+    "lead_credits": "Sin créditos de leads (plan de pago).",
+    "ai": "Has alcanzado el límite diario de IA.",
+    "csv_exports": "Has alcanzado el límite de exportaciones.",
+}
+
+
+def mostrar_banner_limite(detail: dict | None):
+    if not isinstance(detail, dict):
+        st.warning("🚫 No tienes permiso para continuar con esta acción.")
+        return
+    resource = detail.get("resource")
+    mensaje = LIMIT_MESSAGES.get(resource) or "🚫 No tienes permiso para continuar con esta acción."
+    st.warning(mensaje)
+    if resource in {"lead_credits", "csv_exports", "searches"}:
+        subscription_cta()
+
+
 def _set_variantes_from_response(data: dict | None):
     data = data or {}
     variantes_reales = data.get("variantes") or data.get("variantes_generadas") or []
@@ -106,7 +124,6 @@ for flag, valor in {
     "fase_extraccion": None,
     "guardando_mostrado": False,
     "guardar_realizado": False,
-    "export_realizado": False,
     "mostrar_resultado": False,
     "dominios": [],
     "variantes_display": [],
@@ -116,17 +133,27 @@ for flag, valor in {
     "seleccion_display": [],
     VIEW_KEY: [],
     CANON_KEY: [],
+    "limit_error_detail": None,
+    "truncated_free": False,
+    "save_failed_count": 0,
+    "save_failed_items": [],
+    "save_inserted_count": 0,
+    "show_extract_modal": False,
 }.items():
     st.session_state.setdefault(flag, valor)
 
 headers = auth_headers(token)
 
+if st.session_state.get("limit_error_detail"):
+    mostrar_banner_limite(st.session_state.get("limit_error_detail"))
+
 
 # -------------------- Popup --------------------
 
-def mostrar_popup():
+def mostrar_popup(target=None):
     mensaje = st.session_state.get("estado_actual", "⏳ Extrayendo leads, por favor espera...")
-    st.markdown(
+    destino = target or st
+    destino.markdown(
         f"""
     <div style='position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.35); z-index: 999;'>
         <div style='position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #d6ecff; border: 1px solid #9ec5fe; padding: 2rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,0.15);'>
@@ -170,6 +197,7 @@ def procesar_extraccion():
                     "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             st.session_state.dominios = dominios
@@ -185,6 +213,7 @@ def procesar_extraccion():
                     "⚙️ Debes configurar la variable BRAVE_API_KEY en el backend para habilitar las búsquedas."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             if r.status_code == 502:
@@ -192,10 +221,12 @@ def procesar_extraccion():
                     "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             st.error("Error al buscar dominios")
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             return
 
     # 2. Extraer datos ----------------------------------------------------
@@ -205,6 +236,7 @@ def procesar_extraccion():
                 "No hay dominios disponibles para extraer leads. Intenta nuevamente con otras variantes."
             )
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             st.session_state.estado_actual = ""
             return
         if not st.session_state.get("extraccion_realizada"):
@@ -219,24 +251,32 @@ def procesar_extraccion():
         )
         if r.status_code == 200:
             data = safe_json(r)
-            st.session_state.payload_export = data.get("payload_export", {})
-            st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
             st.session_state.resultados = data.get("resultados", [])
+            st.session_state.truncated_free = bool(data.get("truncated"))
+            st.session_state.limit_error_detail = None
             limpiar_cache()
-            st.session_state.fase_extraccion = "exportando"
+            st.session_state.fase_extraccion = "guardando"
             st.rerun()
         elif r.status_code == 403:
-            st.warning("🚫 Tu suscripción no permite extraer leads. Actualiza tu plan para continuar.")
-            subscription_cta()
+            data = safe_json(r)
+            detail = data.get("detail") if isinstance(data, dict) else None
+            st.session_state.limit_error_detail = detail
+            st.session_state.truncated_free = False
+            st.session_state.show_extract_modal = False
+            mostrar_banner_limite(detail)
             st.session_state.loading = False
+            st.session_state.estado_actual = ""
+            st.session_state.fase_extraccion = None
+            st.session_state.extraccion_realizada = False
             return
         else:
             st.error("Error al extraer los datos")
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             return
 
     # 3. Guardar leads ----------------------------------------------------
-    if fase == "exportando":
+    if fase == "guardando":
         if not st.session_state.guardando_mostrado:
             st.session_state.estado_actual = "Guardando leads en tu cuenta…"
             st.session_state.guardando_mostrado = True
@@ -258,27 +298,34 @@ def procesar_extraccion():
 
             if r_save.status_code != 200:
                 st.error("No se pudieron guardar los leads en la base de datos.")
+                st.session_state.show_extract_modal = False
                 st.session_state.loading = False
                 st.stop()
+            else:
+                save_data = safe_json(r_save)
+                st.session_state.save_inserted_count = int(
+                    (save_data or {}).get("insertados") or 0
+                )
+                st.session_state.save_failed_count = int(
+                    (save_data or {}).get("saltados") or 0
+                )
+                st.session_state.save_failed_items = (save_data or {}).get(
+                    "fallidos", []
+                ) or []
 
-        if not st.session_state.get("export_realizado"):
-            r = requests.post(
-                f"{BACKEND_URL}/exportar_csv",
-                json=st.session_state.payload_export,
-                headers=headers,
-                timeout=120,
-            )
-            st.session_state.export_exitoso = r.status_code == 200
-            st.session_state.export_realizado = True
-
+        st.session_state.show_extract_modal = False
         st.session_state.loading = False
         st.session_state.mostrar_resultado = True
         st.rerun()
 
 # -------------------- Cuando está cargando --------------------
 if st.session_state.loading:
-    mostrar_popup()
+    modal_placeholder = st.empty()
+    if st.session_state.get("show_extract_modal"):
+        mostrar_popup(modal_placeholder)
     procesar_extraccion()
+    if not st.session_state.get("show_extract_modal"):
+        modal_placeholder.empty()
     st.stop()
 
 # -------------------- UI Principal (solo si no está cargando) -----------
@@ -376,12 +423,14 @@ if nicho_actual:
 # -------------------- Generar variantes --------------------
 remaining_searches = None
 if plan_name == "free":
-    quota_searches = quotas.get("busquedas") or quotas.get("searches") or quotas.get("searches_per_month")
-    used_searches = usage.get("busquedas") or usage.get("searches") or usage.get("searches_per_month")
-    if isinstance(quota_searches, int):
-        used_searches = used_searches or 0
-        remaining_searches = max(quota_searches - used_searches, 0)
-disable_search = plan_name == "free" and remaining_searches == 0
+    quota_searches = quotas.get("searches_per_month")
+    used_searches = usage.get("searches")
+    if isinstance(quota_searches, (int, float)):
+        used_val = int(used_searches or 0)
+        remaining_searches = max(int(quota_searches) - used_val, 0)
+disable_search = plan_name == "free" and remaining_searches is not None and remaining_searches == 0
+if plan_name == "free" and remaining_searches is not None:
+    st.caption(f"Te quedan {remaining_searches} búsquedas este mes.")
 if st.button(
     "🚀 Buscar variantes",
     disabled=disable_search,
@@ -483,66 +532,73 @@ if st.session_state.get("variantes"):
 
     disabled = len(seleccion_interna) == 0
     if st.button("🔎 Buscar dominios", disabled=disabled, key="btn_extraer"):
-        seleccionadas = seleccion_interna
-
-        # Comprobar si el usuario tiene plan activo
-        # Ya tienes `plan_name` arriba, no es necesario volver a pedirlo
-
-        if plan_name == "free":
-            try:
-                # Precio por defecto del plan Básico
-                price_id = os.getenv("STRIPE_PRICE_BASICO", "")
-                if not price_id:
-                    st.error("Falta configurar el price_id del plan Básico.")
-                    st.stop()
-                r_checkout = requests.post(
-                    f"{BACKEND_URL}/crear_checkout",
-                    headers=headers,
-                    params={"plan": price_id}
-                )
-                if r_checkout.ok:
-                    checkout_url = safe_json(r_checkout).get("url", "")
-                    st.warning("🚫 Tu suscripción actual no permite extraer leads.")
-                    subscription_cta()
-                    st.markdown(f"""
-                    <div style='text-align:center; margin-top: 1rem;'>
-                        <a href="{checkout_url}" target="_blank" style='
-                            background-color: #0d6efd;
-                            color: white;
-                            padding: 0.6rem 1.4rem;
-                            border-radius: 6px;
-                            text-decoration: none;
-                            font-weight: 600;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                            display: inline-block;
-                            transition: background-color 0.3s ease;'>
-                            💳 Suscribirme ahora
-                        </a>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-                    subscription_cta()
-            except Exception:
-                st.warning("🚫 Tu suscripción no permite extraer leads. Suscríbete para usar esta función.")
-                subscription_cta()
+        if not cliente_ideal.strip() or not nicho_actual:
+            st.warning("Completa cliente ideal y nicho para continuar")
+        elif not seleccion_interna:
+            st.warning("Selecciona al menos una variante")
         else:
-            st.session_state.fase_extraccion = "buscando"
-            st.session_state.loading = True
-            st.session_state.procesando = "dominios"
-            st.rerun()
+            # Limpiar estados previos antes de iniciar una nueva extracción
+            st.session_state.limit_error_detail = None
+            st.session_state.truncated_free = False
+            st.session_state.pop("export_error_message", None)
+            st.session_state.save_failed_count = 0
+            st.session_state.save_failed_items = []
+            st.session_state.save_inserted_count = 0
+            st.session_state.show_extract_modal = False
+            st.session_state.loading = False
+
+            remaining_for_click = remaining_searches
+            if plan_name == "free" and remaining_for_click is None:
+                quota_searches = quotas.get("searches_per_month")
+                used_searches = usage.get("searches")
+                if isinstance(quota_searches, (int, float)):
+                    used_val = int(used_searches or 0)
+                    remaining_for_click = max(int(quota_searches) - used_val, 0)
+
+            if plan_name == "free" and remaining_for_click is not None and remaining_for_click <= 0:
+                st.warning("Has agotado tus 4 búsquedas del plan Free este mes.")
+                st.page_link(
+                    "pages/7_Suscripcion.py",
+                    label="Ver planes y suscribirme",
+                    icon="💳",
+                )
+                subscription_cta()
+            else:
+                st.session_state.fase_extraccion = "buscando"
+                st.session_state.loading = True
+                st.session_state.show_extract_modal = True
+                st.session_state.procesando = "dominios"
+                st.rerun()
 
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
 if st.session_state.get("mostrar_resultado"):
-    if st.session_state.get("export_exitoso"):
-        st.success("✅ Para trabajar con tus leads, ve a la página **Mis Nichos**.")
-    else:
-        st.error("Error al guardar/exportar los leads")
+    st.session_state.show_extract_modal = False
+    leads = st.session_state.get("resultados") or []
+    truncated = st.session_state.get("truncated_free")
+    failed_count = st.session_state.get("save_failed_count") or 0
+    failed_items = st.session_state.get("save_failed_items") or []
+    inserted = st.session_state.get("save_inserted_count") or 0
 
-    if st.session_state.get("resultados"):
-        st.write("✅ Leads extraídos:")
-        st.dataframe(st.session_state.resultados)
+    if inserted:
+        st.success("✅ Leads guardados en tu cuenta.")
+
+    if leads:
+        st.markdown("### ✅ Leads extraídos")
+        if truncated:
+            st.info("🔒 Free: máx 10 leads por búsqueda.")
+            st.caption("Resultado recortado por plan Free.")
+        st.dataframe(leads)
+    else:
+        st.info("No se encontraron leads para esta búsqueda.")
+
+    if failed_count:
+        st.warning(
+            f"⚠️ {failed_count} leads no se pudieron guardar correctamente en tu cuenta."
+        )
+        if failed_items:
+            st.caption("Dominios con error al guardar:")
+            st.write("\n".join(failed_items))
 
     # Limpiar flags para futuras búsquedas
     for flag in [
@@ -550,9 +606,10 @@ if st.session_state.get("mostrar_resultado"):
         "guardando_mostrado",
         "guardar_realizado",
         "mostrar_resultado",
-        "export_realizado",
-        "export_exitoso",
         "extraccion_realizada",
+        "save_failed_count",
+        "save_failed_items",
+        "save_inserted_count",
     ]:
         st.session_state.pop(flag, None)
 

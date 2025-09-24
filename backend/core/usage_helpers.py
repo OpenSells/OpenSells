@@ -7,7 +7,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from backend.core.plan_config import get_limits
-from backend.core.usage_service import UsageService
+from backend.core.usage_service import UsageService, UsageDailyService
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
@@ -25,28 +25,47 @@ def day_key(dt: datetime | None = None) -> str:
 # Basic counter helpers -------------------------------------------------------
 
 _metric_map = {
-    "ai_messages": "ia_msgs",
-    "csv_exports": "csv_exports",
-    "free_searches": "leads",
-    "lead_credits": "leads",
+    "ai_messages": ("ia_msgs", "daily"),
+    "mensajes_ia": ("ia_msgs", "daily"),
+    "csv_exports": ("csv_exports", "monthly"),
+    "exportaciones": ("csv_exports", "monthly"),
+    "free_searches": ("leads", "monthly"),
+    "busquedas": ("leads", "monthly"),
+    "lead_credits": ("leads", "monthly"),
+    "lead_credits_month": ("leads", "monthly"),
 }
 
 
+def _resolve_metric(metric: str):
+    return _metric_map.get(metric)
+
+
 def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
+    mapping = _resolve_metric(metric)
+    if not mapping:
+        return 0
+    kind, period_type = mapping
+    if period_type == "daily":
+        svc = UsageDailyService(db)
+        period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
+        return svc.get_usage(user_id, period).get(kind, 0)
     svc = UsageService(db)
     period = period_key[:6]
-    kind = _metric_map.get(metric)
-    if not kind:
-        return 0
     return svc.get_usage(user_id, period).get(kind, 0)
 
 
 def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
-    svc = UsageService(db)
-    kind = _metric_map.get(metric)
-    if not kind:
+    mapping = _resolve_metric(metric)
+    if not mapping:
         return 0
-    svc.increment(user_id, kind, by)
+    kind, period_type = mapping
+    if period_type == "daily":
+        svc = UsageDailyService(db)
+        period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
+        svc.increment(user_id, kind, by, period)
+        return svc.get_usage(user_id, period).get(kind, 0)
+    svc = UsageService(db)
+    svc.increment(user_id, kind, by, period_key[:6])
     return svc.get_usage(user_id, period_key[:6]).get(kind, 0)
 
 
@@ -57,11 +76,13 @@ def register_ia_message(db: Session, user) -> None:
 
 def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
     plan = get_limits(plan_name)
-    period = month_key()
-    used = get_count(db, user_id, "ai_messages", period)
     limit = plan.ai_daily_limit
-    remaining = None if limit is None else limit - used
-    return (remaining is None or remaining > 0, remaining)
+    if limit is None:
+        return True, None
+    period = day_key()
+    used = get_count(db, user_id, "ai_messages", period)
+    remaining = limit - used
+    return remaining > 0, max(remaining, 0)
 
 
 def consume_csv_export(db: Session, user_id: int, plan_name: str):
@@ -83,12 +104,14 @@ def can_start_search(db: Session, user_id: int, plan_name: str) -> Tuple[bool, i
     period = month_key()
     if plan.type == "free":
         used = get_count(db, user_id, "free_searches", period)
-        remaining = plan.searches_per_month - used
-        return remaining > 0, remaining, plan.leads_cap_per_search
+        remaining = (plan.searches_per_month or 0) - used
+        return remaining > 0, max(remaining, 0), plan.leads_cap_per_search
     else:
         used = get_count(db, user_id, "lead_credits", period)
-        remaining = (plan.lead_credits_month or 0) - used
-        return True, remaining, None
+        if plan.lead_credits_month is None:
+            return True, None, None
+        remaining = plan.lead_credits_month - used
+        return remaining > 0, max(remaining, 0), None
 
 
 def consume_free_search(db: Session, user_id: int, plan_name: str):
