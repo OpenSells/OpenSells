@@ -543,28 +543,58 @@ for n in nichos_visibles:
                         else:
                             st.warning("La descripción es obligatoria")
 
-            # Botón eliminar
-            if cols_row[2].button("🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False):
-                if not tiene_suscripcion_activa(plan):
-                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                    subscription_cta()
-                else:
-                    res = cached_delete(
-                        "eliminar_lead",
-                        token,
-                        params={
-                            "nicho": n["nicho"],
-                            "dominio": dominio,
-                            "solo_de_este_nicho": True,
-                        },
-                    )
+            # Botón eliminar con confirmación
+            confirm_key = f"confirm_del_{clave_base}"
+            alcance_key = f"alcance_del_{clave_base}"
+
+            if cols_row[2].button(
+                "🗑 Borrar", key=f"btn_borrar_{clave_base}", use_container_width=False
+            ):
+                st.session_state[confirm_key] = True
+                st.session_state[alcance_key] = st.session_state.get(alcance_key, "solo_nicho")
+
+            if st.session_state.get(confirm_key, False):
+                st.warning("¿Seguro que deseas eliminar este lead?", icon="⚠️")
+
+                alcance = st.radio(
+                    "Alcance del borrado:",
+                    options=["solo_nicho", "global"],
+                    format_func=lambda v: "Solo de este nicho"
+                    if v == "solo_nicho"
+                    else "Eliminar definitivamente (de todos mis nichos)",
+                    key=alcance_key,
+                    horizontal=False,
+                )
+
+                c_ok, c_cancel = st.columns(2)
+                if c_ok.button("✅ Eliminar ahora", key=f"btn_conf_del_{clave_base}"):
+                    params_del = {"dominio": dominio}
+                    if alcance == "solo_nicho":
+                        params_del.update(
+                            {
+                                "nicho": n["nicho"],
+                                "solo_de_este_nicho": True,
+                            }
+                        )
+                    else:
+                        params_del["solo_de_este_nicho"] = False
+
+                    res = cached_delete("eliminar_lead", token, params=params_del)
                     if res:
-                        st.session_state["forzar_recarga"] += 1
+                        st.success("Lead eliminado correctamente ✅")
+                        st.session_state["forzar_recarga"] = st.session_state.get(
+                            "forzar_recarga", 0
+                        ) + 1
                         st.session_state[key_exp] = True
                         st.session_state["solo_nicho_visible"] = n["nicho"]
+                        st.session_state.pop(confirm_key, None)
                         st.rerun()
                     else:
                         st.error("❌ Error al eliminar el lead")
+
+                if c_cancel.button("Cancelar", key=f"btn_cancel_del_{clave_base}"):
+                    st.session_state.pop(confirm_key, None)
+                    st.toast("Borrado cancelado", icon="🟡")
 
             # Botón Mover compacto
             if cols_row[3].button("🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False):
