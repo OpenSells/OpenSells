@@ -1437,6 +1437,20 @@ def exportar_leads_nicho(
     if estado_contacto and estado_contacto not in ESTADOS_CONTACTO_VALIDOS:
         raise HTTPException(status_code=400, detail="Estado de contacto no válido")
 
+    svc = PlanService(db)
+    plan_name, _ = svc.get_effective_plan(usuario)
+    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
+    if not ok:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "limit_exceeded",
+                "resource": "csv_exports",
+                "plan": plan_name,
+                "remaining": max(remaining or 0, 0) if remaining is not None else 0,
+            },
+        )
+
     filters = [
         LeadExtraido.user_email_lower == usuario.email_lower,
         LeadExtraido.nicho == nicho,
@@ -1489,20 +1503,6 @@ def exportar_leads_nicho(
 
     safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", nicho.lower()).strip("-") or "nicho"
     filename = f"leads_{safe_slug}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    svc = PlanService(db)
-    plan_name, plan = svc.get_effective_plan(usuario)
-    ok, remaining, _ = can_export_csv(db, usuario.id, plan_name)
-    if not ok:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "limit_exceeded",
-                "resource": "csv_exports",
-                "plan": plan_name,
-                "remaining": max(remaining or 0, 0) if remaining is not None else 0,
-            },
-        )
 
     try:
         registro = HistorialExport(user_email=usuario.email_lower, filename=filename)

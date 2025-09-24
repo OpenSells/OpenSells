@@ -124,7 +124,6 @@ for flag, valor in {
     "fase_extraccion": None,
     "guardando_mostrado": False,
     "guardar_realizado": False,
-    "export_realizado": False,
     "mostrar_resultado": False,
     "dominios": [],
     "variantes_display": [],
@@ -136,7 +135,6 @@ for flag, valor in {
     CANON_KEY: [],
     "limit_error_detail": None,
     "truncated_free": False,
-    "export_error_message": None,
     "save_failed_count": 0,
     "save_failed_items": [],
     "save_inserted_count": 0,
@@ -246,13 +244,11 @@ def procesar_extraccion():
         )
         if r.status_code == 200:
             data = safe_json(r)
-            st.session_state.payload_export = data.get("payload_export", {})
-            st.session_state.payload_export["nicho"] = st.session_state.nicho_actual  # ✅ necesario para evitar error 422
             st.session_state.resultados = data.get("resultados", [])
             st.session_state.truncated_free = bool(data.get("truncated"))
             st.session_state.limit_error_detail = None
             limpiar_cache()
-            st.session_state.fase_extraccion = "exportando"
+            st.session_state.fase_extraccion = "guardando"
             st.rerun()
         elif r.status_code == 403:
             data = safe_json(r)
@@ -271,7 +267,7 @@ def procesar_extraccion():
             return
 
     # 3. Guardar leads ----------------------------------------------------
-    if fase == "exportando":
+    if fase == "guardando":
         if not st.session_state.guardando_mostrado:
             st.session_state.estado_actual = "Guardando leads en tu cuenta…"
             st.session_state.guardando_mostrado = True
@@ -306,36 +302,6 @@ def procesar_extraccion():
                 st.session_state.save_failed_items = (save_data or {}).get(
                     "fallidos", []
                 ) or []
-
-        if not st.session_state.get("export_realizado"):
-            r = requests.post(
-                f"{BACKEND_URL}/exportar_csv",
-                json=st.session_state.payload_export,
-                headers=headers,
-                timeout=120,
-            )
-            if r.status_code == 200:
-                st.session_state.export_exitoso = True
-                st.session_state.export_error_message = None
-            else:
-                st.session_state.export_exitoso = False
-                detalle = None
-                mensaje_detalle = ""
-                try:
-                    data = r.json()
-                    if isinstance(data, dict):
-                        detalle = data.get("detail")
-                except JSONDecodeError:
-                    data = None
-                if isinstance(detalle, dict):
-                    mensaje_detalle = detalle.get("message") or detalle.get("error") or ""
-                elif detalle:
-                    mensaje_detalle = str(detalle)
-                base_msg = "No se pudo exportar el archivo CSV."
-                if mensaje_detalle:
-                    base_msg = f"{base_msg} Detalle: {mensaje_detalle}."
-                st.session_state.export_error_message = base_msg
-            st.session_state.export_realizado = True
 
         st.session_state.loading = False
         st.session_state.mostrar_resultado = True
@@ -560,7 +526,7 @@ if st.session_state.get("variantes"):
         else:
             st.session_state.limit_error_detail = None
             st.session_state.truncated_free = False
-            st.session_state.export_error_message = None
+            st.session_state.pop("export_error_message", None)
             st.session_state.save_failed_count = 0
             st.session_state.save_failed_items = []
             st.session_state.save_inserted_count = 0
@@ -572,17 +538,14 @@ if st.session_state.get("variantes"):
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
 if st.session_state.get("mostrar_resultado"):
-    export_error_message = st.session_state.get("export_error_message")
-    export_success = st.session_state.get("export_exitoso")
     leads = st.session_state.get("resultados") or []
     truncated = st.session_state.get("truncated_free")
     failed_count = st.session_state.get("save_failed_count") or 0
     failed_items = st.session_state.get("save_failed_items") or []
+    inserted = st.session_state.get("save_inserted_count") or 0
 
-    if export_success:
-        st.success("✅ Para trabajar con tus leads, ve a la página **Mis Nichos**.")
-    elif export_error_message:
-        st.error(export_error_message)
+    if inserted:
+        st.success("✅ Leads guardados en tu cuenta.")
 
     if leads:
         st.markdown("### ✅ Leads extraídos")
@@ -607,10 +570,7 @@ if st.session_state.get("mostrar_resultado"):
         "guardando_mostrado",
         "guardar_realizado",
         "mostrar_resultado",
-        "export_realizado",
-        "export_exitoso",
         "extraccion_realizada",
-        "export_error_message",
         "save_failed_count",
         "save_failed_items",
         "save_inserted_count",

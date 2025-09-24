@@ -105,3 +105,51 @@ def test_ai_daily_limit_resets_next_day(client, monkeypatch):
 
     resp = client.post("/ia", json={"prompt": "hola"}, headers=headers)
     assert resp.status_code == 200
+
+
+def test_extraction_does_not_increment_csv_exports(client, db_session):
+    email = "free-csv-check@example.com"
+    headers = auth(client, email)
+
+    from backend.core.usage_service import UsageService
+    from backend.models import Usuario
+
+    resp = client.post("/buscar_leads", json={"nuevos": 3, "duplicados": 0}, headers=headers)
+    assert resp.status_code == 200
+
+    user = db_session.query(Usuario).filter_by(email=email.lower()).first()
+    assert user is not None
+
+    usage_svc = UsageService(db_session)
+    period = usage_svc.get_period_yyyymm()
+    usage = usage_svc.get_usage(user.id, period)
+    assert usage.get("csv_exports") == 0
+
+
+def test_export_increments_csv_exports_and_blocks_after_limit(client, db_session):
+    email = "free-csv-export@example.com"
+    headers = auth(client, email)
+
+    from backend.core.usage_service import UsageService
+    from backend.models import Usuario
+
+    resp = client.post("/exportar_csv", json={"filename": "test.csv"}, headers=headers)
+    assert resp.status_code == 200
+
+    user = db_session.query(Usuario).filter_by(email=email.lower()).first()
+    assert user is not None
+
+    usage_svc = UsageService(db_session)
+    period = usage_svc.get_period_yyyymm()
+    usage = usage_svc.get_usage(user.id, period)
+    assert usage.get("csv_exports") == 1
+
+    resp = client.post("/exportar_csv", json={"filename": "test-2.csv"}, headers=headers)
+    assert resp.status_code == 403
+    detail = resp.json().get("detail", {})
+    assert detail.get("error") == "limit_exceeded"
+    assert detail.get("resource") == "csv_exports"
+    assert detail.get("plan") == "free"
+
+    usage_after_fail = usage_svc.get_usage(user.id, period)
+    assert usage_after_fail.get("csv_exports") == 1
