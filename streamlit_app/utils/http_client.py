@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from streamlit_app.auth_client import current_token
+from auth_client import current_token
 
 BASE_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 

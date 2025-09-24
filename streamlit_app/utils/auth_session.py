@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from streamlit_app.auth_client import (
+from auth_client import (
     clear_token as _clear_token,
     current_token as _current_token,
     ensure_authenticated as _ensure_authenticated,

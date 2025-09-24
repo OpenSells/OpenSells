@@ -1,6 +1,6 @@
 import streamlit as st
 
-from streamlit_app.auth_client import ensure_authenticated, current_token
+from auth_client import ensure_authenticated, current_token
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.utils.auth_session import remember_current_page

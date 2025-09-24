@@ -1,17 +1,17 @@
 import os
 import re
-import streamlit as st
 import sys
 from pathlib import Path
 
 import requests
+import streamlit as st
 
-from streamlit_app.auth_client import ensure_authenticated, save_token, current_token
+from auth_client import ensure_authenticated, save_token, current_token
 from components.ui import render_whatsapp_fab
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+CURR_DIR = os.path.dirname(__file__)
+if CURR_DIR not in sys.path:
+    sys.path.append(CURR_DIR)
 
 from streamlit_app.utils.constants import (
     BRAND,

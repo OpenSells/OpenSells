@@ -1,24 +1,21 @@
 """Main entry point for the Streamlit app."""
 
-# --- Ensure project root is in sys.path
+import os
 import sys
 from pathlib import Path
-import pathlib
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-import os
 import logging
-from sqlalchemy.engine import make_url
 import streamlit as st
+from sqlalchemy.engine import make_url
 
+CURR_DIR = Path(__file__).resolve().parent
+if str(CURR_DIR) not in sys.path:
+    sys.path.append(str(CURR_DIR))
+
+from auth_client import ensure_authenticated, clear_token
 from components.ui import render_whatsapp_fab
-
-from streamlit_app.auth_client import ensure_authenticated, clear_token
-from streamlit_app.utils.cookies_utils import init_cookie_manager_mount
-from streamlit_app.utils.nav import go, HOME_PAGE
+from utils.cookies_utils import init_cookie_manager_mount
+from utils.nav import HOME_PAGE, go
 
 init_cookie_manager_mount()
 

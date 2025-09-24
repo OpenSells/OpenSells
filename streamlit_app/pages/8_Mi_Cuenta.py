@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from json import JSONDecodeError
 from typing import Any
 
-from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
+from auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 from streamlit_app.cache_utils import cached_get, cached_post, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta, force_redirect
 from streamlit_app.utils.auth_session import remember_current_page

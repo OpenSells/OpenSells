@@ -6,7 +6,7 @@ from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
-from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
+from auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 from streamlit_app.cache_utils import cached_get, get_openai_client
 from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
 import streamlit_app.utils.http_client as http_client

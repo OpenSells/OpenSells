@@ -5,7 +5,7 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-from streamlit_app.auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
+from auth_client import ensure_authenticated, current_token, auth_headers as auth_client_headers
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.plan_utils import force_redirect, resolve_user_plan
 from streamlit_app.utils.plans import PLANS_FEATURES
