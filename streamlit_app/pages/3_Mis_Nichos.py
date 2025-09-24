@@ -362,7 +362,7 @@ if _focus_to_scroll:
         }} else {{
           requestAnimationFrame(scrollToLead);
         }}
-      };
+      }};
       scrollToLead();
     </script>
     """,
