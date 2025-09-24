@@ -100,7 +100,7 @@ def mostrar_banner_limite(detail: dict | None):
     resource = detail.get("resource")
     mensaje = LIMIT_MESSAGES.get(resource) or "🚫 No tienes permiso para continuar con esta acción."
     st.warning(mensaje)
-    if resource in {"lead_credits", "csv_exports"}:
+    if resource in {"lead_credits", "csv_exports", "searches"}:
         subscription_cta()
 
 
@@ -138,6 +138,7 @@ for flag, valor in {
     "save_failed_count": 0,
     "save_failed_items": [],
     "save_inserted_count": 0,
+    "show_extract_modal": False,
 }.items():
     st.session_state.setdefault(flag, valor)
 
@@ -149,9 +150,10 @@ if st.session_state.get("limit_error_detail"):
 
 # -------------------- Popup --------------------
 
-def mostrar_popup():
+def mostrar_popup(target=None):
     mensaje = st.session_state.get("estado_actual", "⏳ Extrayendo leads, por favor espera...")
-    st.markdown(
+    destino = target or st
+    destino.markdown(
         f"""
     <div style='position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0,0,0,0.35); z-index: 999;'>
         <div style='position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #d6ecff; border: 1px solid #9ec5fe; padding: 2rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 14px rgba(0,0,0,0.15);'>
@@ -195,6 +197,7 @@ def procesar_extraccion():
                     "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             st.session_state.dominios = dominios
@@ -210,6 +213,7 @@ def procesar_extraccion():
                     "⚙️ Debes configurar la variable BRAVE_API_KEY en el backend para habilitar las búsquedas."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             if r.status_code == 502:
@@ -217,10 +221,12 @@ def procesar_extraccion():
                     "No se encontraron dominios para las variantes. Prueba con otras variantes o añade una ‘Búsqueda extendida’."
                 )
                 st.session_state.loading = False
+                st.session_state.show_extract_modal = False
                 st.session_state.estado_actual = ""
                 return
             st.error("Error al buscar dominios")
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             return
 
     # 2. Extraer datos ----------------------------------------------------
@@ -230,6 +236,7 @@ def procesar_extraccion():
                 "No hay dominios disponibles para extraer leads. Intenta nuevamente con otras variantes."
             )
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             st.session_state.estado_actual = ""
             return
         if not st.session_state.get("extraccion_realizada"):
@@ -255,6 +262,7 @@ def procesar_extraccion():
             detail = data.get("detail") if isinstance(data, dict) else None
             st.session_state.limit_error_detail = detail
             st.session_state.truncated_free = False
+            st.session_state.show_extract_modal = False
             mostrar_banner_limite(detail)
             st.session_state.loading = False
             st.session_state.estado_actual = ""
@@ -264,6 +272,7 @@ def procesar_extraccion():
         else:
             st.error("Error al extraer los datos")
             st.session_state.loading = False
+            st.session_state.show_extract_modal = False
             return
 
     # 3. Guardar leads ----------------------------------------------------
@@ -289,6 +298,7 @@ def procesar_extraccion():
 
             if r_save.status_code != 200:
                 st.error("No se pudieron guardar los leads en la base de datos.")
+                st.session_state.show_extract_modal = False
                 st.session_state.loading = False
                 st.stop()
             else:
@@ -303,14 +313,19 @@ def procesar_extraccion():
                     "fallidos", []
                 ) or []
 
+        st.session_state.show_extract_modal = False
         st.session_state.loading = False
         st.session_state.mostrar_resultado = True
         st.rerun()
 
 # -------------------- Cuando está cargando --------------------
 if st.session_state.loading:
-    mostrar_popup()
+    modal_placeholder = st.empty()
+    if st.session_state.get("show_extract_modal"):
+        mostrar_popup(modal_placeholder)
     procesar_extraccion()
+    if not st.session_state.get("show_extract_modal"):
+        modal_placeholder.empty()
     st.stop()
 
 # -------------------- UI Principal (solo si no está cargando) -----------
@@ -410,8 +425,6 @@ remaining_searches = None
 if plan_name == "free":
     quota_searches = quotas.get("searches_per_month")
     used_searches = usage.get("searches")
-    if used_searches is None:
-        used_searches = usage.get("leads")
     if isinstance(quota_searches, (int, float)):
         used_val = int(used_searches or 0)
         remaining_searches = max(int(quota_searches) - used_val, 0)
@@ -524,20 +537,43 @@ if st.session_state.get("variantes"):
         elif not seleccion_interna:
             st.warning("Selecciona al menos una variante")
         else:
+            # Limpiar estados previos antes de iniciar una nueva extracción
             st.session_state.limit_error_detail = None
             st.session_state.truncated_free = False
             st.session_state.pop("export_error_message", None)
             st.session_state.save_failed_count = 0
             st.session_state.save_failed_items = []
             st.session_state.save_inserted_count = 0
-            st.session_state.fase_extraccion = "buscando"
-            st.session_state.loading = True
-            st.session_state.procesando = "dominios"
-            st.rerun()
+            st.session_state.show_extract_modal = False
+            st.session_state.loading = False
+
+            remaining_for_click = remaining_searches
+            if plan_name == "free" and remaining_for_click is None:
+                quota_searches = quotas.get("searches_per_month")
+                used_searches = usage.get("searches")
+                if isinstance(quota_searches, (int, float)):
+                    used_val = int(used_searches or 0)
+                    remaining_for_click = max(int(quota_searches) - used_val, 0)
+
+            if plan_name == "free" and remaining_for_click is not None and remaining_for_click <= 0:
+                st.warning("Has agotado tus 4 búsquedas del plan Free este mes.")
+                st.page_link(
+                    "pages/7_Suscripcion.py",
+                    label="Ver planes y suscribirme",
+                    icon="💳",
+                )
+                subscription_cta()
+            else:
+                st.session_state.fase_extraccion = "buscando"
+                st.session_state.loading = True
+                st.session_state.show_extract_modal = True
+                st.session_state.procesando = "dominios"
+                st.rerun()
 
 # -------------------- Mostrar resultado final debajo del flujo -----------
 
 if st.session_state.get("mostrar_resultado"):
+    st.session_state.show_extract_modal = False
     leads = st.session_state.get("resultados") or []
     truncated = st.session_state.get("truncated_free")
     failed_count = st.session_state.get("save_failed_count") or 0
