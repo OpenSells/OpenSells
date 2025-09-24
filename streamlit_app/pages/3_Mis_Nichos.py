@@ -114,6 +114,12 @@ def keep_context(nicho_slug: str, key_exp: str, focus_lead: str | None = None):
     st.session_state[key_exp] = True
     if focus_lead:
         st.session_state["focus_lead"] = focus_lead
+        st.session_state["ui_scroll_now"] = True
+
+
+def set_focus_now(lead_id: str):
+    st.session_state["focus_lead"] = lead_id
+    st.session_state["ui_scroll_now"] = True
 
 
 def _estado_chip_label(estado:str)->str:
@@ -340,34 +346,6 @@ if "solo_nicho_visible" in st.session_state:
     ]
 else:
     nichos_visibles = nichos
-
-_focus_existing = st.session_state.get("focus_lead")
-if _focus_existing:
-    st.markdown(
-        f"<div id='{_focus_existing}' data-placeholder='true'></div>",
-        unsafe_allow_html=True,
-    )
-
-_focus_to_scroll = st.session_state.pop("focus_lead", None)
-if _focus_to_scroll:
-    components.html(
-        f"""
-    <script>
-      const targetId = "{_focus_to_scroll}";
-      const scrollToLead = () => {{
-        const elements = document.querySelectorAll(`[id='${{targetId}}']`);
-        if (elements.length) {{
-          const el = Array.from(elements).find(e => !e.dataset.placeholder) || elements[0];
-          el.scrollIntoView({{behavior: "instant", block: "center"}});
-        }} else {{
-          requestAnimationFrame(scrollToLead);
-        }}
-      }};
-      scrollToLead();
-    </script>
-    """,
-        height=0,
-    )
 
 # ── Render de nichos y leads ────────────────────────
 for n in nichos_visibles:
@@ -641,7 +619,9 @@ for n in nichos_visibles:
                 "🔀 Mover", key=f"btn_mostrar_mover_{clave_base}", use_container_width=False
             ):
                 st.session_state["lead_a_mover"] = clave_base
-                keep_context(n["nicho"], key_exp, clave_base)
+                set_focus_now(clave_base)
+                st.session_state[key_exp] = True
+                st.session_state["solo_nicho_visible"] = n["nicho"]
 
             # Formulario de mover lead si está activo
             if st.session_state.get("lead_a_mover") == clave_base:
@@ -693,6 +673,9 @@ for n in nichos_visibles:
             # Botón Información extra
             if cols_row[4].button("📝 Notas", key=f"btn_info_{clave_base}", use_container_width=False):
                 st.session_state[f"mostrar_info_{clave_base}"] = not st.session_state.get(f"mostrar_info_{clave_base}", False)
+                set_focus_now(clave_base)
+                st.session_state[key_exp] = True
+                st.session_state["solo_nicho_visible"] = n["nicho"]
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
@@ -724,6 +707,32 @@ for n in nichos_visibles:
                                 st.session_state["forzar_recarga"] += 1
                                 keep_context(n["nicho"], key_exp, clave_base)
                                 st.rerun()
+
+
+# --- Inyección de scroll al final (tras procesar clics y render) ---
+_focus_to_scroll = st.session_state.get("focus_lead")
+_scroll_now = st.session_state.get("ui_scroll_now", False)
+
+if _focus_to_scroll and _scroll_now:
+    components.html(
+        f"""
+    <script>
+      const id = "{_focus_to_scroll}";
+      const go = () => {{
+        const els = document.querySelectorAll(`[id='${{id}}']`);
+        if (els.length) {{
+          const el = Array.from(els).find(e => !e.dataset.placeholder) || els[0];
+          el.scrollIntoView({{behavior: "instant", block: "center"}});
+        }} else {{
+          requestAnimationFrame(go);
+        }}
+      }};
+      go();
+    </script>
+    """,
+        height=0,
+    )
+    st.session_state["ui_scroll_now"] = False
 
 
 render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
