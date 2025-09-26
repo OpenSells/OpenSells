@@ -122,6 +122,7 @@ class UserUsageMonthly(Base):
     user_id = Column(Integer, index=True, nullable=False)
     period_yyyymm = Column(String, index=True, nullable=False)
     leads = Column(Integer, default=0)
+    searches = Column(Integer, default=0)
     ia_msgs = Column(Integer, default=0)
     tasks = Column(Integer, default=0)
     csv_exports = Column(Integer, default=0)

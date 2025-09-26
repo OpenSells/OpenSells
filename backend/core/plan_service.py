@@ -58,96 +58,140 @@ class PlanService:
     def get_quotas(self, user) -> dict:
         plan_name, plan = self.get_effective_plan(user)
         usage_svc = UsageService(self.db)
-        period = usage_svc.get_period_yyyymm()
-        counts = usage_svc.get_usage(user.id, period)
+        period_month = usage_svc.get_period_yyyymm()
+        monthly_counts = usage_svc.get_usage(user.id, period_month)
         daily_usage_svc = UsageDailyService(self.db)
-        day_period = daily_usage_svc.get_period_yyyymmdd()
-        daily_counts = daily_usage_svc.get_usage(user.id, day_period)
+        period_day = daily_usage_svc.get_period_yyyymmdd()
+        daily_counts = daily_usage_svc.get_usage(user.id, period_day)
 
         tasks_current = (
             self.db.query(LeadTarea)
             .filter(
                 LeadTarea.user_email_lower == user.email_lower,
-                LeadTarea.completado == False,
+                LeadTarea.completado.is_(False),
             )
             .count()
         )
 
+        def _normalize_limit(value):
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        def _coalesce_count(source: dict, *keys: str) -> int:
+            for key in keys:
+                value = source.get(key)
+                if value is None:
+                    continue
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    continue
+            return 0
+
+        searches_used = _coalesce_count(
+            monthly_counts,
+            "searches",
+            "free_searches",
+            "searches_per_month",
+            "searches_month",
+        )
+        leads_used = _coalesce_count(
+            monthly_counts,
+            "leads",
+            "lead_credits",
+            "lead_credits_month",
+        )
+        ai_used_today = _coalesce_count(daily_counts, "ai_messages", "ia_msgs", "mensajes_ia")
+
+        searches_limit = _normalize_limit(plan.searches_per_month)
+        leads_cap_per_search = _normalize_limit(plan.leads_cap_per_search)
+        if plan.lead_credits_month is not None:
+            leads_limit = _normalize_limit(plan.lead_credits_month)
+        elif searches_limit is not None and leads_cap_per_search is not None:
+            leads_limit = searches_limit * leads_cap_per_search
+        else:
+            leads_limit = None
+
+        csv_limit = _normalize_limit(getattr(plan, "csv_exports_per_month", None))
         limits = {
-            "searches_per_month": plan.searches_per_month if plan.type == "free" else None,
-            "leads_cap_per_search": plan.leads_cap_per_search if plan.type == "free" else None,
-            "csv_exports_per_month": plan.csv_exports_per_month if plan.type == "free" else None,
-            "csv_rows_cap_free": plan.csv_rows_cap_free if plan.type == "free" else None,
-            "lead_credits_month": plan.lead_credits_month if plan.type == "paid" else None,
-            "tasks_active_max": plan.tasks_active_max,
-            "ai_daily_limit": plan.ai_daily_limit,
+            "searches_per_month": searches_limit,
+            "lead_credits_month": leads_limit,
+            "ai_daily_limit": _normalize_limit(plan.ai_daily_limit),
+            "tasks_active_max": _normalize_limit(plan.tasks_active_max),
+            "leads_cap_per_search": leads_cap_per_search,
         }
+        limits["csv_exports_per_month"] = csv_limit
+        limits["csv_rows_cap_free"] = _normalize_limit(
+            getattr(plan, "csv_rows_cap_free", None)
+        )
+
+        def _remaining(limit: int | None, used: int) -> int | None:
+            if limit is None:
+                return None
+            return max(limit - used, 0)
+
+        csv_used = _coalesce_count(monthly_counts, "csv_exports")
+        remaining = {
+            "searches": _remaining(limits["searches_per_month"], searches_used),
+            "lead_credits": _remaining(leads_limit, leads_used),
+            "ai_messages": _remaining(limits["ai_daily_limit"], ai_used_today),
+            "tasks_active": _remaining(limits["tasks_active_max"], tasks_current),
+        }
+        remaining["csv_exports"] = _remaining(csv_limit, csv_used)
+        remaining["leads"] = remaining["lead_credits"]
+        remaining["ia_msgs"] = remaining["ai_messages"]
 
         usage = {
-            "leads": {
-                "used": counts["leads"],
-                "remaining": (plan.lead_credits_month - counts["leads"])
-                if plan.lead_credits_month is not None
-                else None,
-                "period": period,
+            "searches": searches_used,
+            "leads_used": leads_used,
+            "mensajes_ia": ai_used_today,
+            "tasks_active": {
+                "current": tasks_current,
+                "limit": limits["tasks_active_max"],
             },
-            "ia_msgs": {"used": daily_counts["ia_msgs"], "period": day_period},
-            "tasks": {"used": counts["tasks"], "period": period},
-            "csv_exports": {
-                "used": counts["csv_exports"],
-                "remaining": (plan.csv_exports_per_month - counts["csv_exports"])
-                if plan.csv_exports_per_month is not None
-                else None,
-                "period": period,
-            },
-            "tasks_active": {"current": tasks_current, "limit": plan.tasks_active_max},
         }
 
+        # Backwards compatible payload (legacy keys expected by other callers)
+        usage["ai_messages"] = {
+            "used_today": ai_used_today,
+            "remaining_today": remaining["ai_messages"],
+            "period": period_day,
+        }
+        usage["ia_msgs"] = {"used": ai_used_today, "period": period_day}
+        usage["tasks_active"].update({"remaining": remaining["tasks_active"]})
+        usage["csv_exports"] = {
+            "used": csv_used,
+            "remaining": remaining["csv_exports"],
+            "period": period_month,
+        }
+        usage["leads"] = {
+            "used": leads_used,
+            "remaining": remaining["lead_credits"],
+            "period": period_month,
+        }
         if plan.type == "free":
-            usage["searches"] = {
-                "used": counts["leads"],
-                "remaining": (plan.searches_per_month - counts["leads"])
-                if plan.searches_per_month is not None
-                else None,
-                "period": period,
+            usage["free_searches"] = {
+                "used": searches_used,
+                "remaining": remaining["searches"],
+                "period": period_month,
             }
         else:
             usage["lead_credits"] = {
-                "used": counts["leads"],
-                "remaining": (plan.lead_credits_month - counts["leads"])
-                if plan.lead_credits_month is not None
-                else None,
-                "period": period,
+                "used": leads_used,
+                "remaining": remaining["lead_credits"],
+                "period": period_month,
             }
-
-        remaining = {
-            "leads": usage["leads"]["remaining"],
-            "csv_exports": usage["csv_exports"]["remaining"],
-            "tasks_active": plan.tasks_active_max - tasks_current,
-            "ia_msgs": (plan.ai_daily_limit - daily_counts["ia_msgs"])
-            if plan.ai_daily_limit is not None
-            else None,
-            "tasks": None,
-        }
-
-        if plan.type == "free":
-            remaining["searches"] = (
-                (plan.searches_per_month - counts["leads"])
-                if plan.searches_per_month is not None
-                else None
-            )
-        else:
-            remaining["lead_credits"] = (
-                (plan.lead_credits_month - counts["leads"])
-                if plan.lead_credits_month is not None
-                else None
-            )
 
         result = {
             "plan": plan_name,
             "limits": limits,
             "usage": usage,
             "remaining": remaining,
+            "period": {"month": period_month, "ai_day": period_day},
         }
         return result
 

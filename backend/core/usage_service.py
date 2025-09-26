@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from sqlalchemy import update, func
+from sqlalchemy import update, func, text
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -10,13 +10,53 @@ from backend.models import UserUsageMonthly, UserUsageDaily
 
 logger = logging.getLogger(__name__)
 
-VALID_KINDS = {"leads", "ia_msgs", "tasks", "csv_exports"}
-VALID_DAILY_KINDS = {"ia_msgs"}
+MONTHLY_KIND_ALIASES = {
+    "searches": "searches",
+    "free_searches": "searches",
+    "leads": "leads",
+    "lead_credits": "leads",
+    "lead_credits_month": "leads",
+    "ai_messages": "ai_messages",
+    "ia_msgs": "ai_messages",
+    "mensajes_ia": "ai_messages",
+    "tasks": "tasks",
+    "csv_exports": "csv_exports",
+}
+
+DAILY_KIND_ALIASES = {
+    "ai_messages": "ai_messages",
+    "ia_msgs": "ai_messages",
+    "mensajes_ia": "ai_messages",
+}
+
+VALID_KINDS = set(MONTHLY_KIND_ALIASES.keys())
+VALID_DAILY_KINDS = set(DAILY_KIND_ALIASES.keys())
+
+
+def _has_column(model, name: str) -> bool:
+    return hasattr(model.__table__.c, name)
 
 
 class UsageService:
     def __init__(self, db: Session):
         self.db = db
+        self._ensure_schema()
+
+    _schema_checked = False
+
+    def _ensure_schema(self) -> None:
+        if UsageService._schema_checked:
+            return
+        try:
+            self.db.execute(
+                text(
+                    "ALTER TABLE user_usage_monthly ADD COLUMN IF NOT EXISTS searches INTEGER DEFAULT 0"
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("usage_schema_check_failed: %s", exc)
+        finally:
+            UsageService._schema_checked = True
 
     @staticmethod
     def get_period_yyyymm(dt: datetime | None = None) -> str:
@@ -24,14 +64,19 @@ class UsageService:
         return dt.strftime("%Y%m")
 
     def ensure_row(self, user_id: int, period: str) -> None:
-        stmt = pg_insert(UserUsageMonthly).values(
-            user_id=user_id,
-            period_yyyymm=period,
-            leads=0,
-            ia_msgs=0,
-            tasks=0,
-            csv_exports=0,
-        ).on_conflict_do_nothing(index_elements=["user_id", "period_yyyymm"])
+        values = {
+            "user_id": user_id,
+            "period_yyyymm": period,
+            "leads": 0,
+            "ia_msgs": 0,
+            "tasks": 0,
+            "csv_exports": 0,
+        }
+        if _has_column(UserUsageMonthly, "searches"):
+            values["searches"] = 0
+        stmt = pg_insert(UserUsageMonthly).values(**values).on_conflict_do_nothing(
+            index_elements=["user_id", "period_yyyymm"]
+        )
         self.db.execute(stmt)
         self.db.flush()
 
@@ -40,14 +85,25 @@ class UsageService:
             raise ValueError(f"Invalid usage kind: {kind}")
         period = period or self.get_period_yyyymm()
         self.ensure_row(user_id, period)
-        col = getattr(UserUsageMonthly, kind)
+        resolved = MONTHLY_KIND_ALIASES.get(kind)
+        if not resolved:
+            raise ValueError(f"Unsupported usage alias: {kind}")
+        column_attr = {
+            "leads": UserUsageMonthly.leads,
+            "searches": getattr(UserUsageMonthly, "searches", None),
+            "ai_messages": UserUsageMonthly.ia_msgs,
+            "tasks": UserUsageMonthly.tasks,
+            "csv_exports": UserUsageMonthly.csv_exports,
+        }.get(resolved)
+        if column_attr is None:
+            raise ValueError(f"Unsupported usage column for kind={kind}")
         upd = (
             update(UserUsageMonthly)
             .where(
                 UserUsageMonthly.user_id == user_id,
                 UserUsageMonthly.period_yyyymm == period,
             )
-            .values({kind: col + amount, "updated_at": func.now()})
+            .values({column_attr.key: column_attr + amount, "updated_at": func.now()})
         )
         self.db.execute(upd)
         self.db.flush()
@@ -55,7 +111,7 @@ class UsageService:
             "usage_increment user_id=%s period=%s kind=%s delta=%s",
             user_id,
             period,
-            kind,
+            resolved,
             amount,
         )
 
@@ -70,9 +126,18 @@ class UsageService:
             .one_or_none()
         )
         if not row:
-            return {"leads": 0, "ia_msgs": 0, "tasks": 0, "csv_exports": 0}
+            return {
+                "leads": 0,
+                "searches": 0,
+                "ai_messages": 0,
+                "ia_msgs": 0,
+                "tasks": 0,
+                "csv_exports": 0,
+            }
         return {
             "leads": row.leads or 0,
+            "searches": getattr(row, "searches", 0) or 0,
+            "ai_messages": row.ia_msgs or 0,
             "ia_msgs": row.ia_msgs or 0,
             "tasks": row.tasks or 0,
             "csv_exports": row.csv_exports or 0,
@@ -102,14 +167,17 @@ class UsageDailyService:
             raise ValueError(f"Invalid daily usage kind: {kind}")
         period = period or self.get_period_yyyymmdd()
         self.ensure_row(user_id, period)
-        col = getattr(UserUsageDaily, kind)
+        resolved = DAILY_KIND_ALIASES.get(kind)
+        if not resolved:
+            raise ValueError(f"Unsupported daily usage alias: {kind}")
+        column_attr = UserUsageDaily.ia_msgs
         upd = (
             update(UserUsageDaily)
             .where(
                 UserUsageDaily.user_id == user_id,
                 UserUsageDaily.period_yyyymmdd == period,
             )
-            .values({kind: col + amount, "updated_at": func.now()})
+            .values({column_attr.key: column_attr + amount, "updated_at": func.now()})
         )
         self.db.execute(upd)
         self.db.flush()
@@ -117,7 +185,7 @@ class UsageDailyService:
             "usage_daily_increment user_id=%s period=%s kind=%s delta=%s",
             user_id,
             period,
-            kind,
+            resolved,
             amount,
         )
 
@@ -132,8 +200,9 @@ class UsageDailyService:
             .one_or_none()
         )
         if not row:
-            return {"ia_msgs": 0}
-        return {"ia_msgs": row.ia_msgs or 0}
+            return {"ai_messages": 0, "ia_msgs": 0}
+        value = row.ia_msgs or 0
+        return {"ai_messages": value, "ia_msgs": value}
 
 
 __all__ = ["UsageService", "UsageDailyService", "VALID_KINDS", "VALID_DAILY_KINDS"]

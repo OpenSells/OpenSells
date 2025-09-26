@@ -44,6 +44,7 @@ from backend.core.usage_helpers import (
     consume_lead_credits,
     day_key,
     inc_count,
+    month_key,
     register_ia_message,
 )
 from backend.core.usage_service import UsageService
@@ -2018,6 +2019,8 @@ def buscar_leads(payload: LeadsPayload, usuario=Depends(get_current_user), db: S
             saved = cap
             duplicates += max(excess, 0)
         consume_free_search(db, usuario.id, plan_name)
+        if saved:
+            inc_count(db, usuario.id, "leads", month_key(), saved)
         credits_remaining = None
     else:
         nuevos_unicos = max(payload.nuevos - payload.duplicados, 0)

@@ -1,6 +1,7 @@
 # 8_Mi_Cuenta.py – Página de cuenta de usuario
 
 import os
+
 import requests
 import streamlit as st
 from dotenv import load_dotenv
@@ -38,6 +39,9 @@ ALIASES_MAP = {
         "busquedas_mes",
         "leads_month",
         "free_searches",
+        "free_searches_per_month",
+        "searches_month",
+        "searches_monthly",
     ],
     "mensajes_ia": [
         "mensajes_ia",
@@ -46,6 +50,7 @@ ALIASES_MAP = {
         "ai_messages",
         "ai daily limit",
         "ai_daily_limit",
+        "ai_msgs",
     ],
     "leads_mes": [
         "leads_mes",
@@ -55,10 +60,11 @@ ALIASES_MAP = {
         "lead_credits_month",
         "lead_usage",
         "leads_used",
+        "leads_monthly",
     ],
 }
 
-PLAN_ENDPOINTS = ("/mi_plan", "/plan/quotas")
+PLAN_ENDPOINTS = ("/mi_plan", "/plan/quotas", "/plan/usage")
 
 
 def _fmt_limit(value) -> str:
@@ -341,6 +347,10 @@ if "auth_email" not in st.session_state and user:
 # Recuperar plan y límites/uso
 mi_plan = _fetch_plan_payload(token) or {}
 plan = str(mi_plan.get("plan", "free")).strip().lower()
+
+if is_debug_ui_enabled() and mi_plan:
+    with st.expander("Debug /mi_plan"):
+        st.json(mi_plan)
 
 with st.sidebar:
     logout_button()

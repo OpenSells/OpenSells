@@ -25,14 +25,17 @@ def day_key(dt: datetime | None = None) -> str:
 # Basic counter helpers -------------------------------------------------------
 
 _metric_map = {
-    "ai_messages": ("ia_msgs", "daily"),
-    "mensajes_ia": ("ia_msgs", "daily"),
+    "ai_messages": ("ai_messages", "daily"),
+    "mensajes_ia": ("ai_messages", "daily"),
+    "ia_msgs": ("ai_messages", "daily"),
     "csv_exports": ("csv_exports", "monthly"),
     "exportaciones": ("csv_exports", "monthly"),
-    "free_searches": ("leads", "monthly"),
-    "busquedas": ("leads", "monthly"),
+    "free_searches": ("searches", "monthly"),
+    "searches": ("searches", "monthly"),
+    "busquedas": ("searches", "monthly"),
     "lead_credits": ("leads", "monthly"),
     "lead_credits_month": ("leads", "monthly"),
+    "leads": ("leads", "monthly"),
 }
 
 
@@ -48,10 +51,12 @@ def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
     if period_type == "daily":
         svc = UsageDailyService(db)
         period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
-        return svc.get_usage(user_id, period).get(kind, 0)
+        usage = svc.get_usage(user_id, period)
+        return usage.get(kind) or usage.get("ia_msgs", 0)
     svc = UsageService(db)
     period = period_key[:6]
-    return svc.get_usage(user_id, period).get(kind, 0)
+    usage = svc.get_usage(user_id, period)
+    return usage.get(kind, 0)
 
 
 def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
@@ -63,10 +68,13 @@ def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int =
         svc = UsageDailyService(db)
         period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
         svc.increment(user_id, kind, by, period)
-        return svc.get_usage(user_id, period).get(kind, 0)
+        usage = svc.get_usage(user_id, period)
+        return usage.get(kind) or usage.get("ia_msgs", 0)
     svc = UsageService(db)
-    svc.increment(user_id, kind, by, period_key[:6])
-    return svc.get_usage(user_id, period_key[:6]).get(kind, 0)
+    period = period_key[:6]
+    svc.increment(user_id, kind, by, period)
+    usage = svc.get_usage(user_id, period)
+    return usage.get(kind, 0)
 
 
 def register_ia_message(db: Session, user) -> None:
@@ -103,11 +111,11 @@ def can_start_search(db: Session, user_id: int, plan_name: str) -> Tuple[bool, i
     plan = get_limits(plan_name)
     period = month_key()
     if plan.type == "free":
-        used = get_count(db, user_id, "free_searches", period)
+        used = get_count(db, user_id, "searches", period)
         remaining = (plan.searches_per_month or 0) - used
         return remaining > 0, max(remaining, 0), plan.leads_cap_per_search
     else:
-        used = get_count(db, user_id, "lead_credits", period)
+        used = get_count(db, user_id, "leads", period)
         if plan.lead_credits_month is None:
             return True, None, None
         remaining = plan.lead_credits_month - used
@@ -115,11 +123,11 @@ def can_start_search(db: Session, user_id: int, plan_name: str) -> Tuple[bool, i
 
 
 def consume_free_search(db: Session, user_id: int, plan_name: str):
-    inc_count(db, user_id, "free_searches", month_key(), 1)
+    inc_count(db, user_id, "searches", month_key(), 1)
 
 
 def consume_lead_credits(db: Session, user_id: int, plan_name: str, n: int):
-    inc_count(db, user_id, "lead_credits", month_key(), n)
+    inc_count(db, user_id, "leads", month_key(), n)
 
 
 __all__ = [
