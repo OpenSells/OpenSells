@@ -155,6 +155,19 @@ def _resolve_nicho_slug(nicho_user: str | None) -> str | None:
     return candidate if candidate in s2p else None
 
 
+def _refresh_mis_nichos_cache():
+    """Fuerza lectura directa del backend y guarda en session para que el prompt use datos frescos."""
+    try:
+        r = http_client.get("/mis_nichos", headers=_auth_headers())
+        if getattr(r, "status_code", None) == 200:
+            data = r.json()
+            st.session_state["mis_nichos_fresh"] = data if isinstance(data, list) else data.get("nichos", [])
+        else:
+            st.session_state.pop("mis_nichos_fresh", None)
+    except Exception:
+        st.session_state.pop("mis_nichos_fresh", None)
+
+
 def _auth_headers():
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -383,16 +396,33 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
         return {"error": str(e)}
 
 
-def eliminar_nicho(nicho: str):
+def eliminar_nicho(nicho: str, confirm: bool = False):
+    """
+    Borra un nicho completo previa confirmación del usuario.
+    - Si confirm=False: devuelve needs_confirmation + número de leads detectados.
+    - Si confirm=True: ejecuta el DELETE y refresca la caché de nichos en sesión.
+    """
     try:
         slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho) or nicho
-        r = http_client.delete(
-            "/eliminar_nicho",
-            headers=_auth_headers(),
-            params={"nicho": slug},
-        )
+        if not confirm:
+            info = http_client.get(f"/leads_por_nicho?nicho={slug}", headers=_auth_headers())
+            leads_count = 0
+            if getattr(info, "status_code", None) == 200:
+                data = info.json()
+                leads_count = int(data.get("count") or len(data.get("items", [])) or 0)
+            return {
+                "needs_confirmation": True,
+                "nicho": nicho,
+                "nicho_slug": slug,
+                "leads": leads_count,
+                "message": f"¿Confirmas eliminar el nicho '{nicho}'? Se eliminarán {leads_count} leads asociados.",
+            }
+
+        r = http_client.delete("/eliminar_nicho", headers=_auth_headers(), params={"nicho": slug})
         if r.status_code == 200:
-            return r.json()
+            data = r.json()
+            _refresh_mis_nichos_cache()
+            return {"ok": True, "deleted": data.get("deleted", 0), "nicho": slug}
         if r.status_code == 404:
             return {"error": "El nicho no existe o ya fue eliminado.", "status": 404}
         return _handle_resp(r)
@@ -703,7 +733,13 @@ tool_defs = [
             "description": "Elimina un nicho completo",
             "parameters": {
                 "type": "object",
-                "properties": {"nicho": {"type": "string"}},
+                "properties": {
+                    "nicho": {"type": "string"},
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "Debe ser true para ejecutar el borrado",
+                    },
+                },
                 "required": ["nicho"],
             },
         },
@@ -771,13 +807,15 @@ tool_defs = [
 
 
 def build_system_prompt() -> str:
-    resp_mis_nichos = cached_get("/mis_nichos", token)
-    if isinstance(resp_mis_nichos, list):
-        nichos = resp_mis_nichos
-    elif isinstance(resp_mis_nichos, dict):
-        nichos = resp_mis_nichos.get("nichos", [])
-    else:
-        nichos = []
+    nichos = st.session_state.get("mis_nichos_fresh")
+    if nichos is None:
+        resp_mis_nichos = cached_get("/mis_nichos", token)
+        if isinstance(resp_mis_nichos, list):
+            nichos = resp_mis_nichos
+        elif isinstance(resp_mis_nichos, dict):
+            nichos = resp_mis_nichos.get("nichos", [])
+        else:
+            nichos = []
     tareas = cached_get("tareas_pendientes", token) or []
     resumen_nichos = ", ".join(
         (n.get("nicho_original") or n.get("nicho") or "").strip() for n in nichos
@@ -790,7 +828,7 @@ def build_system_prompt() -> str:
         "Capacidades permitidas desde el chat:\n"
         "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
         "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
-        "• Nichos: listar, renombrar, eliminar.\n"
+        "• Nichos: listar, renombrar, eliminar (SIEMPRE pide confirmación antes de borrar; no confirmes borrado si la tool no retorna ok=True).\n"
         "• Historial y memoria: consultar y guardar memoria.\n\n"
         f"Nichos del usuario: {resumen_nichos}.\n{resumen_tareas}"
     )
