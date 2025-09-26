@@ -168,6 +168,34 @@ def _refresh_mis_nichos_cache():
         st.session_state.pop("mis_nichos_fresh", None)
 
 
+def _count_leads_in_nicho(slug: str) -> int:
+    try:
+        r = http_client.get("/leads_por_nicho", headers=_auth_headers(), params={"nicho": slug})
+        if getattr(r, "status_code", None) == 200:
+            data = r.json() or {}
+            if isinstance(data, dict):
+                if "count" in data and isinstance(data["count"], int):
+                    return data["count"]
+                items = data.get("items")
+                if isinstance(items, list):
+                    return len(items)
+        return 0
+    except Exception:
+        return -1
+
+
+def _fetch_mis_nichos_fresh() -> list:
+    try:
+        r = http_client.get("/mis_nichos", headers=_auth_headers())
+        if getattr(r, "status_code", None) == 200:
+            data = r.json()
+            lst = data if isinstance(data, list) else data.get("nichos", [])
+            return lst or []
+    except Exception:
+        pass
+    return []
+
+
 def _auth_headers():
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -398,34 +426,65 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
 
 def eliminar_nicho(nicho: str, confirm: bool = False):
     """
-    Borra un nicho completo previa confirmación del usuario.
-    - Si confirm=False: devuelve needs_confirmation + número de leads detectados.
-    - Si confirm=True: ejecuta el DELETE y refresca la caché de nichos en sesión.
+    Borrado verificado de nicho:
+    - confirm=False -> devuelve 'needs_confirmation' + nº de leads.
+    - confirm=True  -> hace DELETE y verifica en /mis_nichos que el nicho ya no aparece.
     """
     try:
-        slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho) or nicho
+        slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho) or (nicho or "").strip()
+        if not slug:
+            return {"error": "Nicho no válido."}
+
         if not confirm:
-            info = http_client.get(f"/leads_por_nicho?nicho={slug}", headers=_auth_headers())
-            leads_count = 0
-            if getattr(info, "status_code", None) == 200:
-                data = info.json()
-                leads_count = int(data.get("count") or len(data.get("items", [])) or 0)
+            leads_count = _count_leads_in_nicho(slug)
             return {
                 "needs_confirmation": True,
                 "nicho": nicho,
                 "nicho_slug": slug,
-                "leads": leads_count,
-                "message": f"¿Confirmas eliminar el nicho '{nicho}'? Se eliminarán {leads_count} leads asociados.",
+                "leads": max(leads_count, 0),
+                "message": (
+                    f"Por favor, confirma que deseas eliminar el nicho \"{nicho}\". "
+                    "Una vez eliminado, no podrás recuperarlo."
+                ),
             }
 
         r = http_client.delete("/eliminar_nicho", headers=_auth_headers(), params={"nicho": slug})
-        if r.status_code == 200:
-            data = r.json()
-            _refresh_mis_nichos_cache()
-            return {"ok": True, "deleted": data.get("deleted", 0), "nicho": slug}
+
         if r.status_code == 404:
-            return {"error": "El nicho no existe o ya fue eliminado.", "status": 404}
-        return _handle_resp(r)
+            st.session_state.pop("mis_nichos_fresh", None)
+            return {"ok": False, "status": 404, "message": "El nicho no existe o ya fue eliminado."}
+
+        if r.status_code != 200:
+            return _handle_resp(r)
+
+        fresh = _fetch_mis_nichos_fresh()
+        st.session_state["mis_nichos_fresh"] = fresh
+
+        still_there = False
+        for n in fresh:
+            if (n.get("nicho") or "").strip() == slug:
+                still_there = True
+                break
+
+        if still_there:
+            rest = _count_leads_in_nicho(slug)
+            msg = (
+                "He enviado la solicitud de eliminación, pero el nicho aún aparece en el listado. "
+                "Puede ser una demora de sincronización."
+            )
+            if isinstance(rest, int) and rest >= 0:
+                msg += f" Quedan {rest} leads asociados."
+            msg += " Abre la página *Mis Nichos* para confirmar o reintenta en unos segundos."
+            return {"ok": False, "status": 200, "message": msg}
+
+        deleted = 0
+        try:
+            body = r.json() or {}
+            deleted = int(body.get("deleted", 0))
+        except Exception:
+            pass
+        return {"ok": True, "deleted": deleted, "nicho": slug}
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -730,15 +789,12 @@ tool_defs = [
         "type": "function",
         "function": {
             "name": "eliminar_nicho",
-            "description": "Elimina un nicho completo",
+            "description": "Elimina un nicho completo. Requiere confirmación.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "nicho": {"type": "string"},
-                    "confirm": {
-                        "type": "boolean",
-                        "description": "Debe ser true para ejecutar el borrado",
-                    },
+                    "confirm": {"type": "boolean"},
                 },
                 "required": ["nicho"],
             },
@@ -829,6 +885,8 @@ def build_system_prompt() -> str:
         "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
         "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
         "• Nichos: listar, renombrar, eliminar (SIEMPRE pide confirmación antes de borrar; no confirmes borrado si la tool no retorna ok=True).\n"
+        "  Para eliminar nichos, primero pide confirmación. Tras confirmar, no anuncies éxito a menos que la tool retorne ok=True. "
+        "Si la tool indica verificación fallida, informa al usuario sin afirmar el borrado.\n"
         "• Historial y memoria: consultar y guardar memoria.\n\n"
         f"Nichos del usuario: {resumen_nichos}.\n{resumen_tareas}"
     )
