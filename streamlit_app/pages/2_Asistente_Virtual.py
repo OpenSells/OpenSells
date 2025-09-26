@@ -74,18 +74,36 @@ st.markdown(
 st.divider()
 
 def es_intencion_extraer_leads(texto: str) -> bool:
-    """Determina si el usuario solicita extraer leads."""
+    """Determina si el usuario solicita extraer o exportar leads."""
     palabras = [
         "extraer",
+        "extracción",
+        "extrae",
         "scrap",
         "scrapear",
         "conseguir leads",
         "generar leads",
         "exportar",
-        "descargar",
+        "exportación",
+        "csv",
+        "descargar csv",
+        "descargar leads",
     ]
     t = texto.lower()
     return any(p in t for p in palabras)
+
+
+def _extraccion_msg() -> str:
+    """Devuelve el mensaje oficial para solicitudes de extracción/exportación."""
+    msg = EXTRAER_LEADS_MSG
+    if isinstance(msg, dict):
+        msg = msg.get("text") or msg.get("message") or ""
+    if not isinstance(msg, str) or not msg.strip():
+        msg = (
+            "🏗️ Esta funcionalidad desde el asistente estará disponible próximamente. "
+            "Mientras tanto, puedes usar la página de Búsqueda para generar leads."
+        )
+    return msg
 
 
 def _auth_headers():
@@ -139,9 +157,13 @@ def actualizar_estado_lead(dominio: str, estado: str):
 def obtener_nota_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/nota_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/info_extra", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
-            return r.json()
+            data = r.json()
+            nota = ""
+            if isinstance(data, dict):
+                nota = data.get("informacion", "")
+            return {"nota": nota}
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
@@ -150,7 +172,11 @@ def obtener_nota_lead(dominio: str):
 def actualizar_nota_lead(dominio: str, nota: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.post("/nota_lead", headers=_auth_headers(), json={"dominio": dominio, "nota": nota})
+        r = http_client.post(
+            "/guardar_info_extra",
+            headers=_auth_headers(),
+            json={"dominio": dominio, "informacion": nota},
+        )
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -161,7 +187,11 @@ def actualizar_nota_lead(dominio: str, nota: str):
 def obtener_tareas_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/tareas_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get(
+            "/tareas",
+            headers=_auth_headers(),
+            params={"tipo": "lead", "dominio": dominio, "solo_pendientes": "false"},
+        )
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -334,67 +364,6 @@ def api_tareas_pendientes():
         st.warning("Tu plan no permite ver tareas pendientes desde esta vista")
         subscription_cta()
     return {"error": r.text, "status": r.status_code}
-
-
-def _render_lead_actions():
-    dominio = st.session_state.get("lead_actual")
-    if not dominio:
-        return
-    c1, c2, c3 = st.columns(3)
-
-    # Ver tareas
-    ver_key = f"show_tareas_{dominio}"
-    if c1.button("Ver tareas de este lead", key=f"ver_tareas_{dominio}"):
-        st.session_state[ver_key] = not st.session_state.get(ver_key, False)
-    if st.session_state.get(ver_key, False):
-        tareas = obtener_tareas_lead(dominio)
-        if tareas.get("error"):
-            c1.error(tareas["error"])
-        else:
-            for t in tareas.get("tareas", []):
-                c1.write(f"- {t.get('texto')} ({t.get('prioridad')})")
-                if c1.button("Completar", key=f"compl_{t.get('id')}"):
-                    res = completar_tarea(t.get("id"))
-                    if res.get("error"):
-                        c1.error(res["error"])
-                    else:
-                        c1.success("Tarea completada")
-
-    # Añadir nota
-    nota_key = f"show_nota_{dominio}"
-    if c2.button("Añadir nota", key=f"add_nota_{dominio}"):
-        st.session_state[nota_key] = not st.session_state.get(nota_key, False)
-    if st.session_state.get(nota_key, False):
-        with c2.form(key=f"nota_form_{dominio}"):
-            nota = st.text_area("Nota", key=f"nota_{dominio}")
-            submitted = st.form_submit_button("Guardar nota")
-            if submitted:
-                res = actualizar_nota_lead(dominio, nota)
-                if res.get("error"):
-                    c2.error(res["error"])
-                else:
-                    st.toast("Nota guardada")
-                    st.session_state[nota_key] = False
-
-    # Cambiar estado
-    estado_key = f"show_estado_{dominio}"
-    if c3.button("Cambiar estado", key=f"cambiar_estado_{dominio}"):
-        st.session_state[estado_key] = not st.session_state.get(estado_key, False)
-    if st.session_state.get(estado_key, False):
-        with c3.form(key=f"estado_form_{dominio}"):
-            estado = st.selectbox(
-                "Nuevo estado",
-                ["nuevo", "contactado", "en_proceso", "cliente", "descartado"],
-                key=f"estado_{dominio}",
-            )
-            submitted = st.form_submit_button("Guardar estado")
-            if submitted:
-                res = actualizar_estado_lead(dominio, estado)
-                if res.get("error"):
-                    c3.error(res["error"])
-                else:
-                    st.toast("Estado actualizado")
-                    st.session_state[estado_key] = False
 
 
 TOOLS = {
@@ -731,7 +700,7 @@ def build_system_prompt() -> str:
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (
         "Eres un asistente conectado a herramientas del **gestor de leads**, pero **no puedes extraer ni exportar leads desde el chat**. "
-        "Si el usuario pide extraer/exportar, responde SIEMPRE con el mensaje oficial `EXTRAER_LEADS_MSG` (no hagas más acciones).\n\n"
+        "Si el usuario pide extraer/exportar, responde SIEMPRE con el mensaje oficial de extracción (no ejecutes más acciones).\n\n"
         "Capacidades permitidas desde el chat:\n"
         "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
         "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
@@ -785,7 +754,7 @@ if pregunta:
 
     # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
     if es_intencion_extraer_leads(pregunta):
-        content = EXTRAER_LEADS_MSG
+        content = _extraccion_msg()
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
@@ -836,16 +805,12 @@ if pregunta:
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
-            if not blocked_out:
-                _render_lead_actions()
-                if st.session_state.get("csv_bytes"):
-                    st.download_button(
-                        "⬇️ Descargar CSV",
-                        st.session_state.get("csv_bytes"),
-                        file_name=st.session_state.get("csv_filename", "leads.csv"),
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
 
 render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
+
+# QA manual:
+# - "haz una extracción de leads" → responde solo con el mensaje “Esta funcionalidad…” sin banners adicionales.
+# - "si hay una tarea de lead llamada X, edítala" + "el dominio es midominio.es" → opera usando /tareas?tipo=lead&dominio=...
+# - "añade una nota al lead midominio.es: ..." y luego "ver nota de midominio.es" → guarda en /guardar_info_extra y lee desde /info_extra.
+# - Tras cada respuesta no se muestran botones rápidos (Ver tareas / Añadir nota / Cambiar estado).
 
