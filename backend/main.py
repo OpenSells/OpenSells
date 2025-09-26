@@ -970,8 +970,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     # Recomendado (consistente con el registro y más eficiente):
     user = db.query(Usuario).filter(Usuario.user_email_lower == email_lower).first()
 
-    if not user or not verificar_password(payload.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    try:
+        password_ok = verificar_password(payload.password, user.hashed_password)
+    except Exception:
+        logger.exception(
+            "[login] Error verificando contraseña email=%s",
+            getattr(user, "user_email_lower", email_lower),
+        )
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    if not password_ok:
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     token = crear_token({"sub": user.email})
     return {"access_token": token}

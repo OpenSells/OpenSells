@@ -174,6 +174,7 @@ Otros endpoints relevantes: `/tarea_lead`, `/tareas_pendientes`, `/mi_memoria`, 
 
 ## Despliegue
 - Deploy objetivo en Render (Web Service) con Python 3.11.8 y build command `pip install -r requirements.txt && alembic upgrade head`.
+- Tras actualizar `runtime.txt`/`render.yaml` y las dependencias (`passlib[bcrypt]`, `bcrypt`), vuelve a desplegar el servicio en Render para que aplique la versión de Python 3.11.8 y evite el bug de hashes largos.
 - Variables de entorno y secrets configurados en Render Dashboard.
 - El frontend Streamlit puede desplegarse como servicio separado apuntando al backend Render (`BACKEND_URL`).
 - Uso de `render.yaml` como referencia de infraestructura.

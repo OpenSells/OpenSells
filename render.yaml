@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: wrapper-backend
+    name: opensells-backend
     env: python
     region: frankfurt
     plan: free

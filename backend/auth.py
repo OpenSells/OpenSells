@@ -23,15 +23,19 @@ if not SECRET_KEY:
     )
 
 ALGORITHM = "HS256"
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=False)
 
 
-def hashear_password(password: str):
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def verificar_password(password: str, hashed: str):
+def hashear_password(password: str) -> str:
+    return hash_password(password)
+
+
+def verificar_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
 
