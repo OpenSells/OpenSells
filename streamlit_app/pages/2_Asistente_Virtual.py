@@ -443,8 +443,9 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
                 "nicho_slug": slug,
                 "leads": max(leads_count, 0),
                 "message": (
-                    f"Por favor, confirma que deseas eliminar el nicho \"{nicho}\". "
-                    "Una vez eliminado, no podrás recuperarlo."
+                    f"¿Confirmas eliminar el nicho \"{nicho}\"?"
+                    " Esta acción borrará TODOS sus leads y la información asociada (tareas, notas/información extra e historial)."
+                    " Esta acción no se puede deshacer."
                 ),
             }
 
@@ -457,6 +458,14 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
         if r.status_code != 200:
             return _handle_resp(r)
 
+        try:
+            body = r.json() or {}
+        except Exception:
+            body = {}
+
+        ok = bool(body.get("ok"))
+        deleted_raw = body.get("deleted") if isinstance(body, dict) else None
+
         fresh = _fetch_mis_nichos_fresh()
         st.session_state["mis_nichos_fresh"] = fresh
 
@@ -465,6 +474,14 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
             if (n.get("nicho") or "").strip() == slug:
                 still_there = True
                 break
+
+        if not ok:
+            message = body.get("message") if isinstance(body, dict) else None
+            return {
+                "ok": False,
+                "status": 200,
+                "message": message or "No se pudo confirmar la eliminación del nicho.",
+            }
 
         if still_there:
             rest = _count_leads_in_nicho(slug)
@@ -477,13 +494,27 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
             msg += " Abre la página *Mis Nichos* para confirmar o reintenta en unos segundos."
             return {"ok": False, "status": 200, "message": msg}
 
-        deleted = 0
-        try:
-            body = r.json() or {}
-            deleted = int(body.get("deleted", 0))
-        except Exception:
-            pass
-        return {"ok": True, "deleted": deleted, "nicho": slug}
+        deleted = {
+            "leads": 0,
+            "tareas": 0,
+            "estados": 0,
+            "info_extra": 0,
+            "historial": 0,
+        }
+        if isinstance(deleted_raw, dict):
+            for key in deleted:
+                try:
+                    deleted[key] = int(deleted_raw.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    deleted[key] = 0
+
+        message = (
+            "Nicho eliminado correctamente. "
+            f"Borrados {deleted['leads']} leads, {deleted['tareas']} tareas, {deleted['estados']} estados, "
+            f"{deleted['info_extra']} info extra y {deleted['historial']} entradas de historial."
+        )
+
+        return {"ok": True, "deleted": deleted, "nicho": slug, "message": message}
 
     except Exception as e:
         return {"error": str(e)}
