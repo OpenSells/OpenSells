@@ -62,7 +62,26 @@ class PlanService:
         counts = usage_svc.get_usage(user.id, period)
         daily_usage_svc = UsageDailyService(self.db)
         day_period = daily_usage_svc.get_period_yyyymmdd()
-        daily_counts = daily_usage_svc.get_usage(user.id, day_period)
+        try:
+            daily_counts = daily_usage_svc.get_usage(user.id, day_period)
+        except Exception as exc:  # noqa: BLE001 - we want to swallow all runtime errors
+            logger.warning(
+                "daily usage lookup failed user_id=%s period=%s: %s",
+                getattr(user, "id", None),
+                day_period,
+                exc,
+                exc_info=exc,
+            )
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            daily_counts = {"ia_msgs": 0}
+
+        if not isinstance(daily_counts, dict):
+            daily_counts = {"ia_msgs": 0}
+
+        ia_msgs_current = int(daily_counts.get("ia_msgs") or 0)
 
         tasks_current = (
             self.db.query(LeadTarea)
@@ -91,7 +110,7 @@ class PlanService:
                 else None,
                 "period": period,
             },
-            "ia_msgs": {"used": daily_counts["ia_msgs"], "period": day_period},
+            "ia_msgs": {"used": ia_msgs_current, "period": day_period},
             "tasks": {"used": counts["tasks"], "period": period},
             "csv_exports": {
                 "used": counts["csv_exports"],
@@ -120,11 +139,16 @@ class PlanService:
                 "period": period,
             }
 
+        usage.setdefault("leads_mes", counts["leads"])
+        usage.setdefault("mensajes_ia", ia_msgs_current)
+        usage.setdefault("ia_msgs_total", ia_msgs_current)
+        usage.setdefault("searches_per_month", counts["leads"])
+
         remaining = {
             "leads": usage["leads"]["remaining"],
             "csv_exports": usage["csv_exports"]["remaining"],
             "tasks_active": plan.tasks_active_max - tasks_current,
-            "ia_msgs": (plan.ai_daily_limit - daily_counts["ia_msgs"])
+            "ia_msgs": (plan.ai_daily_limit - ia_msgs_current)
             if plan.ai_daily_limit is not None
             else None,
             "tasks": None,

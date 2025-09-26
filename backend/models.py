@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Text,
     Boolean,
+    ForeignKey,
     func,
     text,
     UniqueConstraint,
@@ -137,11 +138,25 @@ class UserUsageDaily(Base):
     __tablename__ = "user_usage_daily"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    period_yyyymmdd = Column(String, index=True, nullable=False)
-    ia_msgs = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    user_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    period_yyyymmdd = Column(String(8), index=True, nullable=False)
+    ia_msgs = Column(Integer, default=0, server_default=text("0"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     __table_args__ = (
         UniqueConstraint("user_id", "period_yyyymmdd", name="uix_user_usage_daily"),
