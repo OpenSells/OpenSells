@@ -3,11 +3,13 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     Integer,
+    BigInteger,
     String,
     Date,
     DateTime,
     Text,
     Boolean,
+    ForeignKey,
     func,
     text,
     UniqueConstraint,
@@ -99,52 +101,99 @@ def _lead_tarea_defaults(mapper, connection, target):
 # Tabla de historial
 class LeadHistorial(Base):
     __tablename__ = "lead_historial"
+    __table_args__ = (
+        Index(
+            "idx_lead_historial_user_tipo_nicho",
+            "user_email_lower",
+            "tipo",
+            "nicho",
+        ),
+        Index(
+            "idx_lead_historial_user_tipo_dominio",
+            "user_email_lower",
+            "tipo",
+            "dominio",
+        ),
+    )
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, nullable=False)
-    user_email_lower = Column(String, index=True, nullable=False)
-    dominio = Column(String, nullable=False)
-    tipo = Column(String, nullable=False)
+    id = Column(BigInteger, primary_key=True)
+    email = Column(Text, nullable=True)
+    user_email_lower = Column(Text, index=True, nullable=False)
+    dominio = Column(Text, nullable=True)
+    nicho = Column(Text, nullable=True)
+    tipo = Column(String(50), nullable=False)
     descripcion = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     @validates("email")
     def _set_lower(self, key, value):
-        self.user_email_lower = (value or "").strip().lower()
-        return (value or "").strip()
+        cleaned = (value or "").strip()
+        if cleaned:
+            self.user_email_lower = cleaned.lower()
+        return cleaned
 
 
 # Tabla de contadores de uso por plan
 class UserUsageMonthly(Base):
     __tablename__ = "user_usage_monthly"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    period_yyyymm = Column(String, index=True, nullable=False)
-    leads = Column(Integer, default=0)
-    ia_msgs = Column(Integer, default=0)
-    tasks = Column(Integer, default=0)
-    csv_exports = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period_yyyymm = Column(String(6), nullable=False)
+    leads = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    ia_msgs = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    tasks = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    csv_exports = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_usage_monthly"),
+        UniqueConstraint("user_id", "period_yyyymm", name="user_usage_monthly_user_period_uk"),
+        Index("idx_user_usage_monthly_user", "user_id"),
+        Index("idx_user_usage_monthly_period", "period_yyyymm"),
     )
 
 
 class UserUsageDaily(Base):
     __tablename__ = "user_usage_daily"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    period_yyyymmdd = Column(String, index=True, nullable=False)
-    ia_msgs = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period_yyyymmdd = Column(String(8), nullable=False)
+    ia_msgs = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymmdd", name="uix_user_usage_daily"),
+        UniqueConstraint("user_id", "period_yyyymmdd", name="user_usage_daily_user_period_uk"),
+        Index("idx_user_usage_daily_user", "user_id"),
+        Index("idx_user_usage_daily_period", "period_yyyymmdd"),
     )
 
 

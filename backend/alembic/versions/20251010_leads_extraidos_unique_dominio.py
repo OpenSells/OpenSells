@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy import text
 
 revision = "20251010_leads_extraidos_unique_dominio"
-down_revision = "20250910_drop_legacy_users_usage_counters"
+down_revision = "20250926_add_user_usage_daily"
 branch_labels = None
 depends_on = None
 

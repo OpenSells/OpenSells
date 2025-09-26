@@ -71,6 +71,32 @@ debug = st.sidebar.checkbox("Debug tareas", value=False) if SHOW_DEBUG else Fals
 
 plan = resolve_user_plan(token)["plan"]
 
+
+def _coerce_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+quotas_data = cached_get("/plan/quotas", token) if token else {}
+if not isinstance(quotas_data, dict):
+    quotas_data = {}
+
+_remaining_block = quotas_data.get("remaining") or {}
+TASKS_REMAINING = _coerce_int(_remaining_block.get("tasks_active"))
+
+
+def can_create_more_tasks() -> bool:
+    if TASKS_REMAINING is None:
+        return True
+    return TASKS_REMAINING > 0
+
+
+def show_task_limit_banner() -> None:
+    st.warning("Has alcanzado el máximo de tareas activas para tu plan.")
+    st.caption("Elimina o completa alguna tarea para crear nuevas.")
+
 HDR = {"Authorization": f"Bearer {token}"}
 ICON = {"general": "🧠", "nicho": "📂", "lead": "🌐"}
 P_ICON = {"alta": "🔴 Alta", "media": "🟡 Media", "baja": "🟢 Baja"}
@@ -261,12 +287,11 @@ def render_list(items, prefix: str):
         can_act = not t.get("_no_id", False)
         if cols[5].button("✔️", key=f"done_{unique_key}", disabled=not can_act):
             if can_act:
-                if not tiene_suscripcion_activa(plan):
-                    st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                    subscription_cta()
+                resultado = cached_post("tarea_completada", token, params={"tarea_id": t['id']})
+                if resultado is None:
+                    st.error("No se pudo completar la tarea. Intenta nuevamente.")
                 else:
-                    cached_post("tarea_completada", token, params={"tarea_id": t['id']})
-                    limpiar_cache()  # ✅ Añadir esto
+                    limpiar_cache()
                     st.success(f"Tarea {t['id']} marcada como completada ✅")
                     st.rerun()
 
@@ -295,26 +320,25 @@ def render_list(items, prefix: str):
 
             if c4.button("💾", key=f"guardar_edit_{unique_key}", disabled=not can_act):
                 if can_act:
-                    if not tiene_suscripcion_activa(plan):
-                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                        subscription_cta()
+                    respuesta = cached_post(
+                        "editar_tarea",
+                        token,
+                        payload={
+                            "texto": nuevo_texto.strip(),
+                            "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
+                            "prioridad": nueva_prioridad,
+                            "tipo": t.get("tipo"),
+                            "nicho": t.get("nicho"),
+                            "dominio": t.get("dominio"),
+                            "auto": t.get("auto", False),
+                        },
+                        params={"tarea_id": t["id"]}
+                    )
+                    if respuesta is None:
+                        st.error("No se pudo actualizar la tarea. Intenta nuevamente.")
                     else:
-                        cached_post(
-                            "editar_tarea",
-                            token,
-                            payload={
-                                "texto": nuevo_texto.strip(),
-                                "fecha": nueva_fecha.strftime("%Y-%m-%d") if nueva_fecha else None,
-                                "prioridad": nueva_prioridad,
-                                "tipo": t.get("tipo"),
-                                "nicho": t.get("nicho"),
-                                "dominio": t.get("dominio"),
-                                "auto": t.get("auto", False),
-                            },
-                            params={"tarea_id": t["id"]}
-                        )
                         st.session_state[f"editando_{unique_key}"] = False
-                        limpiar_cache()  # ✅ IMPORTANTE: limpia caché antes de recargar
+                        limpiar_cache()
                         st.success("Tarea actualizada ✅")
                         st.rerun()
 
@@ -348,18 +372,20 @@ elif seleccion == "General":
 
     # Toggle para añadir tarea
     if st.toggle("➕ Añadir tarea general", key="toggle_tarea_general"):
-        with st.form(key="form_general"):
-            texto = st.text_input("📝 Descripción", key="t_gen")
-            cols = st.columns(2)
-            fecha = cols[0].date_input("📅 Fecha", value=None, key="f_gen")
-            prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen", index=1)
+        if not can_create_more_tasks():
+            show_task_limit_banner()
+        else:
+            with st.form(key="form_general"):
+                texto = st.text_input("📝 Descripción", key="t_gen")
+                cols = st.columns(2)
+                fecha = cols[0].date_input("📅 Fecha", value=None, key="f_gen")
+                prioridad = cols[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_gen", index=1)
 
-            if st.form_submit_button("💾 Crear tarea"):
-                if texto.strip():
-                    if not tiene_suscripcion_activa(plan):
-                        st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                        subscription_cta()
-                    else:
+                if TASKS_REMAINING is not None:
+                    st.caption(f"Te quedan {max(TASKS_REMAINING, 0)} tareas activas disponibles.")
+
+                if st.form_submit_button("💾 Crear tarea"):
+                    if texto.strip():
                         payload = {
                             "texto": texto.strip(),
                             "tipo": "general",
@@ -370,8 +396,8 @@ elif seleccion == "General":
                         if crear_tarea_backend(payload, HDR, debug):
                             st.success("Tarea creada correctamente.")
                             st.rerun()
-                else:
-                    st.warning("La descripción es obligatoria.")
+                    else:
+                        st.warning("La descripción es obligatoria.")
 
     # Tareas activas
     gen = todos
@@ -389,7 +415,7 @@ elif seleccion == "General":
         historial = datos_hist.get("historial", []) if datos_hist else []
         completadas = [
             h for h in historial
-            if h.get("tipo") == "general" and h.get("descripcion", "").lower().startswith("tarea completada")
+            if h.get("descripcion", "").lower().startswith("tarea completada")
         ]
         if completadas:
             for h in completadas:
@@ -459,17 +485,20 @@ elif seleccion == "Nichos":
 
             # Toggle para añadir tarea
             if st.toggle("➕ Añadir tarea al nicho actual", key="toggle_tarea_nicho"):
-                with st.form(key="form_nicho"):
-                    texto = st.text_input("📝 Descripción", key="t_nicho")
-                    cols_f = st.columns(2)
-                    fecha = cols_f[0].date_input("📅 Fecha", value=None, key="f_nicho")
-                    prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho", index=1)
-                    if st.form_submit_button("💾 Crear tarea"):
-                        if texto.strip():
-                            if not tiene_suscripcion_activa(plan):
-                                st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                                subscription_cta()
-                            else:
+                if not can_create_more_tasks():
+                    show_task_limit_banner()
+                else:
+                    with st.form(key="form_nicho"):
+                        texto = st.text_input("📝 Descripción", key="t_nicho")
+                        cols_f = st.columns(2)
+                        fecha = cols_f[0].date_input("📅 Fecha", value=None, key="f_nicho")
+                        prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="p_nicho", index=1)
+
+                        if TASKS_REMAINING is not None:
+                            st.caption(f"Te quedan {max(TASKS_REMAINING, 0)} tareas activas disponibles.")
+
+                        if st.form_submit_button("💾 Crear tarea"):
+                            if texto.strip():
                                 payload = {
                                     "texto": texto.strip(),
                                     "tipo": "nicho",
@@ -481,8 +510,8 @@ elif seleccion == "Nichos":
                                 if crear_tarea_backend(payload, HDR, debug):
                                     st.success("Tarea creada correctamente.")
                                     st.rerun()
-                        else:
-                            st.warning("La descripción es obligatoria.")
+                            else:
+                                st.warning("La descripción es obligatoria.")
 
             tareas_n = [t for t in ensure_list(todos) if t.get("nicho") == nk.get("nicho")]
             st.markdown("#### 📋 Tareas activas")
@@ -561,17 +590,20 @@ elif seleccion == "Leads":
 
         # Toggle añadir tarea
         if st.toggle("➕ Añadir tarea", key="toggle_tarea"):
-            with st.form(key="form_tarea_detalle"):
-                texto = st.text_input("📝 Descripción", key="tarea_texto_detalle")
-                cols_f = st.columns(2)
-                fecha = cols_f[0].date_input("📅 Fecha", value=None, key="fecha_detalle")
-                prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle", index=1)
-                if st.form_submit_button("💾 Crear tarea"):
-                    if texto.strip():
-                        if not tiene_suscripcion_activa(plan):
-                            st.warning("Esta funcionalidad está disponible solo para usuarios con suscripción activa.")
-                            subscription_cta()
-                        else:
+            if not can_create_more_tasks():
+                show_task_limit_banner()
+            else:
+                with st.form(key="form_tarea_detalle"):
+                    texto = st.text_input("📝 Descripción", key="tarea_texto_detalle")
+                    cols_f = st.columns(2)
+                    fecha = cols_f[0].date_input("📅 Fecha", value=None, key="fecha_detalle")
+                    prioridad = cols_f[1].selectbox("🔥 Prioridad", ["alta", "media", "baja"], key="prio_detalle", index=1)
+
+                    if TASKS_REMAINING is not None:
+                        st.caption(f"Te quedan {max(TASKS_REMAINING, 0)} tareas activas disponibles.")
+
+                    if st.form_submit_button("💾 Crear tarea"):
+                        if texto.strip():
                             payload = {
                                 "texto": texto.strip(),
                                 "tipo": "lead",
@@ -583,8 +615,8 @@ elif seleccion == "Leads":
                             if crear_tarea_backend(payload, HDR, debug):
                                 st.success("Tarea creada correctamente.")
                                 st.rerun()
-                    else:
-                        st.warning("La descripción es obligatoria.")
+                        else:
+                            st.warning("La descripción es obligatoria.")
 
         # Toggle info extra
         if st.toggle("📝 Información extra del lead", key="toggle_info"):
@@ -649,7 +681,7 @@ elif seleccion == "Leads":
         historial = hist_datos.get("historial", []) if hist_datos else []
         completadas = [
             h for h in historial
-            if h["tipo"] == "tarea" and h["descripcion"].lower().startswith("tarea completada")
+            if h.get("descripcion", "").lower().startswith("tarea completada")
         ]
         if completadas:
             for h in completadas:
