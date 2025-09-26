@@ -415,7 +415,7 @@ elif seleccion == "General":
         historial = datos_hist.get("historial", []) if datos_hist else []
         completadas = [
             h for h in historial
-            if h.get("tipo") == "general" and h.get("descripcion", "").lower().startswith("tarea completada")
+            if h.get("descripcion", "").lower().startswith("tarea completada")
         ]
         if completadas:
             for h in completadas:
@@ -681,7 +681,7 @@ elif seleccion == "Leads":
         historial = hist_datos.get("historial", []) if hist_datos else []
         completadas = [
             h for h in historial
-            if h["tipo"] == "tarea" and h["descripcion"].lower().startswith("tarea completada")
+            if h.get("descripcion", "").lower().startswith("tarea completada")
         ]
         if completadas:
             for h in completadas:

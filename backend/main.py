@@ -1626,7 +1626,10 @@ def _timestamp_to_iso(value):
 def _is_undefined_table_error(exc: Exception) -> bool:
     if isinstance(exc, ProgrammingError):
         orig = getattr(exc, "orig", None)
-        if orig is not None and "UndefinedTable" in str(orig):
+        if getattr(orig, "pgcode", None) == "42P01":
+            return True
+        msg = (str(orig or exc) or "").lower()
+        if ("does not exist" in msg or "undefined table" in msg) and "lead_historial" in msg:
             return True
     return False
 
@@ -1673,8 +1676,8 @@ def _registrar_historial_tarea(
         db.execute(stmt)
     except ProgrammingError as exc:
         if _is_undefined_table_error(exc):
-            logger.warning("lead_historial missing; skipping history insert")
-            setattr(exc, "_lead_historial_missing_logged", True)
+            raise
+        logger.exception("[historial_tarea] error al registrar historial de tarea")
         raise
     except Exception:
         logger.exception("[historial_tarea] error al registrar historial de tarea")
@@ -1900,7 +1903,6 @@ def marcar_tarea_completada(
 
     if not t.completado:
         t.completado = True
-        committed = False
         try:
             _registrar_historial_tarea(
                 db,
@@ -1911,10 +1913,9 @@ def marcar_tarea_completada(
                 nicho=getattr(t, "nicho", None),
                 user_email=getattr(usuario, "email", None),
             )
-        except ProgrammingError as exc:
+        except Exception as exc:
             if _is_undefined_table_error(exc):
-                if not getattr(exc, "_lead_historial_missing_logged", False):
-                    logger.warning("lead_historial missing; skipping history insert")
+                logger.warning("lead_historial missing; skipping history insert")
                 db.rollback()
                 t = (
                     db.query(LeadTarea)
@@ -1928,41 +1929,23 @@ def marcar_tarea_completada(
                     raise HTTPException(status_code=404, detail="Tarea no encontrada")
                 if not t.completado:
                     t.completado = True
-                try:
-                    db.commit()
-                except Exception as commit_exc:
-                    db.rollback()
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"No se pudo completar la tarea: {commit_exc}",
-                    )
-                else:
-                    committed = True
-                    try:
-                        db.refresh(t)
-                    except Exception:
-                        pass
             else:
                 db.rollback()
                 raise HTTPException(
                     status_code=400,
                     detail=f"No se pudo completar la tarea: {exc}",
                 )
+
+        try:
+            db.commit()
         except Exception as exc:
             db.rollback()
             raise HTTPException(status_code=400, detail=f"No se pudo completar la tarea: {exc}")
-
-        if not committed:
+        else:
             try:
-                db.commit()
-            except Exception as exc:
-                db.rollback()
-                raise HTTPException(status_code=400, detail=f"No se pudo completar la tarea: {exc}")
-            else:
-                try:
-                    db.refresh(t)
-                except Exception:
-                    pass
+                db.refresh(t)
+            except Exception:
+                pass
 
     return {"ok": True, "tarea": _tarea_to_dict(t)}
 
@@ -2044,17 +2027,11 @@ def historial_tareas(
             .limit(limit)
             .all()
         )
-    except ProgrammingError as exc:
+    except Exception as exc:
         if _is_undefined_table_error(exc):
             db.rollback()
-            logger.warning(
-                "[historial_tareas] tabla lead_historial no existe; devolviendo lista vacía"
-            )
+            logger.warning("[historial_tareas] lead_historial no existe; devolviendo vacío")
             return {"total": 0, "limit": limit, "offset": offset, "historial": []}
-        db.rollback()
-        logger.exception("[historial_tareas] error al consultar historial")
-        raise HTTPException(status_code=500, detail=str(exc))
-    except Exception as exc:
         db.rollback()
         logger.exception("[historial_tareas] error al consultar historial")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -2096,17 +2073,11 @@ def historial_lead(
             .limit(limit)
             .all()
         )
-    except ProgrammingError as exc:
+    except Exception as exc:
         if _is_undefined_table_error(exc):
             db.rollback()
-            logger.warning(
-                "[historial_lead] tabla lead_historial no existe; devolviendo lista vacía"
-            )
+            logger.warning("[historial_lead] lead_historial no existe; devolviendo vacío")
             return {"total": 0, "limit": limit, "offset": offset, "historial": []}
-        db.rollback()
-        logger.exception("[historial_lead] error al consultar historial")
-        raise HTTPException(status_code=500, detail=str(exc))
-    except Exception as exc:
         db.rollback()
         logger.exception("[historial_lead] error al consultar historial")
         raise HTTPException(status_code=500, detail=str(exc))
