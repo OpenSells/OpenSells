@@ -102,18 +102,20 @@ def _lead_tarea_defaults(mapper, connection, target):
 class LeadHistorial(Base):
     __tablename__ = "lead_historial"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, nullable=False)
-    user_email_lower = Column(String, index=True, nullable=False)
-    dominio = Column(String, nullable=False)
-    tipo = Column(String, nullable=False)
+    id = Column(BigInteger, primary_key=True)
+    email = Column(Text, nullable=True)
+    user_email_lower = Column(Text, index=True, nullable=False)
+    dominio = Column(Text, nullable=True)
+    tipo = Column(String(50), nullable=False)
     descripcion = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     @validates("email")
     def _set_lower(self, key, value):
-        self.user_email_lower = (value or "").strip().lower()
-        return (value or "").strip()
+        cleaned = (value or "").strip()
+        if cleaned:
+            self.user_email_lower = cleaned.lower()
+        return cleaned
 
 
 # Tabla de contadores de uso por plan
