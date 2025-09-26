@@ -101,11 +101,26 @@ def _lead_tarea_defaults(mapper, connection, target):
 # Tabla de historial
 class LeadHistorial(Base):
     __tablename__ = "lead_historial"
+    __table_args__ = (
+        Index(
+            "idx_lead_historial_user_tipo_nicho",
+            "user_email_lower",
+            "tipo",
+            "nicho",
+        ),
+        Index(
+            "idx_lead_historial_user_tipo_dominio",
+            "user_email_lower",
+            "tipo",
+            "dominio",
+        ),
+    )
 
     id = Column(BigInteger, primary_key=True)
     email = Column(Text, nullable=True)
     user_email_lower = Column(Text, index=True, nullable=False)
     dominio = Column(Text, nullable=True)
+    nicho = Column(Text, nullable=True)
     tipo = Column(String(50), nullable=False)
     descripcion = Column(Text, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
