@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import unicodedata
 from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
@@ -106,6 +108,53 @@ def _extraccion_msg() -> str:
     return msg
 
 
+def _slugify_nicho(texto: str) -> str:
+    if not isinstance(texto, str):
+        return ""
+    t = texto.strip().lower()
+    t = unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode("utf-8")
+    t = re.sub(r"[^a-z0-9]+", "_", t)
+    return t.strip("_")
+
+
+def _build_nicho_maps() -> tuple[dict, dict]:
+    """
+    Devuelve (pretty_to_slug, slug_to_pretty) a partir de /mis_nichos.
+    - pretty: n['nicho_original'] o fallback n['nicho'] (visible)
+    - slug:   n['nicho'] (clave normalizada en backend)
+    """
+    data = api_mis_nichos() if callable(api_mis_nichos) else {}
+    nichos = data.get("nichos", []) if isinstance(data, dict) else (data or [])
+    p2s, s2p = {}, {}
+    for n in nichos:
+        slug = (n.get("nicho") or "").strip()
+        pretty = (n.get("nicho_original") or n.get("nicho") or "").strip()
+        if slug:
+            p2s[pretty] = slug
+            s2p[slug] = pretty
+    return p2s, s2p
+
+
+def _resolve_nicho_slug(nicho_user: str | None) -> str | None:
+    """
+    Acepta nombres con espacios/mayúsculas/tildes y devuelve el slug existente.
+    - Coincide por:
+      1) slug exacto
+      2) pretty exacto
+      3) slugify del input contra slug existente
+    """
+    if not nicho_user:
+        return None
+    p2s, s2p = _build_nicho_maps()
+    raw = nicho_user.strip()
+    if raw in s2p:
+        return raw
+    if raw in p2s:
+        return p2s[raw]
+    candidate = _slugify_nicho(raw)
+    return candidate if candidate in s2p else None
+
+
 def _auth_headers():
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -200,7 +249,21 @@ def obtener_tareas_lead(dominio: str):
 
 
 def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "media", tipo: str = "general", nicho: str | None = None):
-    payload = {"texto": texto, "prioridad": prioridad, "tipo": tipo, "nicho": nicho, "fecha": fecha}
+    nicho_value = None
+    if nicho:
+        nicho_slug = _resolve_nicho_slug(nicho)
+        if nicho_slug:
+            nicho_value = nicho_slug
+        else:
+            fallback = _slugify_nicho(nicho)
+            nicho_value = fallback or None
+    payload = {
+        "texto": texto,
+        "prioridad": prioridad,
+        "tipo": tipo,
+        "nicho": nicho_value,
+        "fecha": fecha,
+    }
     if fecha:
         try:
             datetime.fromisoformat(fecha)
@@ -282,17 +345,21 @@ def _tool_api_buscar_variantes_seleccionadas(variantes: list[str]):
 
 
 def api_leads_por_nicho(nicho: str):
-    r = http_client.get(f"/leads_por_nicho?nicho={nicho}", headers=_auth_headers())
+    slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho)
+    slug = slug or nicho
+    r = http_client.get(f"/leads_por_nicho?nicho={slug}", headers=_auth_headers())
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
 def mover_lead(dominio: str, origen: str, destino: str):
     st.session_state["lead_actual"] = dominio
     try:
+        origen_slug = _resolve_nicho_slug(origen) or _slugify_nicho(origen) or origen
+        destino_slug = _resolve_nicho_slug(destino) or _slugify_nicho(destino) or destino
         r = http_client.post(
             "/mover_lead",
             headers=_auth_headers(),
-            json={"dominio": dominio, "origen": origen, "destino": destino},
+            json={"dominio": dominio, "origen": origen_slug, "destino": destino_slug},
         )
         if r.status_code == 200:
             return r.json()
@@ -303,10 +370,11 @@ def mover_lead(dominio: str, origen: str, destino: str):
 
 def editar_nicho(nicho_actual: str, nuevo_nombre: str):
     try:
+        actual_slug = _resolve_nicho_slug(nicho_actual) or _slugify_nicho(nicho_actual) or nicho_actual
         r = http_client.post(
             "/editar_nicho",
             headers=_auth_headers(),
-            json={"nicho_actual": nicho_actual, "nuevo_nombre": nuevo_nombre},
+            json={"nicho_actual": actual_slug, "nuevo_nombre": nuevo_nombre},
         )
         if r.status_code == 200:
             return r.json()
@@ -317,13 +385,16 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
 
 def eliminar_nicho(nicho: str):
     try:
+        slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho) or nicho
         r = http_client.delete(
             "/eliminar_nicho",
             headers=_auth_headers(),
-            params={"nicho": nicho},
+            params={"nicho": slug},
         )
         if r.status_code == 200:
             return r.json()
+        if r.status_code == 404:
+            return {"error": "El nicho no existe o ya fue eliminado.", "status": 404}
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
@@ -333,7 +404,18 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
     st.session_state["lead_actual"] = dominio
     params = {"dominio": dominio, "solo_de_este_nicho": solo_de_este_nicho}
     if nicho:
-        params["nicho"] = nicho
+        nicho_slug = _resolve_nicho_slug(nicho)
+        if nicho_slug:
+            params["nicho"] = nicho_slug
+        else:
+            if solo_de_este_nicho:
+                return {
+                    "error": f"Nicho '{nicho}' no encontrado. Prueba con el nombre exacto o su slug.",
+                    "status": 404,
+                }
+            fallback = _slugify_nicho(nicho)
+            if fallback:
+                params["nicho"] = fallback
     try:
         r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
         if r.status_code == 200:
@@ -346,7 +428,11 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
 def historial_tareas(tipo: str = "general", nicho: str | None = None):
     params = {"tipo": tipo}
     if nicho:
-        params["nicho"] = nicho
+        slug = _resolve_nicho_slug(nicho)
+        if not slug:
+            slug = _slugify_nicho(nicho)
+        if slug:
+            params["nicho"] = slug
     try:
         r = http_client.get("/historial_tareas", headers=_auth_headers(), params=params)
         if r.status_code == 200:
