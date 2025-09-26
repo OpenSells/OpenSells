@@ -5,10 +5,9 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from streamlit_app.cache_utils import cached_get, get_openai_client
-from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit_app.plan_utils import subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.assistant_api import (
-    ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
     api_buscar,
     api_buscar_variantes_seleccionadas,
@@ -74,9 +73,6 @@ st.markdown(
 )
 st.divider()
 
-plan = resolve_user_plan(token)["plan"]
-
-
 def es_intencion_extraer_leads(texto: str) -> bool:
     """Determina si el usuario solicita extraer leads."""
     palabras = [
@@ -90,11 +86,6 @@ def es_intencion_extraer_leads(texto: str) -> bool:
     ]
     t = texto.lower()
     return any(p in t for p in palabras)
-
-
-def _respuesta_extraccion_no_disponible():
-    """Respuesta unificada cuando la extracción no está disponible."""
-    return {"error": EXTRAER_LEADS_MSG}
 
 
 def _auth_headers():
@@ -260,16 +251,6 @@ def _tool_api_buscar_variantes_seleccionadas(variantes: list[str]):
     return api_buscar_variantes_seleccionadas(variantes, headers=_auth_headers())
 
 
-def api_extraer_multiples(urls: list[str], pais: str = "ES"):
-    """Stub de extracción para evitar llamadas reales al backend."""
-    return _respuesta_extraccion_no_disponible()
-
-
-def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
-    """Exportar CSV deshabilitado mientras la extracción no está disponible."""
-    return _respuesta_extraccion_no_disponible()
-
-
 def api_leads_por_nicho(nicho: str):
     r = http_client.get(f"/leads_por_nicho?nicho={nicho}", headers=_auth_headers())
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
@@ -420,8 +401,6 @@ TOOLS = {
     "buscar_leads": buscar_leads,
     "api_buscar": _tool_api_buscar,
     "api_buscar_variantes_seleccionadas": _tool_api_buscar_variantes_seleccionadas,
-    "api_extraer_multiples": api_extraer_multiples,
-    "api_exportar_csv": api_exportar_csv,
     "obtener_estado_lead": obtener_estado_lead,
     "actualizar_estado_lead": actualizar_estado_lead,
     "obtener_nota_lead": obtener_nota_lead,
@@ -473,37 +452,7 @@ tool_defs = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "api_extraer_multiples",
-            "description": "Extrae datos básicos de múltiples URLs",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "urls": {"type": "array", "items": {"type": "string"}},
-                    "pais": {"type": "string"},
-                },
-                "required": ["urls"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "api_exportar_csv",
-            "description": "Exporta un conjunto de URLs a CSV y guarda los leads",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "urls": {"type": "array", "items": {"type": "string"}},
-                    "nicho": {"type": "string"},
-                    "pais": {"type": "string"},
-                },
-                "required": ["urls", "nicho"],
-            },
-        },
-    },
+    # Eliminadas definiciones de extracción/exportación.
     {
         "type": "function",
         "function": {
@@ -781,14 +730,13 @@ def build_system_prompt() -> str:
     ) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (
-        "Eres un asistente conectado a herramientas. Cuando el usuario pida BUSCAR o EXTRAER leads, "
-        "SIEMPRE sigue este pipeline con tools y sin inventar nada:\n"
-        "1) api_buscar(cliente_ideal) → si devuelve 'pregunta_sugerida', haz como máximo 2 preguntas breves.\n"
-        "2) api_buscar_variantes_seleccionadas(elige 3 variantes relevantes).\n"
-        "3) api_extraer_multiples(urls, pais detectado o 'ES' por defecto).\n"
-        "4) api_exportar_csv(urls, pais, nicho) → ofrece botón de descarga.\n"
-        "Si el plan es free y una acción premium devuelve 403, informa y muestra CTA.\n"
-        "Para tareas/estados/notas/historial usa las tools específicas.\n\n"
+        "Eres un asistente conectado a herramientas del **gestor de leads**, pero **no puedes extraer ni exportar leads desde el chat**. "
+        "Si el usuario pide extraer/exportar, responde SIEMPRE con el mensaje oficial `EXTRAER_LEADS_MSG` (no hagas más acciones).\n\n"
+        "Capacidades permitidas desde el chat:\n"
+        "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
+        "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
+        "• Nichos: listar, renombrar, eliminar.\n"
+        "• Historial y memoria: consultar y guardar memoria.\n\n"
         f"Nichos del usuario: {resumen_nichos}.\n{resumen_tareas}"
     )
 
@@ -835,19 +783,14 @@ if pregunta:
     with st.chat_message("user"):
         st.markdown(pregunta)
 
-    if es_intencion_extraer_leads(pregunta) and not ASSISTANT_EXTRACTION_ENABLED:
+    # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
+    if es_intencion_extraer_leads(pregunta):
         content = EXTRAER_LEADS_MSG
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
         st.stop()
     else:
-        if not tiene_suscripcion_activa(plan):
-            st.info(
-                "Puedes chatear y gestionar información básica. Para EXTRAER o EXPORTAR leads necesitas un plan activo."
-            )
-            subscription_cta()
-
         contexto = build_system_prompt()
         keywords = ["extraer", "conseguir", "buscar", "crear nicho", "exportar"]
         if any(k in pregunta.lower() for k in keywords):
