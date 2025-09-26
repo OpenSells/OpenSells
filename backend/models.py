@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column,
     Integer,
+    BigInteger,
     String,
     Date,
     DateTime,
@@ -119,33 +120,17 @@ class LeadHistorial(Base):
 class UserUsageMonthly(Base):
     __tablename__ = "user_usage_monthly"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True, nullable=False)
-    period_yyyymm = Column(String, index=True, nullable=False)
-    leads = Column(Integer, default=0)
-    ia_msgs = Column(Integer, default=0)
-    tasks = Column(Integer, default=0)
-    csv_exports = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymm", name="uix_user_usage_monthly"),
-    )
-
-
-class UserUsageDaily(Base):
-    __tablename__ = "user_usage_daily"
-
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True)
     user_id = Column(
         Integer,
         ForeignKey("usuarios.id", ondelete="CASCADE"),
-        index=True,
         nullable=False,
     )
-    period_yyyymmdd = Column(String(8), index=True, nullable=False)
-    ia_msgs = Column(Integer, default=0, server_default=text("0"))
+    period_yyyymm = Column(String(6), nullable=False)
+    leads = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    ia_msgs = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    tasks = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    csv_exports = Column(Integer, nullable=False, default=0, server_default=text("0"))
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -159,7 +144,39 @@ class UserUsageDaily(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("user_id", "period_yyyymmdd", name="uix_user_usage_daily"),
+        UniqueConstraint("user_id", "period_yyyymm", name="user_usage_monthly_user_period_uk"),
+        Index("idx_user_usage_monthly_user", "user_id"),
+        Index("idx_user_usage_monthly_period", "period_yyyymm"),
+    )
+
+
+class UserUsageDaily(Base):
+    __tablename__ = "user_usage_daily"
+
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    period_yyyymmdd = Column(String(8), nullable=False)
+    ia_msgs = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "period_yyyymmdd", name="user_usage_daily_user_period_uk"),
+        Index("idx_user_usage_daily_user", "user_id"),
+        Index("idx_user_usage_daily_period", "period_yyyymmdd"),
     )
 
 

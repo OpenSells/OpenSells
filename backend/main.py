@@ -900,6 +900,24 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/usage")
+def health_usage(db: Session = Depends(get_db)):
+    row = (
+        db.execute(
+            text(
+                "SELECT "
+                "to_regclass('public.user_usage_daily') IS NOT NULL AS has_daily, "
+                "to_regclass('public.user_usage_monthly') IS NOT NULL AS has_monthly"
+            )
+        )
+        .mappings()
+        .first()
+    )
+    has_daily = bool(row["has_daily"]) if row else False
+    has_monthly = bool(row["has_monthly"]) if row else False
+    return {"has_daily": has_daily, "has_monthly": has_monthly}
+
+
 # ---- MODELOS DE ENTRADA ----
 class RegisterRequest(BaseModel):
     email: EmailStr
