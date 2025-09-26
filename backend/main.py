@@ -19,8 +19,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import func, select, text
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional, List
-from backend.models import LeadTarea
-
 import httpx
 
 # --- Local / project ---
@@ -32,6 +30,7 @@ from backend.models import (
     LeadInfoExtra,
     LeadExtraido,
     LeadTarea,
+    LeadHistorial,
     UsuarioMemoria,
 )
 from backend.core.plan_service import PlanService
@@ -1612,6 +1611,59 @@ def _fecha_to_str(value):
     return value
 
 
+def _timestamp_to_iso(value):
+    if not value:
+        return None
+    try:
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        try:
+            return value.isoformat()
+        except Exception:
+            return None
+
+
+def _registrar_historial_tarea(
+    db: Session,
+    user_email_lower: str,
+    *,
+    tipo: Optional[str],
+    descripcion: str,
+    dominio: Optional[str] = None,
+    nicho: Optional[str] = None,
+    user_email: Optional[str] = None,
+):
+    if not user_email_lower:
+        logger.warning("[historial_tarea] user_email_lower vacío; se omite registro")
+        return
+
+    tabla = LeadHistorial.__table__
+    valores = {
+        tabla.c.email: user_email or user_email_lower,
+        tabla.c.user_email_lower: user_email_lower,
+        tabla.c.tipo: "tarea",
+        tabla.c.descripcion: descripcion,
+        tabla.c.timestamp: func.now(),
+    }
+
+    if "dominio" in tabla.c:
+        valores[tabla.c.dominio] = dominio
+    if "nicho" in tabla.c:
+        valores[tabla.c.nicho] = nicho
+    if "tipo_registro" in tabla.c and tipo is not None:
+        # Compatibilidad con variantes antiguas del esquema
+        valores[tabla.c.tipo_registro] = tipo
+    elif tipo is not None and "detalle" in tabla.c and "tipo" not in tabla.c:
+        valores[tabla.c.detalle] = tipo
+
+    stmt = tabla.insert().values(valores)
+    try:
+        db.execute(stmt)
+    except Exception:
+        logger.exception("[historial_tarea] error al registrar historial de tarea")
+        raise
+
+
 def _tarea_to_dict(t):
     return {
         "id": t.id,
@@ -1622,7 +1674,7 @@ def _tarea_to_dict(t):
         "fecha": _fecha_to_str(t.fecha),
         "prioridad": t.prioridad,
         "completado": t.completado,
-        "timestamp": getattr(t, "timestamp", None).isoformat() if getattr(t, "timestamp", None) else None,
+        "timestamp": _timestamp_to_iso(getattr(t, "timestamp", None)),
     }
 
 
@@ -1832,12 +1884,153 @@ def marcar_tarea_completada(
     if not t.completado:
         t.completado = True
         try:
+            _registrar_historial_tarea(
+                db,
+                user_email_lower=user_lower,
+                tipo=t.tipo,
+                descripcion=f"Tarea completada: {t.texto}",
+                dominio=getattr(t, "dominio", None),
+                nicho=getattr(t, "nicho", None),
+                user_email=getattr(usuario, "email", None),
+            )
             db.commit()
         except Exception as exc:
             db.rollback()
             raise HTTPException(status_code=400, detail=f"No se pudo completar la tarea: {exc}")
 
     return {"ok": True, "tarea": _tarea_to_dict(t)}
+
+
+_HIST_HAS_DOMINIO = "dominio" in LeadHistorial.__table__.c
+_HIST_HAS_NICHO = "nicho" in LeadHistorial.__table__.c
+
+
+def _historial_query_base(db: Session, user_email_lower: str):
+    q = db.query(LeadHistorial).filter(LeadHistorial.user_email_lower == user_email_lower)
+    if "tipo" in LeadHistorial.__table__.c:
+        q = q.filter(LeadHistorial.tipo == "tarea")
+    return q
+
+
+def _historial_row_dict(row) -> dict[str, Optional[str]]:
+    return {
+        "tipo": getattr(row, "tipo", None),
+        "descripcion": getattr(row, "descripcion", None),
+        "dominio": getattr(row, "dominio", None) if _HIST_HAS_DOMINIO else None,
+        "nicho": getattr(row, "nicho", None) if _HIST_HAS_NICHO else None,
+        "timestamp": _timestamp_to_iso(getattr(row, "timestamp", None)),
+    }
+
+
+@app.get("/historial_tareas")
+def historial_tareas(
+    tipo: Optional[str] = None,
+    nicho: Optional[str] = None,
+    dominio: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
+    tipo = (tipo or "").strip().lower() or None
+    if tipo not in {None, "general", "nicho", "lead"}:
+        tipo = None
+
+    nicho = nicho.strip() if isinstance(nicho, str) and nicho.strip() else None
+    dominio = dominio.strip() if isinstance(dominio, str) and dominio.strip() else None
+
+    limit = max(1, min(500, int(limit)))
+    offset = max(0, int(offset))
+
+    q = _historial_query_base(db, user_lower)
+
+    if tipo == "general":
+        if _HIST_HAS_DOMINIO:
+            q = q.filter(LeadHistorial.dominio.is_(None))
+        if _HIST_HAS_NICHO:
+            q = q.filter(LeadHistorial.nicho.is_(None))
+    elif tipo == "nicho":
+        if _HIST_HAS_NICHO:
+            if nicho:
+                q = q.filter(LeadHistorial.nicho == nicho)
+            else:
+                q = q.filter(LeadHistorial.nicho.isnot(None))
+        if _HIST_HAS_DOMINIO:
+            q = q.filter(LeadHistorial.dominio.is_(None))
+    elif tipo == "lead":
+        if _HIST_HAS_DOMINIO:
+            if dominio:
+                q = q.filter(LeadHistorial.dominio == dominio)
+            else:
+                q = q.filter(LeadHistorial.dominio.isnot(None))
+
+    if tipo != "nicho" and nicho and _HIST_HAS_NICHO:
+        q = q.filter(LeadHistorial.nicho == nicho)
+    if tipo != "lead" and dominio and _HIST_HAS_DOMINIO:
+        q = q.filter(LeadHistorial.dominio == dominio)
+
+    try:
+        total = q.count()
+        rows = (
+            q.order_by(LeadHistorial.timestamp.desc(), LeadHistorial.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[historial_tareas] error al consultar historial")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "historial": [_historial_row_dict(row) for row in rows],
+    }
+
+
+@app.get("/historial_lead")
+def historial_lead(
+    dominio: str,
+    limit: int = 100,
+    offset: int = 0,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not dominio:
+        raise HTTPException(status_code=400, detail="Falta 'dominio'")
+
+    user_lower = getattr(usuario, "email_lower", None) or (usuario.email or "").lower()
+    limit = max(1, min(500, int(limit)))
+    offset = max(0, int(offset))
+
+    q = _historial_query_base(db, user_lower)
+    if _HIST_HAS_DOMINIO:
+        q = q.filter(LeadHistorial.dominio == dominio)
+    else:
+        q = q.filter(LeadHistorial.descripcion.ilike(f"%{dominio}%"))
+
+    try:
+        total = q.count()
+        rows = (
+            q.order_by(LeadHistorial.timestamp.desc(), LeadHistorial.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.exception("[historial_lead] error al consultar historial")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "historial": [_historial_row_dict(row) for row in rows],
+    }
 
 
 @app.post("/editar_tarea")
