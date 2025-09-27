@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Tuple
 import logging
+from typing import Tuple
 
 from sqlalchemy.orm import Session
 
-from backend.core.plan_service import PlanService, get_limits
+from backend.core.plan_service import get_limits
 from backend.core.usage_service import UsageService, UsageDailyService
 
 logger = logging.getLogger(__name__)
 usage_log = logging.getLogger("usage")
+
+AI_KEY = "mensajes_ia"
+AI_ALIASES_READ = ("mensajes_ia", "ai_messages", "ia_mensajes", "ia_msgs")
 
 # Period helpers --------------------------------------------------------------
 
@@ -25,7 +28,7 @@ def day_key(dt: datetime | None = None) -> str:
 # Basic counter helpers -------------------------------------------------------
 
 _metric_map = {
-    "mensajes_ia": ("ia_msgs", "daily"),
+    AI_KEY: ("ia_msgs", "daily"),
     "csv_exports": ("csv_exports", "monthly"),
     "exportaciones": ("csv_exports", "monthly"),
     "free_searches": ("leads", "monthly"),
@@ -36,9 +39,9 @@ _metric_map = {
 
 
 _metric_aliases = {
-    "ai_messages": "mensajes_ia",
-    "ia_mensajes": "mensajes_ia",
-    "ia_msgs": "mensajes_ia",
+    "ai_messages": AI_KEY,
+    "ia_mensajes": AI_KEY,
+    "ia_msgs": AI_KEY,
 }
 
 
@@ -56,10 +59,10 @@ def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
         svc = UsageDailyService(db)
         period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
         usage = svc.get_usage(user_id, period)
-        if canonical == "mensajes_ia":
+        if canonical == AI_KEY:
             total = 0
             seen: set[str] = set()
-            for key in ("ia_msgs", "mensajes_ia", "ai_messages", "ia_mensajes"):
+            for key in AI_ALIASES_READ:
                 if key in usage and key not in seen:
                     try:
                         total += int(usage.get(key) or 0)
@@ -100,20 +103,32 @@ def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int =
 
 def register_ia_message(db: Session, user) -> None:
     usage_log.info(f"[USAGE] mensajes_ia +1 user={user.email_lower}")
-    inc_count(db, user.id, "mensajes_ia", day_key(), 1)
+    inc_count(db, user.id, AI_KEY, day_key(), 1)
 
 # Feature helpers -------------------------------------------------------------
 
+def _read_ai_used_today(db: Session, user_id: int) -> int:
+    today = day_key()
+    used = 0
+    for key in AI_ALIASES_READ:
+        used = max(used, get_count(db, user_id, key, today))
+    return used
+
+
 def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
-    plan_limits = PlanService(db).get_limits(plan_name) if plan_name else {}
-    limit = plan_limits.get("ai_daily_limit") if isinstance(plan_limits, dict) else None
+    """Return whether the user can consume an AI message and remaining quota."""
+
+    from backend.core.plan_service import PlanService
+
+    svc = PlanService(db)
+    limits = svc.get_limits(plan_name) or {}
+    limit = limits.get("ai_daily_limit", None)
+
     if limit is None:
         return True, None
-    if limit <= 0:
-        return False, 0
 
-    used_today = get_count(db, user_id, "mensajes_ia", day_key())
-    remaining = max(limit - used_today, 0)
+    used = _read_ai_used_today(db, user_id)
+    remaining = max(int(limit) - int(used), 0)
     ok = remaining > 0
     return ok, remaining
 

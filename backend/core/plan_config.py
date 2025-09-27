@@ -27,7 +27,7 @@ PLANES: Dict[str, PlanConfig] = {
         csv_exports_per_month=1,
         csv_rows_cap_free=10,
         tasks_active_max=3,
-        ai_daily_limit=5,
+        ai_daily_limit=10,
         queue_priority=0,
     ),
     "starter": PlanConfig(
