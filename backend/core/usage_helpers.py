@@ -6,7 +6,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from backend.core.plan_service import get_limits
+from backend.core.plan_service import PlanService, get_limits
 from backend.core.usage_service import UsageService, UsageDailyService
 
 logger = logging.getLogger(__name__)
@@ -105,14 +105,17 @@ def register_ia_message(db: Session, user) -> None:
 # Feature helpers -------------------------------------------------------------
 
 def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
-    plan = get_limits(plan_name)
-    limit = getattr(plan, "ai_daily_limit", None)
+    plan_limits = PlanService(db).get_limits(plan_name) if plan_name else {}
+    limit = plan_limits.get("ai_daily_limit") if isinstance(plan_limits, dict) else None
     if limit is None:
         return True, None
-    period = day_key()
-    used = get_count(db, user_id, "mensajes_ia", period)
-    remaining = limit - used
-    return remaining > 0, max(remaining, 0)
+    if limit <= 0:
+        return False, 0
+
+    used_today = get_count(db, user_id, "mensajes_ia", day_key())
+    remaining = max(limit - used_today, 0)
+    ok = remaining > 0
+    return ok, remaining
 
 
 def consume_csv_export(db: Session, user_id: int, plan_name: str):
