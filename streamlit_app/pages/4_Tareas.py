@@ -70,6 +70,7 @@ with st.sidebar:
 debug = st.sidebar.checkbox("Debug tareas", value=False) if SHOW_DEBUG else False
 
 plan = resolve_user_plan(token)["plan"]
+force_refresh_ts = st.session_state.get("__force_refresh_ts")
 
 
 def _coerce_int(value):
@@ -79,7 +80,7 @@ def _coerce_int(value):
         return None
 
 
-quotas_data = cached_get("/plan/quotas", token) if token else {}
+quotas_data = cached_get("/plan/quotas", token, nocache_key=force_refresh_ts) if token else {}
 if not isinstance(quotas_data, dict):
     quotas_data = {}
 
@@ -206,7 +207,7 @@ def sort_tareas(iterable: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 # ────────────────── Datos base ──────────────────────
-datos_nichos = cached_get("/mis_nichos", token)
+datos_nichos = cached_get("/mis_nichos", token, nocache_key=force_refresh_ts)
 if isinstance(datos_nichos, list):
     lista_nichos = datos_nichos
 elif isinstance(datos_nichos, dict):
@@ -429,7 +430,7 @@ elif seleccion == "Nichos":
     if "nicho_seleccionado" not in st.session_state:
         st.session_state["nicho_seleccionado"] = None
 
-    ln_data = cached_get("/mis_nichos", token)
+    ln_data = cached_get("/mis_nichos", token, nocache_key=force_refresh_ts)
     if isinstance(ln_data, list):
         ln = ln_data
     elif isinstance(ln_data, dict):

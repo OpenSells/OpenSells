@@ -1,14 +1,16 @@
 import os
 import json
+import re
+import unicodedata
+import time
 from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
-from streamlit_app.cache_utils import cached_get, get_openai_client
-from streamlit_app.plan_utils import resolve_user_plan, tiene_suscripcion_activa, subscription_cta
+from streamlit_app.cache_utils import cached_get, get_openai_client, limpiar_cache
+from streamlit_app.plan_utils import subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.assistant_api import (
-    ASSISTANT_EXTRACTION_ENABLED,
     EXTRAER_LEADS_MSG,
     api_buscar,
     api_buscar_variantes_seleccionadas,
@@ -74,27 +76,136 @@ st.markdown(
 )
 st.divider()
 
-plan = resolve_user_plan(token)["plan"]
-
-
 def es_intencion_extraer_leads(texto: str) -> bool:
-    """Determina si el usuario solicita extraer leads."""
+    """Determina si el usuario solicita extraer o exportar leads."""
     palabras = [
         "extraer",
+        "extracción",
+        "extrae",
         "scrap",
         "scrapear",
         "conseguir leads",
         "generar leads",
         "exportar",
-        "descargar",
+        "exportación",
+        "csv",
+        "descargar csv",
+        "descargar leads",
     ]
     t = texto.lower()
     return any(p in t for p in palabras)
 
 
-def _respuesta_extraccion_no_disponible():
-    """Respuesta unificada cuando la extracción no está disponible."""
-    return {"error": EXTRAER_LEADS_MSG}
+def _extraccion_msg() -> str:
+    """Devuelve el mensaje oficial para solicitudes de extracción/exportación."""
+    msg = EXTRAER_LEADS_MSG
+    if isinstance(msg, dict):
+        msg = msg.get("text") or msg.get("message") or ""
+    if not isinstance(msg, str) or not msg.strip():
+        msg = (
+            "🏗️ Esta funcionalidad desde el asistente estará disponible próximamente. "
+            "Mientras tanto, puedes usar la página de Búsqueda para generar leads."
+        )
+    return msg
+
+
+def _slugify_nicho(texto: str) -> str:
+    if not isinstance(texto, str):
+        return ""
+    t = texto.strip().lower()
+    t = unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode("utf-8")
+    t = re.sub(r"[^a-z0-9]+", "_", t)
+    return t.strip("_")
+
+
+def _build_nicho_maps() -> tuple[dict, dict]:
+    """
+    Devuelve (pretty_to_slug, slug_to_pretty) a partir de /mis_nichos.
+    - pretty: n['nicho_original'] o fallback n['nicho'] (visible)
+    - slug:   n['nicho'] (clave normalizada en backend)
+    """
+    data = api_mis_nichos() if callable(api_mis_nichos) else {}
+    nichos = data.get("nichos", []) if isinstance(data, dict) else (data or [])
+    p2s, s2p = {}, {}
+    for n in nichos:
+        slug = (n.get("nicho") or "").strip()
+        pretty = (n.get("nicho_original") or n.get("nicho") or "").strip()
+        if slug:
+            p2s[pretty] = slug
+            s2p[slug] = pretty
+    return p2s, s2p
+
+
+def _resolve_nicho_slug(nicho_user: str | None) -> str | None:
+    """
+    Acepta nombres con espacios/mayúsculas/tildes y devuelve el slug existente.
+    - Coincide por:
+      1) slug exacto
+      2) pretty exacto
+      3) slugify del input contra slug existente
+    """
+    if not nicho_user:
+        return None
+    p2s, s2p = _build_nicho_maps()
+    raw = nicho_user.strip()
+    if raw in s2p:
+        return raw
+    if raw in p2s:
+        return p2s[raw]
+    candidate = _slugify_nicho(raw)
+    return candidate if candidate in s2p else None
+
+
+def _refresh_mis_nichos_cache():
+    """Fuerza lectura directa del backend y guarda en session para que el prompt use datos frescos."""
+    try:
+        r = http_client.get("/mis_nichos", headers=_auth_headers())
+        if getattr(r, "status_code", None) == 200:
+            data = r.json()
+            st.session_state["mis_nichos_fresh"] = data if isinstance(data, list) else data.get("nichos", [])
+        else:
+            st.session_state.pop("mis_nichos_fresh", None)
+    except Exception:
+        st.session_state.pop("mis_nichos_fresh", None)
+
+
+def _after_lead_mutation(dominio: str | None = None, nicho_slug: str | None = None):
+    """Invalida caches y marca que otras vistas deben refrescar datos de leads/nichos."""
+    try:
+        limpiar_cache()
+    except Exception:
+        pass
+
+    _refresh_mis_nichos_cache()
+    st.session_state["__force_refresh_ts"] = time.time()
+
+
+def _count_leads_in_nicho(slug: str) -> int:
+    try:
+        r = http_client.get("/leads_por_nicho", headers=_auth_headers(), params={"nicho": slug})
+        if getattr(r, "status_code", None) == 200:
+            data = r.json() or {}
+            if isinstance(data, dict):
+                if "count" in data and isinstance(data["count"], int):
+                    return data["count"]
+                items = data.get("items")
+                if isinstance(items, list):
+                    return len(items)
+        return 0
+    except Exception:
+        return -1
+
+
+def _fetch_mis_nichos_fresh() -> list:
+    try:
+        r = http_client.get("/mis_nichos", headers=_auth_headers())
+        if getattr(r, "status_code", None) == 200:
+            data = r.json()
+            lst = data if isinstance(data, list) else data.get("nichos", [])
+            return lst or []
+    except Exception:
+        pass
+    return []
 
 
 def _auth_headers():
@@ -148,9 +259,13 @@ def actualizar_estado_lead(dominio: str, estado: str):
 def obtener_nota_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/nota_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get("/info_extra", headers=_auth_headers(), params={"dominio": dominio})
         if r.status_code == 200:
-            return r.json()
+            data = r.json()
+            nota = ""
+            if isinstance(data, dict):
+                nota = data.get("informacion", "")
+            return {"nota": nota}
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
@@ -159,7 +274,11 @@ def obtener_nota_lead(dominio: str):
 def actualizar_nota_lead(dominio: str, nota: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.post("/nota_lead", headers=_auth_headers(), json={"dominio": dominio, "nota": nota})
+        r = http_client.post(
+            "/guardar_info_extra",
+            headers=_auth_headers(),
+            json={"dominio": dominio, "informacion": nota},
+        )
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -170,7 +289,11 @@ def actualizar_nota_lead(dominio: str, nota: str):
 def obtener_tareas_lead(dominio: str):
     st.session_state["lead_actual"] = dominio
     try:
-        r = http_client.get("/tareas_lead", headers=_auth_headers(), params={"dominio": dominio})
+        r = http_client.get(
+            "/tareas",
+            headers=_auth_headers(),
+            params={"tipo": "lead", "dominio": dominio, "solo_pendientes": "false"},
+        )
         if r.status_code == 200:
             return r.json()
         return _handle_resp(r)
@@ -179,7 +302,21 @@ def obtener_tareas_lead(dominio: str):
 
 
 def api_tarea_general(texto: str, fecha: str | None = None, prioridad: str = "media", tipo: str = "general", nicho: str | None = None):
-    payload = {"texto": texto, "prioridad": prioridad, "tipo": tipo, "nicho": nicho, "fecha": fecha}
+    nicho_value = None
+    if nicho:
+        nicho_slug = _resolve_nicho_slug(nicho)
+        if nicho_slug:
+            nicho_value = nicho_slug
+        else:
+            fallback = _slugify_nicho(nicho)
+            nicho_value = fallback or None
+    payload = {
+        "texto": texto,
+        "prioridad": prioridad,
+        "tipo": tipo,
+        "nicho": nicho_value,
+        "fecha": fecha,
+    }
     if fecha:
         try:
             datetime.fromisoformat(fecha)
@@ -260,28 +397,22 @@ def _tool_api_buscar_variantes_seleccionadas(variantes: list[str]):
     return api_buscar_variantes_seleccionadas(variantes, headers=_auth_headers())
 
 
-def api_extraer_multiples(urls: list[str], pais: str = "ES"):
-    """Stub de extracción para evitar llamadas reales al backend."""
-    return _respuesta_extraccion_no_disponible()
-
-
-def api_exportar_csv(urls: list[str], pais: str = "ES", nicho: str = ""):
-    """Exportar CSV deshabilitado mientras la extracción no está disponible."""
-    return _respuesta_extraccion_no_disponible()
-
-
 def api_leads_por_nicho(nicho: str):
-    r = http_client.get(f"/leads_por_nicho?nicho={nicho}", headers=_auth_headers())
+    slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho)
+    slug = slug or nicho
+    r = http_client.get(f"/leads_por_nicho?nicho={slug}", headers=_auth_headers())
     return r.json() if r.status_code == 200 else {"error": r.text, "status": r.status_code}
 
 
 def mover_lead(dominio: str, origen: str, destino: str):
     st.session_state["lead_actual"] = dominio
     try:
+        origen_slug = _resolve_nicho_slug(origen) or _slugify_nicho(origen) or origen
+        destino_slug = _resolve_nicho_slug(destino) or _slugify_nicho(destino) or destino
         r = http_client.post(
             "/mover_lead",
             headers=_auth_headers(),
-            json={"dominio": dominio, "origen": origen, "destino": destino},
+            json={"dominio": dominio, "origen": origen_slug, "destino": destino_slug},
         )
         if r.status_code == 200:
             return r.json()
@@ -292,10 +423,11 @@ def mover_lead(dominio: str, origen: str, destino: str):
 
 def editar_nicho(nicho_actual: str, nuevo_nombre: str):
     try:
+        actual_slug = _resolve_nicho_slug(nicho_actual) or _slugify_nicho(nicho_actual) or nicho_actual
         r = http_client.post(
             "/editar_nicho",
             headers=_auth_headers(),
-            json={"nicho_actual": nicho_actual, "nuevo_nombre": nuevo_nombre},
+            json={"nicho_actual": actual_slug, "nuevo_nombre": nuevo_nombre},
         )
         if r.status_code == 200:
             return r.json()
@@ -304,29 +436,131 @@ def editar_nicho(nicho_actual: str, nuevo_nombre: str):
         return {"error": str(e)}
 
 
-def eliminar_nicho(nicho: str):
+def eliminar_nicho(nicho: str, confirm: bool = False):
+    """
+    Borrado verificado de nicho:
+    - confirm=False -> devuelve 'needs_confirmation' + nº de leads.
+    - confirm=True  -> hace DELETE y verifica en /mis_nichos que el nicho ya no aparece.
+    """
+    try:
+        slug = _resolve_nicho_slug(nicho) or _slugify_nicho(nicho) or (nicho or "").strip()
+        if not slug:
+            return {"error": "Nicho no válido."}
+
+        if not confirm:
+            leads_count = _count_leads_in_nicho(slug)
+            return {
+                "needs_confirmation": True,
+                "nicho": nicho,
+                "nicho_slug": slug,
+                "leads": max(leads_count, 0),
+                "message": (
+                    f"¿Estás seguro de que quieres eliminar el nicho \"{nicho}\"? "
+                    "Esta acción borrará TODOS sus leads y la información asociada (tareas, notas/información extra e historial). "
+                    "Este proceso no se puede deshacer. Por favor, confirma para proceder."
+                ),
+            }
+
+        try:
+            _, s2p = _build_nicho_maps()
+        except Exception:
+            s2p = {}
+        pretty_label = s2p.get(slug, (nicho or "").strip() or slug)
+
+        r = http_client.delete("/eliminar_nicho", headers=_auth_headers(), params={"nicho": slug})
+
+        if r.status_code == 404:
+            st.session_state.pop("mis_nichos_fresh", None)
+            return {"ok": False, "status": 404, "message": "El nicho no existe o ya fue eliminado."}
+
+        if r.status_code != 200:
+            return _handle_resp(r)
+
+        try:
+            resp = r.json()
+        except Exception:
+            resp = {}
+        else:
+            if resp is None:
+                resp = {}
+
+        if not isinstance(resp, dict) or not resp.get("ok"):
+            return {"ok": False, "message": "No se pudo eliminar el nicho. Intenta nuevamente."}
+
+        fresh = _fetch_mis_nichos_fresh()
+        st.session_state["mis_nichos_fresh"] = fresh
+
+        slug_still_exists = any((n.get("nicho") or "").strip() == slug for n in fresh)
+
+        if slug_still_exists:
+            cnt = resp.get("deleted") if isinstance(resp, dict) else {}
+            leads_reported = 0
+            if isinstance(cnt, dict):
+                try:
+                    leads_reported = int(cnt.get("leads", 0) or 0)
+                except (TypeError, ValueError):
+                    leads_reported = 0
+            return {
+                "ok": False,
+                "status": 200,
+                "message": (
+                    "He enviado la solicitud de eliminación, pero el nicho aún aparece en el listado. "
+                    f"(Leads borrados reportados: {leads_reported}). Puede ser una demora de sincronización. "
+                    "Abre la página *Mis Nichos* para confirmar o reintenta en unos segundos."
+                ),
+            }
+
+        deleted_raw = resp.get("deleted") if isinstance(resp, dict) else {}
+        leads_borrados = 0
+        tareas_borradas = 0
+        if isinstance(deleted_raw, dict):
+            try:
+                leads_borrados = int(deleted_raw.get("leads", 0) or 0)
+            except (TypeError, ValueError):
+                leads_borrados = 0
+            try:
+                tareas_borradas = int(deleted_raw.get("tareas", 0) or 0)
+            except (TypeError, ValueError):
+                tareas_borradas = 0
+
+        deleted = {"leads": leads_borrados, "tareas": tareas_borradas}
+
+        message = (
+            f'El nicho "{pretty_label or slug}" ha sido eliminado correctamente. '
+            f"Se han borrado {deleted['leads']} leads y {deleted['tareas']} tareas."
+        )
+
+        _after_lead_mutation(dominio=None, nicho_slug=slug)
+
+        return {"ok": True, "deleted": deleted, "nicho": slug, "message": message}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def eliminar_lead(dominio: str, confirm: bool = False):
+    st.session_state["lead_actual"] = dominio
+    if not confirm:
+        return {
+            "needs_confirmation": True,
+            "message": (
+                f"¿Seguro que quieres eliminar definitivamente el lead {dominio}? "
+                "Se borrará de TODOS tus nichos y se eliminarán notas, estados, historial y tareas asociadas. "
+                "Responde 'sí' para continuar."
+            ),
+        }
+
     try:
         r = http_client.delete(
-            "/eliminar_nicho",
+            "/eliminar_lead",
             headers=_auth_headers(),
-            params={"nicho": nicho},
+            params={"dominio": dominio, "solo_de_este_nicho": False},
         )
         if r.status_code == 200:
-            return r.json()
-        return _handle_resp(r)
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | None = None):
-    st.session_state["lead_actual"] = dominio
-    params = {"dominio": dominio, "solo_de_este_nicho": solo_de_este_nicho}
-    if nicho:
-        params["nicho"] = nicho
-    try:
-        r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
-        if r.status_code == 200:
-            return r.json()
+            data = r.json() if callable(getattr(r, "json", None)) else {}
+            if isinstance(data, dict) and data.get("ok", True):
+                _after_lead_mutation(dominio=dominio)
+            return data
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
@@ -335,7 +569,11 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
 def historial_tareas(tipo: str = "general", nicho: str | None = None):
     params = {"tipo": tipo}
     if nicho:
-        params["nicho"] = nicho
+        slug = _resolve_nicho_slug(nicho)
+        if not slug:
+            slug = _slugify_nicho(nicho)
+        if slug:
+            params["nicho"] = slug
     try:
         r = http_client.get("/historial_tareas", headers=_auth_headers(), params=params)
         if r.status_code == 200:
@@ -355,73 +593,10 @@ def api_tareas_pendientes():
     return {"error": r.text, "status": r.status_code}
 
 
-def _render_lead_actions():
-    dominio = st.session_state.get("lead_actual")
-    if not dominio:
-        return
-    c1, c2, c3 = st.columns(3)
-
-    # Ver tareas
-    ver_key = f"show_tareas_{dominio}"
-    if c1.button("Ver tareas de este lead", key=f"ver_tareas_{dominio}"):
-        st.session_state[ver_key] = not st.session_state.get(ver_key, False)
-    if st.session_state.get(ver_key, False):
-        tareas = obtener_tareas_lead(dominio)
-        if tareas.get("error"):
-            c1.error(tareas["error"])
-        else:
-            for t in tareas.get("tareas", []):
-                c1.write(f"- {t.get('texto')} ({t.get('prioridad')})")
-                if c1.button("Completar", key=f"compl_{t.get('id')}"):
-                    res = completar_tarea(t.get("id"))
-                    if res.get("error"):
-                        c1.error(res["error"])
-                    else:
-                        c1.success("Tarea completada")
-
-    # Añadir nota
-    nota_key = f"show_nota_{dominio}"
-    if c2.button("Añadir nota", key=f"add_nota_{dominio}"):
-        st.session_state[nota_key] = not st.session_state.get(nota_key, False)
-    if st.session_state.get(nota_key, False):
-        with c2.form(key=f"nota_form_{dominio}"):
-            nota = st.text_area("Nota", key=f"nota_{dominio}")
-            submitted = st.form_submit_button("Guardar nota")
-            if submitted:
-                res = actualizar_nota_lead(dominio, nota)
-                if res.get("error"):
-                    c2.error(res["error"])
-                else:
-                    st.toast("Nota guardada")
-                    st.session_state[nota_key] = False
-
-    # Cambiar estado
-    estado_key = f"show_estado_{dominio}"
-    if c3.button("Cambiar estado", key=f"cambiar_estado_{dominio}"):
-        st.session_state[estado_key] = not st.session_state.get(estado_key, False)
-    if st.session_state.get(estado_key, False):
-        with c3.form(key=f"estado_form_{dominio}"):
-            estado = st.selectbox(
-                "Nuevo estado",
-                ["nuevo", "contactado", "en_proceso", "cliente", "descartado"],
-                key=f"estado_{dominio}",
-            )
-            submitted = st.form_submit_button("Guardar estado")
-            if submitted:
-                res = actualizar_estado_lead(dominio, estado)
-                if res.get("error"):
-                    c3.error(res["error"])
-                else:
-                    st.toast("Estado actualizado")
-                    st.session_state[estado_key] = False
-
-
 TOOLS = {
     "buscar_leads": buscar_leads,
     "api_buscar": _tool_api_buscar,
     "api_buscar_variantes_seleccionadas": _tool_api_buscar_variantes_seleccionadas,
-    "api_extraer_multiples": api_extraer_multiples,
-    "api_exportar_csv": api_exportar_csv,
     "obtener_estado_lead": obtener_estado_lead,
     "actualizar_estado_lead": actualizar_estado_lead,
     "obtener_nota_lead": obtener_nota_lead,
@@ -473,37 +648,7 @@ tool_defs = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "api_extraer_multiples",
-            "description": "Extrae datos básicos de múltiples URLs",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "urls": {"type": "array", "items": {"type": "string"}},
-                    "pais": {"type": "string"},
-                },
-                "required": ["urls"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "api_exportar_csv",
-            "description": "Exporta un conjunto de URLs a CSV y guarda los leads",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "urls": {"type": "array", "items": {"type": "string"}},
-                    "nicho": {"type": "string"},
-                    "pais": {"type": "string"},
-                },
-                "required": ["urls", "nicho"],
-            },
-        },
-    },
+    # Eliminadas definiciones de extracción/exportación.
     {
         "type": "function",
         "function": {
@@ -696,10 +841,13 @@ tool_defs = [
         "type": "function",
         "function": {
             "name": "eliminar_nicho",
-            "description": "Elimina un nicho completo",
+            "description": "Elimina un nicho completo. Requiere confirmación.",
             "parameters": {
                 "type": "object",
-                "properties": {"nicho": {"type": "string"}},
+                "properties": {
+                    "nicho": {"type": "string"},
+                    "confirm": {"type": "boolean"},
+                },
                 "required": ["nicho"],
             },
         },
@@ -708,13 +856,12 @@ tool_defs = [
         "type": "function",
         "function": {
             "name": "eliminar_lead",
-            "description": "Elimina un lead opcionalmente solo de un nicho",
+            "description": "Elimina DEFINITIVAMENTE un lead de todos los nichos. Úsala solo después de que el usuario confirme.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dominio": {"type": "string"},
-                    "solo_de_este_nicho": {"type": "boolean"},
-                    "nicho": {"type": "string"},
+                    "confirm": {"type": "boolean"},
                 },
                 "required": ["dominio"],
             },
@@ -767,13 +914,15 @@ tool_defs = [
 
 
 def build_system_prompt() -> str:
-    resp_mis_nichos = cached_get("/mis_nichos", token)
-    if isinstance(resp_mis_nichos, list):
-        nichos = resp_mis_nichos
-    elif isinstance(resp_mis_nichos, dict):
-        nichos = resp_mis_nichos.get("nichos", [])
-    else:
-        nichos = []
+    nichos = st.session_state.get("mis_nichos_fresh")
+    if nichos is None:
+        resp_mis_nichos = cached_get("/mis_nichos", token)
+        if isinstance(resp_mis_nichos, list):
+            nichos = resp_mis_nichos
+        elif isinstance(resp_mis_nichos, dict):
+            nichos = resp_mis_nichos.get("nichos", [])
+        else:
+            nichos = []
     tareas = cached_get("tareas_pendientes", token) or []
     resumen_nichos = ", ".join(
         (n.get("nicho_original") or n.get("nicho") or "").strip() for n in nichos
@@ -781,15 +930,19 @@ def build_system_prompt() -> str:
     ) or "ninguno"
     resumen_tareas = f"Tienes {len(tareas)} tareas pendientes."
     return (
-        "Eres un asistente conectado a herramientas. Cuando el usuario pida BUSCAR o EXTRAER leads, "
-        "SIEMPRE sigue este pipeline con tools y sin inventar nada:\n"
-        "1) api_buscar(cliente_ideal) → si devuelve 'pregunta_sugerida', haz como máximo 2 preguntas breves.\n"
-        "2) api_buscar_variantes_seleccionadas(elige 3 variantes relevantes).\n"
-        "3) api_extraer_multiples(urls, pais detectado o 'ES' por defecto).\n"
-        "4) api_exportar_csv(urls, pais, nicho) → ofrece botón de descarga.\n"
-        "Si el plan es free y una acción premium devuelve 403, informa y muestra CTA.\n"
-        "Para tareas/estados/notas/historial usa las tools específicas.\n\n"
-        f"Nichos del usuario: {resumen_nichos}.\n{resumen_tareas}"
+        "Eres un asistente conectado a herramientas del **gestor de leads**, pero **no puedes extraer ni exportar leads desde el chat**. "
+        "Si el usuario pide extraer/exportar, responde SIEMPRE con el mensaje oficial de extracción (no ejecutes más acciones).\n\n"
+        "Capacidades permitidas desde el chat:\n"
+        "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
+        "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
+        "  Borrado de leads: pide UNA confirmación explícita ('¿Seguro…?'). Tras confirmación, llama a la tool eliminar_lead con confirm=true para borrar el lead de todos los nichos. "
+        "No preguntes por nichos ni los listes. No confirmes éxito si la tool no devuelve ok=true.\n"
+        "• Nichos: listar, renombrar, eliminar (SIEMPRE pide confirmación antes de borrar; no confirmes borrado si la tool no retorna ok=True).\n"
+        "  Para eliminar nichos, primero pide confirmación. Tras confirmar, no anuncies éxito a menos que la tool retorne ok=True. "
+        "Si la tool indica verificación fallida, informa al usuario sin afirmar el borrado.\n"
+        "• Historial y memoria: consultar y guardar memoria.\n\n"
+        f"Nichos del usuario: {resumen_nichos}.\n"
+        f"{resumen_tareas}"
     )
 
 
@@ -835,19 +988,14 @@ if pregunta:
     with st.chat_message("user"):
         st.markdown(pregunta)
 
-    if es_intencion_extraer_leads(pregunta) and not ASSISTANT_EXTRACTION_ENABLED:
-        content = EXTRAER_LEADS_MSG
+    # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
+    if es_intencion_extraer_leads(pregunta):
+        content = _extraccion_msg()
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
         st.stop()
     else:
-        if not tiene_suscripcion_activa(plan):
-            st.info(
-                "Puedes chatear y gestionar información básica. Para EXTRAER o EXPORTAR leads necesitas un plan activo."
-            )
-            subscription_cta()
-
         contexto = build_system_prompt()
         keywords = ["extraer", "conseguir", "buscar", "crear nicho", "exportar"]
         if any(k in pregunta.lower() for k in keywords):
@@ -893,16 +1041,12 @@ if pregunta:
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
-            if not blocked_out:
-                _render_lead_actions()
-                if st.session_state.get("csv_bytes"):
-                    st.download_button(
-                        "⬇️ Descargar CSV",
-                        st.session_state.get("csv_bytes"),
-                        file_name=st.session_state.get("csv_filename", "leads.csv"),
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
 
 render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
+
+# QA manual:
+# - "haz una extracción de leads" → responde solo con el mensaje “Esta funcionalidad…” sin banners adicionales.
+# - "si hay una tarea de lead llamada X, edítala" + "el dominio es midominio.es" → opera usando /tareas?tipo=lead&dominio=...
+# - "añade una nota al lead midominio.es: ..." y luego "ver nota de midominio.es" → guarda en /guardar_info_extra y lee desde /info_extra.
+# - Tras cada respuesta no se muestran botones rápidos (Ver tareas / Añadir nota / Cambiar estado).
 
