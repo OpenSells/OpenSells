@@ -461,6 +461,12 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
                 ),
             }
 
+        try:
+            _, s2p = _build_nicho_maps()
+        except Exception:
+            s2p = {}
+        pretty_label = s2p.get(slug, (nicho or "").strip() or slug)
+
         r = http_client.delete("/eliminar_nicho", headers=_auth_headers(), params={"nicho": slug})
 
         if r.status_code == 404:
@@ -505,24 +511,23 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
             }
 
         deleted_raw = resp.get("deleted") if isinstance(resp, dict) else {}
-        deleted = {
-            "leads": 0,
-            "tareas": 0,
-            "estados": 0,
-            "info_extra": 0,
-            "historial": 0,
-        }
+        leads_borrados = 0
+        tareas_borradas = 0
         if isinstance(deleted_raw, dict):
-            for key in deleted:
-                try:
-                    deleted[key] = int(deleted_raw.get(key, 0) or 0)
-                except (TypeError, ValueError):
-                    deleted[key] = 0
+            try:
+                leads_borrados = int(deleted_raw.get("leads", 0) or 0)
+            except (TypeError, ValueError):
+                leads_borrados = 0
+            try:
+                tareas_borradas = int(deleted_raw.get("tareas", 0) or 0)
+            except (TypeError, ValueError):
+                tareas_borradas = 0
+
+        deleted = {"leads": leads_borrados, "tareas": tareas_borradas}
 
         message = (
-            "Nicho eliminado correctamente. "
-            f"Borrados {deleted['leads']} leads, {deleted['tareas']} tareas, {deleted['estados']} estados, "
-            f"{deleted['info_extra']} info extra y {deleted['historial']} entradas de historial."
+            f'El nicho "{pretty_label or slug}" ha sido eliminado correctamente. '
+            f"Se han borrado {deleted['leads']} leads y {deleted['tareas']} tareas."
         )
 
         _after_lead_mutation(dominio=None, nicho_slug=slug)
