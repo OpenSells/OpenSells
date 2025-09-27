@@ -1393,126 +1393,157 @@ def eliminar_nicho(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    nicho_norm = normalizar_nicho(nicho)
-    if not nicho_norm:
-        raise HTTPException(status_code=400, detail="Falta 'nicho'")
+    nicho_slug = (nicho or "").strip()
+    if not nicho_slug:
+        raise HTTPException(status_code=400, detail="Nicho inválido")
 
     user_email = usuario.email_lower
-    deleted_counts = {
-        "leads": 0,
-        "tareas": 0,
-        "estados": 0,
-        "info_extra": 0,
-        "historial": 0,
-    }
 
-    with db.begin():
-        dominios = (
-            db.execute(
-                select(LeadExtraido.dominio)
-                .where(
+    try:
+        dominios = [
+            row[0]
+            for row in db.execute(
+                select(LeadExtraido.dominio).where(
                     LeadExtraido.user_email_lower == user_email,
-                    LeadExtraido.nicho == nicho_norm,
+                    LeadExtraido.nicho == nicho_slug,
                 )
-            )
-            .scalars()
-            .all()
-        )
+            ).all()
+        ]
 
-        tareas_residuales = (
+        hay_residuos_nicho = (
             db.execute(
-                select(func.count())
-                .select_from(LeadTarea)
-                .where(
+                select(func.count(LeadTarea.id)).where(
                     LeadTarea.user_email_lower == user_email,
-                    LeadTarea.nicho == nicho_norm,
+                    LeadTarea.nicho == nicho_slug,
                 )
             ).scalar()
             or 0
-        )
+        ) > 0
 
-        historial_residual = (
+        hay_historial_nicho = (
             db.execute(
-                select(func.count())
-                .select_from(LeadHistorial)
-                .where(
+                select(func.count(LeadHistorial.id)).where(
                     LeadHistorial.user_email_lower == user_email,
-                    LeadHistorial.nicho == nicho_norm,
+                    LeadHistorial.nicho == nicho_slug,
                 )
             ).scalar()
             or 0
-        )
+        ) > 0
 
-        if not dominios and not tareas_residuales and not historial_residual:
+        if not dominios and not hay_residuos_nicho and not hay_historial_nicho:
             raise HTTPException(status_code=404, detail="Nicho no encontrado")
 
+        deleted_counts = {
+            "leads": 0,
+            "tareas": 0,
+            "estados": 0,
+            "info_extra": 0,
+            "historial": 0,
+        }
+
         if dominios:
-            tareas_deleted = db.execute(
-                delete(LeadTarea).where(
-                    LeadTarea.user_email_lower == user_email,
-                    or_(
-                        and_(
-                            LeadTarea.tipo == "lead",
-                            LeadTarea.dominio.in_(dominios),
+            deleted_counts["tareas"] += (
+                db.execute(
+                    delete(LeadTarea)
+                    .where(
+                        LeadTarea.user_email_lower == user_email,
+                        or_(
+                            and_(
+                                LeadTarea.tipo == "lead",
+                                LeadTarea.dominio.in_(dominios),
+                            ),
+                            and_(LeadTarea.tipo == "nicho", LeadTarea.nicho == nicho_slug),
                         ),
-                        and_(LeadTarea.tipo == "nicho", LeadTarea.nicho == nicho_norm),
-                    ),
-                )
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["tareas"] += tareas_deleted.rowcount or 0
 
-            estados_deleted = db.execute(
-                delete(LeadEstado).where(
-                    LeadEstado.user_email_lower == user_email,
-                    LeadEstado.dominio.in_(dominios),
-                )
+            deleted_counts["estados"] += (
+                db.execute(
+                    delete(LeadEstado)
+                    .where(
+                        LeadEstado.user_email_lower == user_email,
+                        LeadEstado.dominio.in_(dominios),
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["estados"] += estados_deleted.rowcount or 0
 
-            info_deleted = db.execute(
-                delete(LeadInfoExtra).where(
-                    LeadInfoExtra.user_email_lower == user_email,
-                    LeadInfoExtra.dominio.in_(dominios),
-                )
+            deleted_counts["info_extra"] += (
+                db.execute(
+                    delete(LeadInfoExtra)
+                    .where(
+                        LeadInfoExtra.user_email_lower == user_email,
+                        LeadInfoExtra.dominio.in_(dominios),
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["info_extra"] += info_deleted.rowcount or 0
 
-            historial_deleted = db.execute(
-                delete(LeadHistorial).where(
-                    LeadHistorial.user_email_lower == user_email,
-                    or_(
-                        LeadHistorial.dominio.in_(dominios),
-                        LeadHistorial.nicho == nicho_norm,
-                    ),
-                )
+            deleted_counts["historial"] += (
+                db.execute(
+                    delete(LeadHistorial)
+                    .where(
+                        LeadHistorial.user_email_lower == user_email,
+                        or_(
+                            LeadHistorial.dominio.in_(dominios),
+                            LeadHistorial.nicho == nicho_slug,
+                        ),
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["historial"] += historial_deleted.rowcount or 0
 
-            leads_deleted = db.execute(
-                delete(LeadExtraido).where(
-                    LeadExtraido.user_email_lower == user_email,
-                    LeadExtraido.nicho == nicho_norm,
-                )
+            deleted_counts["leads"] += (
+                db.execute(
+                    delete(LeadExtraido)
+                    .where(
+                        LeadExtraido.user_email_lower == user_email,
+                        LeadExtraido.nicho == nicho_slug,
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["leads"] += leads_deleted.rowcount or 0
         else:
-            tareas_deleted = db.execute(
-                delete(LeadTarea).where(
-                    LeadTarea.user_email_lower == user_email,
-                    LeadTarea.nicho == nicho_norm,
-                )
+            deleted_counts["tareas"] += (
+                db.execute(
+                    delete(LeadTarea)
+                    .where(
+                        LeadTarea.user_email_lower == user_email,
+                        LeadTarea.nicho == nicho_slug,
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["tareas"] += tareas_deleted.rowcount or 0
 
-            historial_deleted = db.execute(
-                delete(LeadHistorial).where(
-                    LeadHistorial.user_email_lower == user_email,
-                    LeadHistorial.nicho == nicho_norm,
-                )
+            deleted_counts["historial"] += (
+                db.execute(
+                    delete(LeadHistorial)
+                    .where(
+                        LeadHistorial.user_email_lower == user_email,
+                        LeadHistorial.nicho == nicho_slug,
+                    )
+                    .execution_options(synchronize_session=False)
+                ).rowcount
+                or 0
             )
-            deleted_counts["historial"] += historial_deleted.rowcount or 0
 
-    return {"ok": True, "nicho": nicho_norm, "deleted": deleted_counts}
+        db.commit()
+        return {"ok": True, "nicho": nicho_slug, "deleted": deleted_counts}
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar nicho: {exc}")
 
 
 @app.patch("/leads/{lead_id}/estado_contacto")

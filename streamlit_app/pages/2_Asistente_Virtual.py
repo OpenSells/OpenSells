@@ -443,9 +443,9 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
                 "nicho_slug": slug,
                 "leads": max(leads_count, 0),
                 "message": (
-                    f"¿Confirmas eliminar el nicho \"{nicho}\"?"
-                    " Esta acción borrará TODOS sus leads y la información asociada (tareas, notas/información extra e historial)."
-                    " Esta acción no se puede deshacer."
+                    f"¿Estás seguro de que quieres eliminar el nicho \"{nicho}\"? "
+                    "Esta acción borrará TODOS sus leads y la información asociada (tareas, notas/información extra e historial). "
+                    "Este proceso no se puede deshacer. Por favor, confirma para proceder."
                 ),
             }
 
@@ -459,41 +459,40 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
             return _handle_resp(r)
 
         try:
-            body = r.json() or {}
+            resp = r.json()
         except Exception:
-            body = {}
+            resp = {}
+        else:
+            if resp is None:
+                resp = {}
 
-        ok = bool(body.get("ok"))
-        deleted_raw = body.get("deleted") if isinstance(body, dict) else None
+        if not isinstance(resp, dict) or not resp.get("ok"):
+            return {"ok": False, "message": "No se pudo eliminar el nicho. Intenta nuevamente."}
 
         fresh = _fetch_mis_nichos_fresh()
         st.session_state["mis_nichos_fresh"] = fresh
 
-        still_there = False
-        for n in fresh:
-            if (n.get("nicho") or "").strip() == slug:
-                still_there = True
-                break
+        slug_still_exists = any((n.get("nicho") or "").strip() == slug for n in fresh)
 
-        if not ok:
-            message = body.get("message") if isinstance(body, dict) else None
+        if slug_still_exists:
+            cnt = resp.get("deleted") if isinstance(resp, dict) else {}
+            leads_reported = 0
+            if isinstance(cnt, dict):
+                try:
+                    leads_reported = int(cnt.get("leads", 0) or 0)
+                except (TypeError, ValueError):
+                    leads_reported = 0
             return {
                 "ok": False,
                 "status": 200,
-                "message": message or "No se pudo confirmar la eliminación del nicho.",
+                "message": (
+                    "He enviado la solicitud de eliminación, pero el nicho aún aparece en el listado. "
+                    f"(Leads borrados reportados: {leads_reported}). Puede ser una demora de sincronización. "
+                    "Abre la página *Mis Nichos* para confirmar o reintenta en unos segundos."
+                ),
             }
 
-        if still_there:
-            rest = _count_leads_in_nicho(slug)
-            msg = (
-                "He enviado la solicitud de eliminación, pero el nicho aún aparece en el listado. "
-                "Puede ser una demora de sincronización."
-            )
-            if isinstance(rest, int) and rest >= 0:
-                msg += f" Quedan {rest} leads asociados."
-            msg += " Abre la página *Mis Nichos* para confirmar o reintenta en unos segundos."
-            return {"ok": False, "status": 200, "message": msg}
-
+        deleted_raw = resp.get("deleted") if isinstance(resp, dict) else {}
         deleted = {
             "leads": 0,
             "tareas": 0,
