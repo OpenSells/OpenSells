@@ -2,11 +2,12 @@ import os
 import json
 import re
 import unicodedata
+import time
 from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
-from streamlit_app.cache_utils import cached_get, get_openai_client
+from streamlit_app.cache_utils import cached_get, get_openai_client, limpiar_cache
 from streamlit_app.plan_utils import subscription_cta
 import streamlit_app.utils.http_client as http_client
 from streamlit_app.assistant_api import (
@@ -166,6 +167,17 @@ def _refresh_mis_nichos_cache():
             st.session_state.pop("mis_nichos_fresh", None)
     except Exception:
         st.session_state.pop("mis_nichos_fresh", None)
+
+
+def _after_lead_mutation(dominio: str | None = None, nicho_slug: str | None = None):
+    """Invalida caches y marca que otras vistas deben refrescar datos de leads/nichos."""
+    try:
+        limpiar_cache()
+    except Exception:
+        pass
+
+    _refresh_mis_nichos_cache()
+    st.session_state["__force_refresh_ts"] = time.time()
 
 
 def _count_leads_in_nicho(slug: str) -> int:
@@ -538,7 +550,10 @@ def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | No
     try:
         r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
         if r.status_code == 200:
-            return r.json()
+            data = r.json() if callable(getattr(r, "json", None)) else {}
+            if isinstance(data, dict) and data.get("ok", True):
+                _after_lead_mutation(dominio=dominio, nicho_slug=params.get("nicho"))
+            return data
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}

@@ -270,11 +270,14 @@ def render_estado_badge(estado: str) -> str:
 if "forzar_recarga" not in st.session_state:
     st.session_state["forzar_recarga"] = 0
 
+force_refresh_ts = st.session_state.get("__force_refresh_ts")
+nocache_pair = (st.session_state["forzar_recarga"], force_refresh_ts)
+
 # ── Título ───────────────────────────────────────────
 st.title("📁 Gestión de Nichos")
 
 # ── Cargar nichos del backend ───────────────────────
-resp = cached_get("/mis_nichos", token, nocache_key=st.session_state["forzar_recarga"])
+resp = cached_get("/mis_nichos", token, nocache_key=nocache_pair)
 nichos: list[dict] = _extract_nichos(resp)
 
 if not nichos:
@@ -302,7 +305,7 @@ if "solo_nicho_visible" not in st.session_state:
                 "leads_por_nicho",
                 token,
                 query={"nicho": n["nicho"]},
-                nocache_key=st.session_state["forzar_recarga"],
+                nocache_key=nocache_pair,
             )
             leads = _extract_leads(datos)
             leads = sorted(
@@ -434,7 +437,7 @@ for n in nichos_visibles:
             "leads_por_nicho",
             token,
             query=query_params,
-            nocache_key=st.session_state["forzar_recarga"],
+            nocache_key=nocache_pair,
         )
         leads = _extract_leads(resp_leads)
         leads = sorted(
@@ -739,7 +742,15 @@ for n in nichos_visibles:
 
             # Formulario de info extra si está activado
             if st.session_state.get(f"mostrar_info_{clave_base}", False):
-                info = cached_get("info_extra", token, query={"dominio": dominio}, nocache_key=st.session_state["forzar_recarga"]) or {}
+                info = (
+                    cached_get(
+                        "info_extra",
+                        token,
+                        query={"dominio": dominio},
+                        nocache_key=nocache_pair,
+                    )
+                    or {}
+                )
 
                 with st.form(key=f"form_info_extra_{clave_base}"):
                     c1, c2 = st.columns(2)
