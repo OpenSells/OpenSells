@@ -113,6 +113,10 @@ class PlanService:
             "tasks_active_max": plan.tasks_active_max,
             "ai_daily_limit": ai_daily_limit,
         }
+        limits["mensajes_ia"] = ai_daily_limit
+        limits["ai_messages"] = ai_daily_limit
+        limits["ia_mensajes"] = ai_daily_limit
+        limits["ia_msgs"] = ai_daily_limit
 
         usage = {
             "leads": {
@@ -130,6 +134,7 @@ class PlanService:
                 "limit": ai_daily_limit,
             },
             "ai_messages": {
+                "used": ia_used_today,
                 "used_today": ia_used_today,
                 "remaining_today": ai_remaining_today,
                 "limit": ai_daily_limit,

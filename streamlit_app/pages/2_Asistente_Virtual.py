@@ -213,6 +213,79 @@ def _auth_headers():
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _normalize_key(name: str) -> str:
+    if not isinstance(name, str):
+        name = str(name)
+    normalized = unicodedata.normalize("NFKD", name)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.lower().strip()
+    for ch in ("-", ".", " "):
+        normalized = normalized.replace(ch, "_")
+    normalized = re.sub(r"__+", "_", normalized)
+    return normalized
+
+
+def _first_by_alias(data: dict, aliases: tuple[str, ...] | list[str]):
+    if not isinstance(data, dict):
+        return None
+    normalized = {_normalize_key(k): v for k, v in data.items()}
+    for alias in aliases:
+        key = _normalize_key(alias)
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def _safe_to_int(x, default=0):
+    if x is None:
+        return default
+    if isinstance(x, bool):
+        return int(x)
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return int(x)
+    if isinstance(x, dict):
+        for k in ("used", "count", "current", "value", "quota", "total"):
+            if k in x:
+                return _safe_to_int(x[k], default)
+        return default
+    if isinstance(x, str):
+        s = x.strip().replace(",", "")
+        if not s:
+            return default
+        try:
+            return int(float(s))
+        except Exception:
+            return default
+    return default
+
+
+def _is_unlimited_value(value) -> bool:
+    unlimited_tokens = {
+        None,
+        True,
+        "∞",
+        "unlimited",
+        "ilimitado",
+        "ilimitada",
+        "sin limite",
+        "sin límite",
+        "infinite",
+        "infinito",
+        "true",
+    }
+    if value in unlimited_tokens:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in unlimited_tokens
+    if isinstance(value, dict):
+        if any(_is_unlimited_value(value.get(k)) for k in ("unlimited", "ilimitado", "sin_limite")):
+            return True
+        for k in ("limit", "max", "value", "quota", "allowed"):
+            if k in value:
+                return _is_unlimited_value(value[k])
+    return False
+
+
 def _ai_remaining_from_quotas() -> dict:
     """Lee /plan/quotas y devuelve {'ok': bool, 'remaining': int|None}."""
     try:
@@ -223,23 +296,34 @@ def _ai_remaining_from_quotas() -> dict:
         limits = data.get("limits") or data.get("limites") or {}
         usage = data.get("usage") or data.get("uso") or {}
 
-        raw_limit = (
-            limits.get("ai_daily_limit")
-            or limits.get("ai daily limit")
-            or limits.get("mensajes_ia")
+        raw_limit = _first_by_alias(
+            limits,
+            (
+                "ai_daily_limit",
+                "ai daily limit",
+                "mensajes_ia",
+                "ai_messages",
+                "ia_mensajes",
+                "ia_msgs",
+            ),
         )
-        limit = None if raw_limit in (None, True, "∞", "unlimited", "ilimitado") else int(raw_limit)
 
-        used = (
-            usage.get("mensajes_ia")
-            or usage.get("ai_messages")
-            or usage.get("ia_mensajes")
-            or 0
-        )
-        used = int(used or 0)
-
-        if limit is None:
+        if _is_unlimited_value(raw_limit):
             return {"ok": True, "remaining": None}
+
+        limit = _safe_to_int(raw_limit, 0)
+
+        used_raw = _first_by_alias(
+            usage,
+            (
+                "mensajes_ia",
+                "ai_messages",
+                "ia_mensajes",
+                "ia_msgs",
+                "ai mensajes",
+            ),
+        )
+        used = _safe_to_int(used_raw, 0)
 
         remaining = max(limit - used, 0)
         return {"ok": remaining > 0, "remaining": remaining}
@@ -268,14 +352,23 @@ def _consume_ai_message(prompt_text: str) -> dict:
 
         if getattr(r, "status_code", None) == 200:
             data = r.json() if callable(getattr(r, "json", None)) else {"ok": True}
-            remaining = data.get("remaining_today", None)
+            ia_rem = _safe_to_int(data.get("remaining_today"), None)
 
             chk = _ai_remaining_from_quotas()
-            if chk["remaining"] is not None:
-                if remaining is None or remaining > chk["remaining"]:
-                    remaining = chk["remaining"]
-                data["remaining_today"] = remaining
-                data["ok"] = bool(remaining > 0)
+            quotas_rem = chk.get("remaining")
+            if quotas_rem is not None:
+                quotas_rem = _safe_to_int(quotas_rem, 0)
+
+            candidates = [value for value in (ia_rem, quotas_rem) if value is not None]
+            remaining = min(candidates) if candidates else None
+
+            data["remaining_today"] = remaining
+            if "ok" not in data:
+                data["ok"] = True
+            if remaining is not None and remaining <= 0:
+                data["limit"] = True
+                if remaining < 0:
+                    data["ok"] = False
 
             return data
 
@@ -1044,7 +1137,22 @@ for entrada in st.session_state.chat:
         with st.chat_message(entrada["role"]):
             st.markdown(entrada["content"])
 
-pregunta = st.chat_input("Haz una pregunta sobre tus nichos, leads o tareas...")
+quota_snapshot = _ai_remaining_from_quotas()
+pre_remaining = quota_snapshot.get("remaining") if isinstance(quota_snapshot, dict) else None
+if pre_remaining is not None:
+    pre_remaining = _safe_to_int(pre_remaining, 0)
+chat_disabled = pre_remaining is not None and pre_remaining <= 0
+if chat_disabled:
+    st.warning("Has alcanzado el límite diario de *Mensajes IA* de tu plan.")
+    subscription_cta()
+
+pregunta = st.chat_input(
+    "Haz una pregunta sobre tus nichos, leads o tareas...",
+    disabled=chat_disabled,
+)
+
+if chat_disabled:
+    st.stop()
 
 if pregunta:
     blocked, msg_pol = violates_policy(pregunta, context="project")
@@ -1062,7 +1170,7 @@ if pregunta:
     consume = _consume_ai_message(pregunta)
     remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
 
-    if not consume.get("ok") or (remaining_today is not None and remaining_today <= 0):
+    if not consume.get("ok"):
         if consume.get("limit") or (remaining_today is not None and remaining_today <= 0):
             with st.chat_message("assistant"):
                 st.warning("Has alcanzado el límite diario de *Mensajes IA* de tu plan.")
@@ -1077,6 +1185,9 @@ if pregunta:
             with st.chat_message("assistant"):
                 st.warning("No he podido validar tu cuota de IA. Inténtalo de nuevo en unos segundos.")
         st.stop()
+
+    if remaining_today is not None and remaining_today <= 0:
+        st.info("Has usado todos los mensajes de IA disponibles hoy. Podrás volver a chatear mañana.")
 
     # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
     if es_intencion_extraer_leads(pregunta):

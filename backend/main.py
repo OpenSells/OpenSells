@@ -37,7 +37,7 @@ from backend.core.plan_service import PlanService
 from backend.core.usage_helpers import (
     can_export_csv,
     can_start_search,
-    can_use_ai,
+    get_ai_quota_state,
     consume_csv_export,
     consume_free_search,
     consume_lead_credits,
@@ -2347,16 +2347,16 @@ class AIPayload(BaseModel):
 @app.post("/ia")
 def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
     svc = PlanService(db)
-    plan_name, plan = svc.get_effective_plan(usuario)
-    ok, remaining = can_use_ai(db, usuario.id, plan_name)
-    if not ok:
+    plan_name, _ = svc.get_effective_plan(usuario)
+    state = get_ai_quota_state(db, usuario.id, plan_name)
+    if not state["ok"]:
         raise HTTPException(
             status_code=403,
             detail={
                 "error": "limit_exceeded",
                 "resource": "ai",
                 "plan": plan_name,
-                "remaining": max(remaining or 0, 0),
+                "remaining": max(state.get("remaining") or 0, 0),
             },
         )
 
@@ -2369,9 +2369,12 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
     # Si llega aquí, consideramos que se invocó correctamente
     inc_count(db, usuario.id, "mensajes_ia", day_key(), 1)
     db.commit()
-
-    ok2, remaining2 = can_use_ai(db, usuario.id, plan_name)
-    remaining_today = None if remaining2 is None else max(remaining2, 0)
+    limit_value = state.get("limit")
+    used_before = state.get("used") or 0
+    if limit_value is None:
+        remaining_today = None
+    else:
+        remaining_today = max(limit_value - (used_before + 1), 0)
 
     return {"ok": True, "remaining_today": remaining_today}
 

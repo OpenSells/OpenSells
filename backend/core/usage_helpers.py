@@ -14,6 +14,19 @@ usage_log = logging.getLogger("usage")
 
 AI_KEY = "mensajes_ia"
 AI_ALIASES_READ = ("mensajes_ia", "ai_messages", "ia_mensajes", "ia_msgs")
+UNLIMITED_TOKENS = {
+    None,
+    True,
+    "∞",
+    "unlimited",
+    "ilimitado",
+    "sin limite",
+    "sin límite",
+    "infinite",
+    "infinito",
+    "true",
+    "ilimitada",
+}
 
 # Period helpers --------------------------------------------------------------
 
@@ -118,35 +131,54 @@ def _ai_used_today(db: Session, user_id: int) -> int:
     return used
 
 
-def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
-    """Return whether the user can consume an AI message and remaining quota."""
+def _normalize_ai_limit_value(raw_limit) -> int | None:
+    """Return an integer limit or None if unlimited."""
+
+    if raw_limit in UNLIMITED_TOKENS:
+        return None
+    if isinstance(raw_limit, bool):
+        return None if raw_limit else 0
+    if isinstance(raw_limit, (int, float)):
+        return int(raw_limit)
+    if isinstance(raw_limit, dict):
+        for key in ("limit", "max", "value", "quota", "allowed"):
+            if key in raw_limit:
+                return _normalize_ai_limit_value(raw_limit[key])
+        return 0
+    if isinstance(raw_limit, str):
+        normalized = raw_limit.strip().lower()
+        if not normalized:
+            return 0
+        if normalized in UNLIMITED_TOKENS:
+            return None
+        normalized = normalized.replace(",", "")
+        try:
+            return int(float(normalized))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def get_ai_quota_state(
+    db: Session, user_id: int, plan_name: str
+) -> dict[str, int | None | bool]:
+    """Return a dict with limit, used, remaining and ok flag for AI usage."""
 
     from backend.core.plan_service import PlanService
 
     svc = PlanService(db)
     limits = svc.get_limits(plan_name) or {}
-    limit = limits.get("ai_daily_limit", None)
+    limit_value = _normalize_ai_limit_value(limits.get("ai_daily_limit"))
 
     used = _ai_used_today(db, user_id)
 
-    if limit is None:
-        usage_log.info(
-            "AI quota check user=%s plan=%s limit=%s used=%s remaining=%s",
-            user_id,
-            plan_name,
-            limit,
-            used,
-            None,
-        )
-        return True, None
+    if limit_value is None:
+        remaining = None
+        ok = True
+    else:
+        remaining = max(limit_value - used, 0)
+        ok = remaining > 0
 
-    try:
-        limit_value = int(limit)
-    except (TypeError, ValueError):
-        limit_value = 0
-
-    remaining = max(limit_value - used, 0)
-    ok = remaining > 0
     usage_log.info(
         "AI quota check user=%s plan=%s limit=%s used=%s remaining=%s",
         user_id,
@@ -155,7 +187,15 @@ def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | N
         used,
         remaining,
     )
-    return ok, remaining
+
+    return {"ok": ok, "limit": limit_value, "used": used, "remaining": remaining}
+
+
+def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
+    """Return whether the user can consume an AI message and remaining quota."""
+
+    state = get_ai_quota_state(db, user_id, plan_name)
+    return state["ok"], state["remaining"]
 
 
 def consume_csv_export(db: Session, user_id: int, plan_name: str):
@@ -200,6 +240,7 @@ __all__ = [
     "day_key",
     "get_count",
     "inc_count",
+    "get_ai_quota_state",
     "can_use_ai",
     "register_ia_message",
     "can_export_csv",
