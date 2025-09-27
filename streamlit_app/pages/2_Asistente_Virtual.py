@@ -213,22 +213,72 @@ def _auth_headers():
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _ai_remaining_from_quotas() -> dict:
+    """Lee /plan/quotas y devuelve {'ok': bool, 'remaining': int|None}."""
+    try:
+        r = http_client.get("/plan/quotas", headers=_auth_headers())
+        if getattr(r, "status_code", None) != 200:
+            return {"ok": False, "remaining": None}
+        data = r.json() or {}
+        limits = data.get("limits") or data.get("limites") or {}
+        usage = data.get("usage") or data.get("uso") or {}
+
+        raw_limit = (
+            limits.get("ai_daily_limit")
+            or limits.get("ai daily limit")
+            or limits.get("mensajes_ia")
+        )
+        limit = None if raw_limit in (None, True, "∞", "unlimited", "ilimitado") else int(raw_limit)
+
+        used = (
+            usage.get("mensajes_ia")
+            or usage.get("ai_messages")
+            or usage.get("ia_mensajes")
+            or 0
+        )
+        used = int(used or 0)
+
+        if limit is None:
+            return {"ok": True, "remaining": None}
+
+        remaining = max(limit - used, 0)
+        return {"ok": remaining > 0, "remaining": remaining}
+    except Exception:
+        return {"ok": False, "remaining": None}
+
+
 def _consume_ai_message(prompt_text: str) -> dict:
-    """Reserva un mensaje de IA a través del backend antes de llamar a OpenAI."""
+    """
+    Reserva un mensaje de IA en backend. Si la respuesta de /ia no trae
+    remaining coherente, revalida con /plan/quotas y corrige.
+    Retorna: {'ok': bool, 'limit': bool, 'detail': any, 'remaining_today': int|None}
+    """
     try:
         r = http_client.post(
             "/ia",
             json={"prompt": (prompt_text or "").strip()},
             headers=_auth_headers(),
         )
-        if getattr(r, "status_code", None) == 200:
-            return r.json() if callable(getattr(r, "json", None)) else {"ok": True}
         if getattr(r, "status_code", None) == 403:
             try:
                 data = r.json()
             except Exception:
-                data = {"detail": r.text}
-            return {"ok": False, "limit": True, "detail": data}
+                data = {"detail": getattr(r, "text", "")}
+            return {"ok": False, "limit": True, "detail": data, "remaining_today": 0}
+
+        if getattr(r, "status_code", None) == 200:
+            data = r.json() if callable(getattr(r, "json", None)) else {"ok": True}
+            remaining = data.get("remaining_today", None)
+
+            chk = _ai_remaining_from_quotas()
+            if chk["remaining"] is not None:
+                if remaining is None or remaining > chk["remaining"]:
+                    remaining = chk["remaining"]
+                data["remaining_today"] = remaining
+                data["ok"] = bool(remaining > 0)
+
+            return data
+
         return {"ok": False, "detail": getattr(r, "text", "")}
     except Exception as e:
         return {"ok": False, "detail": str(e)}
@@ -1010,8 +1060,10 @@ if pregunta:
         st.markdown(pregunta)
 
     consume = _consume_ai_message(pregunta)
-    if not consume.get("ok"):
-        if consume.get("limit"):
+    remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
+
+    if not consume.get("ok") or (remaining_today is not None and remaining_today <= 0):
+        if consume.get("limit") or (remaining_today is not None and remaining_today <= 0):
             with st.chat_message("assistant"):
                 st.warning("Has alcanzado el límite diario de *Mensajes IA* de tu plan.")
                 subscription_cta()
@@ -1021,11 +1073,10 @@ if pregunta:
                     "content": "Has alcanzado el límite diario de Mensajes IA. Para continuar, actualiza tu plan.",
                 }
             )
-            st.stop()
         else:
             with st.chat_message("assistant"):
                 st.warning("No he podido validar tu cuota de IA. Inténtalo de nuevo en unos segundos.")
-            st.stop()
+        st.stop()
 
     # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
     if es_intencion_extraer_leads(pregunta):
@@ -1033,7 +1084,6 @@ if pregunta:
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
-            remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
             if remaining_today is not None:
                 st.caption(f"Mensajes IA restantes hoy: {remaining_today}")
         st.stop()
@@ -1083,7 +1133,6 @@ if pregunta:
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
-            remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
             if remaining_today is not None:
                 st.caption(f"Mensajes IA restantes hoy: {remaining_today}")
 
