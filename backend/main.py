@@ -43,7 +43,6 @@ from backend.core.usage_helpers import (
     consume_lead_credits,
     day_key,
     inc_count,
-    register_ia_message,
 )
 from backend.core.usage_service import UsageService
 
@@ -2357,7 +2356,7 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
                 "error": "limit_exceeded",
                 "resource": "ai",
                 "plan": plan_name,
-                "remaining": remaining or 0,
+                "remaining": max(remaining or 0, 0),
             },
         )
 
@@ -2368,10 +2367,13 @@ def ia_endpoint(payload: AIPayload, usuario=Depends(get_current_user), db: Sessi
         return {"ok": False, "reason": "empty_prompt"}
 
     # Si llega aquí, consideramos que se invocó correctamente
-    inc_count(db, usuario.id, "ai_messages", day_key(), 1)
-    register_ia_message(db, usuario)
+    inc_count(db, usuario.id, "mensajes_ia", day_key(), 1)
+    db.commit()
 
-    return {"ok": True}
+    ok2, remaining2 = can_use_ai(db, usuario.id, plan_name)
+    remaining_today = None if remaining2 is None else max(remaining2, 0)
+
+    return {"ok": True, "remaining_today": remaining_today}
 
 
 class LeadsPayload(BaseModel):

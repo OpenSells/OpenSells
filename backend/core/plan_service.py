@@ -14,6 +14,11 @@ from backend.models import LeadTarea
 logger = logging.getLogger(__name__)
 
 
+def get_limits(plan_name: str):
+    """Return the dataclass with plan limits for the given plan name."""
+    return _get_plan_limits(plan_name)
+
+
 class PlanService:
     def __init__(self, db: Session):
         self.db = db
@@ -51,7 +56,7 @@ class PlanService:
 
     # ------------------------------------------------------------------
     def get_limits(self, plan_name: str) -> dict:
-        plan = _get_plan_limits(plan_name)
+        plan = get_limits(plan_name)
         return asdict(plan)
 
     # ------------------------------------------------------------------
@@ -81,7 +86,23 @@ class PlanService:
         if not isinstance(daily_counts, dict):
             daily_counts = {"ia_msgs": 0}
 
-        ia_msgs_current = int(daily_counts.get("ia_msgs") or 0)
+        mensajes_ia_today = 0
+        seen_ai_keys: set[str] = set()
+        for key in ("ia_msgs", "mensajes_ia", "ai_messages", "ia_mensajes"):
+            if key in daily_counts and key not in seen_ai_keys:
+                try:
+                    mensajes_ia_today += int(daily_counts.get(key) or 0)
+                except (TypeError, ValueError):
+                    continue
+                seen_ai_keys.add(key)
+
+        ia_msgs_current = mensajes_ia_today
+
+        ai_remaining_today: int | None
+        if plan.ai_daily_limit is None:
+            ai_remaining_today = None
+        else:
+            ai_remaining_today = max(plan.ai_daily_limit - ia_msgs_current, 0)
 
         tasks_current = (
             self.db.query(LeadTarea)
@@ -110,7 +131,19 @@ class PlanService:
                 else None,
                 "period": period,
             },
-            "ia_msgs": {"used": ia_msgs_current, "period": day_period},
+            "ia_msgs": {
+                "used": ia_msgs_current,
+                "period": day_period,
+                "used_today": ia_msgs_current,
+                "remaining_today": ai_remaining_today,
+                "limit": plan.ai_daily_limit,
+            },
+            "ai_messages": {
+                "used_today": ia_msgs_current,
+                "remaining_today": ai_remaining_today,
+                "limit": plan.ai_daily_limit,
+                "period": day_period,
+            },
             "tasks": {"used": counts["tasks"], "period": period},
             "csv_exports": {
                 "used": counts["csv_exports"],
@@ -140,17 +173,18 @@ class PlanService:
             }
 
         usage.setdefault("leads_mes", counts["leads"])
-        usage.setdefault("mensajes_ia", ia_msgs_current)
+        usage["mensajes_ia"] = ia_msgs_current
         usage.setdefault("ia_msgs_total", ia_msgs_current)
+        usage.setdefault("ai_messages_total", ia_msgs_current)
         usage.setdefault("searches_per_month", counts["leads"])
 
         remaining = {
             "leads": usage["leads"]["remaining"],
             "csv_exports": usage["csv_exports"]["remaining"],
             "tasks_active": plan.tasks_active_max - tasks_current,
-            "ia_msgs": (plan.ai_daily_limit - ia_msgs_current)
-            if plan.ai_daily_limit is not None
-            else None,
+            "ia_msgs": ai_remaining_today,
+            "ai_messages": ai_remaining_today,
+            "mensajes_ia": ai_remaining_today,
             "tasks": None,
         }
 

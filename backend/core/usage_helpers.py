@@ -6,7 +6,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from backend.core.plan_config import get_limits
+from backend.core.plan_service import get_limits
 from backend.core.usage_service import UsageService, UsageDailyService
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,6 @@ def day_key(dt: datetime | None = None) -> str:
 # Basic counter helpers -------------------------------------------------------
 
 _metric_map = {
-    "ai_messages": ("ia_msgs", "daily"),
     "mensajes_ia": ("ia_msgs", "daily"),
     "csv_exports": ("csv_exports", "monthly"),
     "exportaciones": ("csv_exports", "monthly"),
@@ -36,26 +35,51 @@ _metric_map = {
 }
 
 
+_metric_aliases = {
+    "ai_messages": "mensajes_ia",
+    "ia_mensajes": "mensajes_ia",
+    "ia_msgs": "mensajes_ia",
+}
+
+
 def _resolve_metric(metric: str):
-    return _metric_map.get(metric)
+    canonical = _metric_aliases.get(metric, metric)
+    return canonical, _metric_map.get(canonical)
 
 
 def get_count(db: Session, user_id: int, metric: str, period_key: str) -> int:
-    mapping = _resolve_metric(metric)
+    canonical, mapping = _resolve_metric(metric)
     if not mapping:
         return 0
     kind, period_type = mapping
     if period_type == "daily":
         svc = UsageDailyService(db)
         period = period_key if len(period_key) == 8 else svc.get_period_yyyymmdd()
-        return svc.get_usage(user_id, period).get(kind, 0)
+        usage = svc.get_usage(user_id, period)
+        if canonical == "mensajes_ia":
+            total = 0
+            seen: set[str] = set()
+            for key in ("ia_msgs", "mensajes_ia", "ai_messages", "ia_mensajes"):
+                if key in usage and key not in seen:
+                    try:
+                        total += int(usage.get(key) or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    seen.add(key)
+            return total
+        return int(usage.get(kind, 0))
     svc = UsageService(db)
     period = period_key[:6]
-    return svc.get_usage(user_id, period).get(kind, 0)
+    usage = svc.get_usage(user_id, period)
+    value = usage.get(kind, 0)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int = 1) -> int:
-    mapping = _resolve_metric(metric)
+    canonical, mapping = _resolve_metric(metric)
     if not mapping:
         return 0
     kind, period_type = mapping
@@ -66,21 +90,27 @@ def inc_count(db: Session, user_id: int, metric: str, period_key: str, by: int =
         return svc.get_usage(user_id, period).get(kind, 0)
     svc = UsageService(db)
     svc.increment(user_id, kind, by, period_key[:6])
-    return svc.get_usage(user_id, period_key[:6]).get(kind, 0)
+    usage = svc.get_usage(user_id, period_key[:6])
+    value = usage.get(kind, 0)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def register_ia_message(db: Session, user) -> None:
     usage_log.info(f"[USAGE] mensajes_ia +1 user={user.email_lower}")
+    inc_count(db, user.id, "mensajes_ia", day_key(), 1)
 
 # Feature helpers -------------------------------------------------------------
 
 def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | None]:
     plan = get_limits(plan_name)
-    limit = plan.ai_daily_limit
+    limit = getattr(plan, "ai_daily_limit", None)
     if limit is None:
         return True, None
     period = day_key()
-    used = get_count(db, user_id, "ai_messages", period)
+    used = get_count(db, user_id, "mensajes_ia", period)
     remaining = limit - used
     return remaining > 0, max(remaining, 0)
 
