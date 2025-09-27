@@ -213,6 +213,27 @@ def _auth_headers():
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _consume_ai_message(prompt_text: str) -> dict:
+    """Reserva un mensaje de IA a través del backend antes de llamar a OpenAI."""
+    try:
+        r = http_client.post(
+            "/ia",
+            json={"prompt": (prompt_text or "").strip()},
+            headers=_auth_headers(),
+        )
+        if getattr(r, "status_code", None) == 200:
+            return r.json() if callable(getattr(r, "json", None)) else {"ok": True}
+        if getattr(r, "status_code", None) == 403:
+            try:
+                data = r.json()
+            except Exception:
+                data = {"detail": r.text}
+            return {"ok": False, "limit": True, "detail": data}
+        return {"ok": False, "detail": getattr(r, "text", "")}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)}
+
+
 def _handle_resp(r):
     """Gestiona respuestas 401/403 mostrando mensajes adecuados."""
     if r.status_code == 403:
@@ -988,12 +1009,33 @@ if pregunta:
     with st.chat_message("user"):
         st.markdown(pregunta)
 
+    consume = _consume_ai_message(pregunta)
+    if not consume.get("ok"):
+        if consume.get("limit"):
+            with st.chat_message("assistant"):
+                st.warning("Has alcanzado el límite diario de *Mensajes IA* de tu plan.")
+                subscription_cta()
+            st.session_state.chat.append(
+                {
+                    "role": "assistant",
+                    "content": "Has alcanzado el límite diario de Mensajes IA. Para continuar, actualiza tu plan.",
+                }
+            )
+            st.stop()
+        else:
+            with st.chat_message("assistant"):
+                st.warning("No he podido validar tu cuota de IA. Inténtalo de nuevo en unos segundos.")
+            st.stop()
+
     # Cualquier intento de extraer o exportar leads desde el asistente devuelve el mensaje oficial.
     if es_intencion_extraer_leads(pregunta):
         content = _extraccion_msg()
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
+            remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
+            if remaining_today is not None:
+                st.caption(f"Mensajes IA restantes hoy: {remaining_today}")
         st.stop()
     else:
         contexto = build_system_prompt()
@@ -1041,6 +1083,9 @@ if pregunta:
         st.session_state.chat.append({"role": "assistant", "content": content})
         with st.chat_message("assistant"):
             st.markdown(content)
+            remaining_today = consume.get("remaining_today") if isinstance(consume, dict) else None
+            if remaining_today is not None:
+                st.caption(f"Mensajes IA restantes hoy: {remaining_today}")
 
 render_whatsapp_fab(phone_e164="+34634159527", default_msg="Necesito ayuda")
 
