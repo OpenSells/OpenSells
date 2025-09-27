@@ -531,41 +531,29 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
         return {"error": str(e)}
 
 
-def eliminar_lead(dominio: str, solo_de_este_nicho: bool = True, nicho: str | None = None):
+def eliminar_lead(dominio: str, confirm: bool = False):
     st.session_state["lead_actual"] = dominio
-    if solo_de_este_nicho and not nicho:
+    if not confirm:
         return {
-            "needs_choice": True,
-            "message": "¿Quieres eliminarlo de un nicho o de todos?",
-            "hint": "Responde: 'de todos' o 'de un nicho'.",
+            "needs_confirmation": True,
+            "message": (
+                f"¿Seguro que quieres eliminar definitivamente el lead {dominio}? "
+                "Se borrará de TODOS tus nichos y se eliminarán notas, estados, historial y tareas asociadas. "
+                "Responde 'sí' para continuar."
+            ),
         }
 
-    params = {"dominio": dominio, "solo_de_este_nicho": solo_de_este_nicho}
-
-    if nicho:
-        nicho_slug = _resolve_nicho_slug(nicho)
-        if not nicho_slug:
-            nicho_slug = _slugify_nicho(nicho)
-        if not nicho_slug:
-            return {
-                "needs_nicho_name": True,
-                "message": "Indícame el nombre exacto del nicho (no puedo mostrar la lista).",
-            }
-        params["nicho"] = nicho_slug
-
     try:
-        r = http_client.delete("/eliminar_lead", headers=_auth_headers(), params=params)
+        r = http_client.delete(
+            "/eliminar_lead",
+            headers=_auth_headers(),
+            params={"dominio": dominio, "solo_de_este_nicho": False},
+        )
         if r.status_code == 200:
             data = r.json() if callable(getattr(r, "json", None)) else {}
             if isinstance(data, dict) and data.get("ok", True):
-                _after_lead_mutation(dominio=dominio, nicho_slug=params.get("nicho"))
+                _after_lead_mutation(dominio=dominio)
             return data
-        if r.status_code == 400 and "Falta 'nicho'" in (getattr(r, "text", "") or ""):
-            return {
-                "needs_choice": True,
-                "message": "¿Quieres eliminarlo de un nicho o de todos?",
-                "hint": "Responde: 'de todos' o 'de un nicho'.",
-            }
         return _handle_resp(r)
     except Exception as e:
         return {"error": str(e)}
@@ -861,13 +849,12 @@ tool_defs = [
         "type": "function",
         "function": {
             "name": "eliminar_lead",
-            "description": "Elimina un lead. Si el usuario no indica nicho, NO enumeres los nichos: pregunta '¿de un nicho o de todos?'. Si responde 'de todos', llama con solo_de_este_nicho=false. Si responde 'de un nicho', pide el nombre (sin listar) y llama con solo_de_este_nicho=true y ese nicho.",
+            "description": "Elimina DEFINITIVAMENTE un lead de todos los nichos. Úsala solo después de que el usuario confirme.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dominio": {"type": "string"},
-                    "solo_de_este_nicho": {"type": "boolean"},
-                    "nicho": {"type": "string"},
+                    "confirm": {"type": "boolean"},
                 },
                 "required": ["dominio"],
             },
@@ -941,15 +928,13 @@ def build_system_prompt() -> str:
         "Capacidades permitidas desde el chat:\n"
         "• Tareas: crear/editar/completar (generales, por nicho y por lead).\n"
         "• Leads: ver/actualizar estado, añadir notas, mover entre nichos, eliminar.\n"
-        "  Borrado de leads (reglas estrictas): si el usuario no indica nicho, NO enumeres los nichos. Pregunta brevemente '¿Quieres eliminarlo de un nicho o de todos?'. "
-        "Si responde 'de todos', llama a la tool eliminar_lead con solo_de_este_nicho=false y sin nicho. Si responde 'de un nicho', pide el nombre sin listar opciones y resuélvelo internamente. "
-        "Nunca confirmes éxito si la tool no devuelve ok=true y mantén todos los mensajes cortos.\n"
+        "  Borrado de leads: pide UNA confirmación explícita ('¿Seguro…?'). Tras confirmación, llama a la tool eliminar_lead con confirm=true para borrar el lead de todos los nichos. "
+        "No preguntes por nichos ni los listes. No confirmes éxito si la tool no devuelve ok=true.\n"
         "• Nichos: listar, renombrar, eliminar (SIEMPRE pide confirmación antes de borrar; no confirmes borrado si la tool no retorna ok=True).\n"
         "  Para eliminar nichos, primero pide confirmación. Tras confirmar, no anuncies éxito a menos que la tool retorne ok=True. "
         "Si la tool indica verificación fallida, informa al usuario sin afirmar el borrado.\n"
         "• Historial y memoria: consultar y guardar memoria.\n\n"
         f"Nichos del usuario: {resumen_nichos}.\n"
-        "No enumeres los nichos del usuario en preguntas de desambiguación; limita la pregunta a '¿de un nicho o de todos?' y, si hace falta, pide el nombre del nicho sin mostrar la lista.\n"
         f"{resumen_tareas}"
     )
 
