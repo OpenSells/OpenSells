@@ -525,6 +525,8 @@ def eliminar_nicho(nicho: str, confirm: bool = False):
             f"{deleted['info_extra']} info extra y {deleted['historial']} entradas de historial."
         )
 
+        _after_lead_mutation(dominio=None, nicho_slug=slug)
+
         return {"ok": True, "deleted": deleted, "nicho": slug, "message": message}
 
     except Exception as e:
