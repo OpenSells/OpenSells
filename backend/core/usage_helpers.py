@@ -107,11 +107,14 @@ def register_ia_message(db: Session, user) -> None:
 
 # Feature helpers -------------------------------------------------------------
 
-def _read_ai_used_today(db: Session, user_id: int) -> int:
+def _ai_used_today(db: Session, user_id: int) -> int:
     today = day_key()
     used = 0
     for key in AI_ALIASES_READ:
-        used = max(used, get_count(db, user_id, key, today))
+        try:
+            used = max(used, int(get_count(db, user_id, key, today)))
+        except Exception:  # noqa: BLE001 - defensive against legacy data types
+            continue
     return used
 
 
@@ -124,12 +127,34 @@ def can_use_ai(db: Session, user_id: int, plan_name: str) -> Tuple[bool, int | N
     limits = svc.get_limits(plan_name) or {}
     limit = limits.get("ai_daily_limit", None)
 
+    used = _ai_used_today(db, user_id)
+
     if limit is None:
+        usage_log.info(
+            "AI quota check user=%s plan=%s limit=%s used=%s remaining=%s",
+            user_id,
+            plan_name,
+            limit,
+            used,
+            None,
+        )
         return True, None
 
-    used = _read_ai_used_today(db, user_id)
-    remaining = max(int(limit) - int(used), 0)
+    try:
+        limit_value = int(limit)
+    except (TypeError, ValueError):
+        limit_value = 0
+
+    remaining = max(limit_value - used, 0)
     ok = remaining > 0
+    usage_log.info(
+        "AI quota check user=%s plan=%s limit=%s used=%s remaining=%s",
+        user_id,
+        plan_name,
+        limit_value,
+        used,
+        remaining,
+    )
     return ok, remaining
 
 
